@@ -1,0 +1,154 @@
+{
+  "schemaVersion": 1,
+  "id": "devin",
+  "name": "Devin",
+  "product": "Devin subscription",
+  "releaseStatus": "planned",
+  "adapterVersion": "0.1.0",
+  "platforms": [
+    "darwin"
+  ],
+  "docsPath": "docs/providers/devin.md",
+  "documentationUrls": [
+    "https://github.com/subsbar/subsbar#readme"
+  ],
+  "credentialReaders": [
+    {
+      "id": "devin-credentials-toml",
+      "kind": "file",
+      "credentialKinds": [
+        "api-key"
+      ],
+      "implementationId": "devin-toml",
+      "configurable": [
+        "path"
+      ],
+      "requires": [],
+      "purposes": [
+        "primary"
+      ],
+      "owner": "external",
+      "renewMode": "none"
+    },
+    {
+      "id": "devin-web-session",
+      "kind": "keychain",
+      "credentialKinds": [
+        "cookie"
+      ],
+      "implementationId": "devin-subsbar-session",
+      "configurable": [
+        "service",
+        "account"
+      ],
+      "requires": [
+        "keychain",
+        "browser"
+      ],
+      "purposes": [
+        "primary"
+      ],
+      "owner": "subsbar",
+      "renewMode": "none"
+    }
+  ],
+  "endpoints": [
+    {
+      "id": "devin-cli-usage",
+      "transport": "https",
+      "operation": "usage",
+      "readOnly": true,
+      "grade": "C",
+      "maxResponseBytes": 65536,
+      "authPurpose": "primary",
+      "documentationUrl": "https://github.com/subsbar/subsbar#readme",
+      "method": "GET",
+      "origin": "https://api.devin.ai",
+      "pathTemplate": "/v1/usage"
+    },
+    {
+      "id": "devin-org-quota",
+      "transport": "https",
+      "operation": "usage",
+      "readOnly": true,
+      "grade": "C",
+      "maxResponseBytes": 65536,
+      "authPurpose": "primary",
+      "documentationUrl": "https://github.com/subsbar/subsbar#readme",
+      "method": "GET",
+      "origin": "https://app.devin.ai",
+      "pathTemplate": "/api/organizations/{organizationId}/quota"
+    }
+  ],
+  "dataSources": [
+    {
+      "id": "devin-cli-app",
+      "kind": "official-api",
+      "grade": "C",
+      "admission": "pending",
+      "approvalNote": "docs/providers/devin.md",
+      "endpointIds": [
+        "devin-cli-usage"
+      ],
+      "credentialChain": [
+        "devin-credentials-toml"
+      ],
+      "capabilities": [
+        "quota"
+      ],
+      "coverageMetricRules": [
+        "devin-daily"
+      ],
+      "coverageMatch": "any"
+    },
+    {
+      "id": "devin-web-org",
+      "kind": "community-api",
+      "grade": "C",
+      "admission": "pending",
+      "approvalNote": "docs/providers/devin.md",
+      "endpointIds": [
+        "devin-org-quota"
+      ],
+      "credentialChain": [
+        "devin-web-session"
+      ],
+      "capabilities": [
+        "quota"
+      ],
+      "coverageMetricRules": [
+        "devin-daily"
+      ],
+      "coverageMatch": "any"
+    }
+  ],
+  "refresh": {
+    "minimumIntervalSeconds": 60,
+    "defaultIntervalSeconds": 300,
+    "taskTimeoutSeconds": 30,
+    "requestTimeoutSeconds": 15
+  },
+  "metricRules": [
+    {
+      "id": "devin-daily",
+      "metricId": "daily",
+      "kind": "quota",
+      "unit": "count",
+      "scope": "subscription",
+      "period": "rolling",
+      "derivations": [],
+      "description": "daily/weekly/extra balance by actual plan",
+      "missingPolicy": "unknown"
+    }
+  ],
+  "primaryPreference": [
+    "devin-daily"
+  ],
+  "diagnosticCodes": [],
+  "reasonCodes": [],
+  "fixtureIds": [
+    "devin-synthetic-normal",
+    "devin-synthetic-missing"
+  ],
+  "provenance": []
+}

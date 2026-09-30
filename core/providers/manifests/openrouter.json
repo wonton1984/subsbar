@@ -1,0 +1,142 @@
+{
+  "schemaVersion": 1,
+  "id": "openrouter",
+  "name": "OpenRouter",
+  "product": "OpenRouter key quota",
+  "releaseStatus": "planned",
+  "adapterVersion": "0.1.0",
+  "platforms": [
+    "darwin"
+  ],
+  "docsPath": "docs/providers/openrouter.md",
+  "documentationUrls": [
+    "https://github.com/subsbar/subsbar#readme"
+  ],
+  "credentialReaders": [
+    {
+      "id": "openrouter-env-key",
+      "kind": "env",
+      "credentialKinds": [
+        "api-key"
+      ],
+      "implementationId": "env-generic",
+      "configurable": [
+        "envName"
+      ],
+      "requires": [],
+      "purposes": [
+        "primary"
+      ],
+      "owner": "external",
+      "renewMode": "none"
+    },
+    {
+      "id": "openrouter-subsbar-key",
+      "kind": "keychain",
+      "credentialKinds": [
+        "api-key"
+      ],
+      "implementationId": "openrouter-subsbar-key",
+      "configurable": [
+        "service",
+        "account"
+      ],
+      "requires": [
+        "keychain"
+      ],
+      "purposes": [
+        "primary"
+      ],
+      "owner": "subsbar",
+      "renewMode": "none"
+    },
+    {
+      "id": "openrouter",
+      "kind": "pi",
+      "credentialKinds": [
+        "api-key"
+      ],
+      "implementationId": "openrouter",
+      "configurable": [
+        "path"
+      ],
+      "requires": [],
+      "purposes": [
+        "primary"
+      ],
+      "owner": "external",
+      "renewMode": "none"
+    }
+  ],
+  "endpoints": [
+    {
+      "id": "openrouter-key",
+      "transport": "https",
+      "operation": "usage",
+      "readOnly": true,
+      "grade": "C",
+      "maxResponseBytes": 65536,
+      "authPurpose": "primary",
+      "documentationUrl": "https://github.com/subsbar/subsbar#readme",
+      "method": "GET",
+      "origin": "https://openrouter.ai",
+      "pathTemplate": "/api/v1/key"
+    }
+  ],
+  "dataSources": [
+    {
+      "id": "openrouter-key",
+      "kind": "official-api",
+      "grade": "A",
+      "admission": "pending",
+      "approvalNote": "docs/providers/openrouter.md",
+      "endpointIds": [
+        "openrouter-key"
+      ],
+      "credentialChain": [
+        "openrouter-env-key",
+        "openrouter-subsbar-key",
+        "openrouter"
+      ],
+      "capabilities": [
+        "quota"
+      ],
+      "coverageMetricRules": [
+        "openrouter-limit"
+      ],
+      "coverageMatch": "any"
+    }
+  ],
+  "refresh": {
+    "minimumIntervalSeconds": 60,
+    "defaultIntervalSeconds": 300,
+    "taskTimeoutSeconds": 30,
+    "requestTimeoutSeconds": 15
+  },
+  "metricRules": [
+    {
+      "id": "openrouter-limit",
+      "metricId": "limit",
+      "kind": "quota",
+      "unit": "currency",
+      "scope": "subscription",
+      "period": "unknown",
+      "derivations": [
+        "remaining-from-limit-used"
+      ],
+      "description": "key quota; account credits are separate management purpose",
+      "missingPolicy": "unknown",
+      "currency": "USD"
+    }
+  ],
+  "primaryPreference": [
+    "openrouter-limit"
+  ],
+  "diagnosticCodes": [],
+  "reasonCodes": [],
+  "fixtureIds": [
+    "openrouter-synthetic-normal",
+    "openrouter-synthetic-missing"
+  ],
+  "provenance": []
+}

@@ -161,7 +161,7 @@ async function fetchJson({ url, headers, description, secrets, timeoutMs, method
 // 凭证读取（auth.json 只读）
 // ---------------------------------------------------------------------------
 
-function readAuthFile() {
+export function readAuthFile() {
   try {
     const parsed = JSON.parse(readFileSync(authFile(), "utf-8"));
     if (!parsed || typeof parsed !== "object") return {};
@@ -183,7 +183,7 @@ const AUTH_KEYS = {
  * 解析某订阅的凭证。返回 { kind, access, refresh?, expires?, accountId? } 或 undefined。
  * kind: "api-key" | "oauth"
  */
-function resolveCredential(auth, subsId) {
+export function resolveCredential(auth, subsId) {
   // droid/cursor：凭证在 auth.json 之外的本地存储（keychain 加密块 / Cursor IDE sqlite）
   if (subsId === "droid") return readDroidCredential();
   if (subsId === "cursor") return readCursorCredential();
@@ -252,7 +252,7 @@ function clampPercent(value) {
 const KIMI_USAGE_URL = "https://api.kimi.com/coding/v1/usages";
 const FIXED_POINT_UNITS_PER_CENT = 1_000_000;
 
-async function fetchKimi(apiKey) {
+export async function fetchKimi(apiKey) {
   const payload = await fetchJson({
     url: KIMI_USAGE_URL,
     headers: { Authorization: `Bearer ${apiKey}` },
@@ -449,7 +449,7 @@ const OPENCODE_WINDOWS = [
   { key: "monthly", label: "月" },
 ];
 
-async function fetchOpenCode(apiKey) {
+export async function fetchOpenCode(apiKey) {
   const payload = await fetchJson({
     url: OPENCODE_USAGE_URL,
     headers: { Authorization: `Bearer ${apiKey}` },
@@ -512,7 +512,7 @@ const CODEX_TOKEN_URL = "https://auth.openai.com/oauth/token";
 // codex CLI 的公共 client_id（社区通行值，auth.openai.com 公开客户端）
 const CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkX67XuORkP4S";
 
-async function fetchCodex(accessToken) {
+export async function fetchCodex(accessToken) {
   const payload = await fetchJson({
     url: CODEX_USAGE_URL,
     headers: { Authorization: `Bearer ${accessToken}` },
@@ -676,7 +676,7 @@ async function refreshCodexToken(refreshToken, signal) {
 
 const COMMANDCODE_BASE = "https://api.commandcode.ai";
 
-async function fetchCommandCode(accessToken) {
+export async function fetchCommandCode(accessToken) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 15_000);
   const headers = { accept: "application/json", Authorization: `Bearer ${accessToken}` };
@@ -1276,7 +1276,7 @@ function normalizeCursorReset(value) {
 
 const SUBS_ORDER = ["codex", "opencode", "kimi", "commandcode", "droid", "cursor"];
 
-async function refreshAll(debug) {
+export async function refreshAll(debug) {
   const auth = readAuthFile();
   const now = Date.now();
   const cache = loadCache();
@@ -1336,7 +1336,7 @@ async function refreshAll(debug) {
   return { results, cache };
 }
 
-function fetchFor(subsId, token) {
+export function fetchFor(subsId, token) {
   if (subsId === "kimi") return fetchKimi(token);
   if (subsId === "opencode") return fetchOpenCode(token);
   if (subsId === "codex") return fetchCodex(token);

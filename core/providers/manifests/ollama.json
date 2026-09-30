@@ -1,0 +1,100 @@
+{
+  "schemaVersion": 1,
+  "id": "ollama",
+  "name": "Ollama Cloud",
+  "product": "Ollama Cloud subscription",
+  "releaseStatus": "planned",
+  "adapterVersion": "0.1.0",
+  "platforms": [
+    "darwin"
+  ],
+  "docsPath": "docs/providers/ollama.md",
+  "documentationUrls": [
+    "https://github.com/subsbar/subsbar#readme"
+  ],
+  "credentialReaders": [
+    {
+      "id": "ollama-signing-key",
+      "kind": "file",
+      "credentialKinds": [
+        "request-signer"
+      ],
+      "implementationId": "ollama-signing-key",
+      "configurable": [
+        "path"
+      ],
+      "requires": [],
+      "purposes": [
+        "primary"
+      ],
+      "owner": "external",
+      "renewMode": "none"
+    }
+  ],
+  "endpoints": [
+    {
+      "id": "ollama-usage",
+      "transport": "https",
+      "operation": "usage",
+      "readOnly": true,
+      "grade": "C",
+      "maxResponseBytes": 65536,
+      "authPurpose": "primary",
+      "documentationUrl": "https://github.com/subsbar/subsbar#readme",
+      "method": "GET",
+      "origin": "https://ollama.com",
+      "pathTemplate": "/api/usage"
+    }
+  ],
+  "dataSources": [
+    {
+      "id": "ollama-signed",
+      "kind": "official-api",
+      "grade": "C",
+      "admission": "pending",
+      "approvalNote": "docs/providers/ollama.md",
+      "endpointIds": [
+        "ollama-usage"
+      ],
+      "credentialChain": [
+        "ollama-signing-key"
+      ],
+      "capabilities": [
+        "quota"
+      ],
+      "coverageMetricRules": [
+        "ollama-monthly"
+      ],
+      "coverageMatch": "any"
+    }
+  ],
+  "refresh": {
+    "minimumIntervalSeconds": 60,
+    "defaultIntervalSeconds": 300,
+    "taskTimeoutSeconds": 30,
+    "requestTimeoutSeconds": 15
+  },
+  "metricRules": [
+    {
+      "id": "ollama-monthly",
+      "metricId": "monthly",
+      "kind": "quota",
+      "unit": "count",
+      "scope": "subscription",
+      "period": "calendar",
+      "derivations": [],
+      "description": "monthly or session/weekly by new billing; never guess reset",
+      "missingPolicy": "unknown"
+    }
+  ],
+  "primaryPreference": [
+    "ollama-monthly"
+  ],
+  "diagnosticCodes": [],
+  "reasonCodes": [],
+  "fixtureIds": [
+    "ollama-synthetic-normal",
+    "ollama-synthetic-missing"
+  ],
+  "provenance": []
+}

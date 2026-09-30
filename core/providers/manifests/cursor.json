@@ -1,0 +1,133 @@
+{
+  "schemaVersion": 1,
+  "id": "cursor",
+  "name": "Cursor",
+  "product": "Cursor subscription",
+  "releaseStatus": "supported",
+  "adapterVersion": "0.1.0",
+  "platforms": [
+    "darwin"
+  ],
+  "docsPath": "docs/providers/cursor.md",
+  "documentationUrls": [
+    "https://github.com/subsbar/subsbar#readme"
+  ],
+  "credentialReaders": [
+    {
+      "id": "cursor-state-db",
+      "kind": "file",
+      "credentialKinds": [
+        "oauth"
+      ],
+      "implementationId": "cursor-state-db",
+      "configurable": [
+        "path"
+      ],
+      "requires": [],
+      "purposes": [
+        "primary"
+      ],
+      "owner": "external",
+      "renewMode": "none"
+    }
+  ],
+  "endpoints": [
+    {
+      "id": "cursor-summary",
+      "transport": "https",
+      "operation": "usage",
+      "readOnly": true,
+      "grade": "C",
+      "maxResponseBytes": 65536,
+      "authPurpose": "primary",
+      "documentationUrl": "https://github.com/subsbar/subsbar#readme",
+      "method": "GET",
+      "origin": "https://cursor.com",
+      "pathTemplate": "/api/usage-summary"
+    },
+    {
+      "id": "cursor-rpc",
+      "transport": "https",
+      "operation": "usage",
+      "readOnly": true,
+      "grade": "C",
+      "maxResponseBytes": 65536,
+      "authPurpose": "primary",
+      "documentationUrl": "https://github.com/subsbar/subsbar#readme",
+      "method": "GET",
+      "origin": "https://cursor.com",
+      "pathTemplate": "/api/dashboard/rpc"
+    }
+  ],
+  "dataSources": [
+    {
+      "id": "cursor-ide",
+      "kind": "community-api",
+      "grade": "C",
+      "admission": "approved",
+      "approvalNote": "docs/providers/cursor.md",
+      "endpointIds": [
+        "cursor-summary",
+        "cursor-rpc"
+      ],
+      "credentialChain": [
+        "cursor-state-db"
+      ],
+      "capabilities": [
+        "quota",
+        "balance"
+      ],
+      "coverageMetricRules": [
+        "cursor-included",
+        "cursor-bonus"
+      ],
+      "coverageMatch": "any"
+    }
+  ],
+  "refresh": {
+    "minimumIntervalSeconds": 60,
+    "defaultIntervalSeconds": 300,
+    "taskTimeoutSeconds": 30,
+    "requestTimeoutSeconds": 15
+  },
+  "metricRules": [
+    {
+      "id": "cursor-included",
+      "metricId": "included",
+      "kind": "quota",
+      "unit": "percent",
+      "scope": "subscription",
+      "period": "billing",
+      "derivations": [],
+      "description": "included allowance; onDemand missing adds no window",
+      "missingPolicy": "unknown"
+    },
+    {
+      "id": "cursor-bonus",
+      "metricId": "bonus",
+      "kind": "balance",
+      "unit": "currency",
+      "scope": "subscription",
+      "period": "unknown",
+      "derivations": [],
+      "description": "bonus USD preserved",
+      "missingPolicy": "unknown",
+      "currency": "USD"
+    }
+  ],
+  "primaryPreference": [
+    "cursor-included"
+  ],
+  "diagnosticCodes": [
+    "cursor-on-demand-missing"
+  ],
+  "reasonCodes": [
+    "http-401",
+    "http-403"
+  ],
+  "fixtureIds": [
+    "cursor-synthetic-normal",
+    "cursor-synthetic-missing"
+  ],
+  "provenance": []
+}

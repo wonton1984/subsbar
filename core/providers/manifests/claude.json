@@ -1,0 +1,98 @@
+{
+  "schemaVersion": 1,
+  "id": "claude",
+  "name": "Claude",
+  "product": "Claude Pro/Max subscription",
+  "releaseStatus": "planned",
+  "adapterVersion": "0.1.0",
+  "platforms": [
+    "darwin"
+  ],
+  "docsPath": "docs/providers/claude.md",
+  "documentationUrls": [
+    "https://github.com/subsbar/subsbar#readme"
+  ],
+  "credentialReaders": [
+    {
+      "id": "claude-official-usage",
+      "kind": "cli",
+      "credentialKinds": [
+        "cli-session"
+      ],
+      "implementationId": "claude-official-usage",
+      "configurable": [
+        "executablePath"
+      ],
+      "requires": [],
+      "purposes": [
+        "primary"
+      ],
+      "owner": "external",
+      "renewMode": "owner-cli"
+    }
+  ],
+  "endpoints": [
+    {
+      "id": "claude-usage-cli",
+      "transport": "cli",
+      "operation": "usage",
+      "readOnly": true,
+      "grade": "C",
+      "maxResponseBytes": 65536,
+      "authPurpose": "primary",
+      "documentationUrl": "https://github.com/subsbar/subsbar#readme",
+      "commandId": "claude-usage"
+    }
+  ],
+  "dataSources": [
+    {
+      "id": "claude-cli-usage",
+      "kind": "official-cli",
+      "grade": "B",
+      "admission": "pending",
+      "approvalNote": "docs/providers/claude.md",
+      "endpointIds": [
+        "claude-usage-cli"
+      ],
+      "credentialChain": [
+        "claude-official-usage"
+      ],
+      "capabilities": [
+        "quota"
+      ],
+      "coverageMetricRules": [
+        "claude-session"
+      ],
+      "coverageMatch": "any"
+    }
+  ],
+  "refresh": {
+    "minimumIntervalSeconds": 60,
+    "defaultIntervalSeconds": 300,
+    "taskTimeoutSeconds": 30,
+    "requestTimeoutSeconds": 15
+  },
+  "metricRules": [
+    {
+      "id": "claude-session",
+      "metricId": "session",
+      "kind": "quota",
+      "unit": "percent",
+      "scope": "subscription",
+      "period": "rolling",
+      "derivations": [],
+      "description": "session/weekly windows; pending C23 admission",
+      "missingPolicy": "unknown"
+    }
+  ],
+  "primaryPreference": [
+    "claude-session"
+  ],
+  "diagnosticCodes": [],
+  "reasonCodes": [],
+  "fixtureIds": [
+    "claude-synthetic-normal",
+    "claude-synthetic-missing"
+  ],
+  "provenance": []
+}

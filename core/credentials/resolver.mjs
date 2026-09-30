@@ -1,0 +1,141 @@
+// CredentialResolver：manifest credentialChain 驱动的链式解析（contracts §2.1/§2.2/§2.3）。
+// 显式 sources 覆盖整条链；缺失可试下一项；invalid/过期/权限停；链尽 not-configured。
+import { RESOLVE_TO_ACTION } from "../defs.mjs";
+import { ReaderOutcome } from "./stores.mjs";
+import { credentialRevision } from "./broker.mjs";
+
+let saltCache = null;
+function localSalt(stateDir) {
+  // 本地随机盐：0600 私有 state；用于 credentialRevision HMAC（§2.3）。不可导出、不作日志。
+  if (saltCache?.stateDir === stateDir) return saltCache.hex;
+  const { existsSync, mkdirSync, readFileSync, writeFileSync } = requireFs();
+  mkdirSync(stateDir, { recursive: true, mode: 0o700 });
+  const f = `${stateDir}/credential-salt.hex`;
+  if (existsSync(f)) { saltCache = { stateDir, hex: readFileSync(f, "utf8").trim() }; return saltCache.hex; }
+  const hex = randomHex32();
+  writeFileSync(f, hex + "\n", { mode: 0o600 });
+  saltCache = { stateDir, hex };
+  return hex;
+}
+function randomHex32() {
+  const { randomBytes } = requireCrypto();
+  return randomBytes(32).toString("hex");
+}
+function requireFs() { return { existsSync: globalThis.__m1fs.existsSync, mkdirSync: globalThis.__m1fs.mkdirSync, readFileSync: globalThis.__m1fs.readFileSync, writeFileSync: globalThis.__m1fs.writeFileSync }; }
+function requireCrypto() { return { randomBytes: globalThis.__m1crypto.randomBytes }; }
+export function _injectFsCrypto(fs, crypto) { globalThis.__m1fs = fs; globalThis.__m1crypto = crypto; }
+import { existsSync as _e, mkdirSync as _m, readFileSync as _r, writeFileSync as _w } from "fs";
+import { randomBytes as _rb } from "crypto";
+_injectFsCrypto({ existsSync: _e, mkdirSync: _m, readFileSync: _r, writeFileSync: _w }, { randomBytes: _rb });
+
+/**
+ * 解析一条来源 spec。返回 ResolveResult（contracts §2.2 形状）。
+ * @param providerId manifest id
+ * @param profile EffectiveProfile（已校验合并）
+ * @param source {id, kind, reader, purpose, ...kindFields, implementationId}
+ * @param ctx {nowMs, signal, interaction, stores, broker, compatibility, stateDir}
+ */
+export async function resolveSource(providerId, profile, source, ctx) {
+  const trace = [];
+  const store = ctx.stores;
+  // discover：安全元信息（不读正文）
+  const d = store.discover(source.implementationId, source, { compatibility: ctx.compatibility });
+  trace.push({ sourceId: source.id, reader: source.reader, outcome: d.status, reasonCode: d.reasonCode });
+  if (d.status === "missing" || d.status === "skipped") {
+    return { status: "failed", code: "not-configured", reasonCode: d.reasonCode ?? "not-configured", action: actionFor("not-configured"), trace };
+  }
+  if (d.status === "locked") {
+    const code = ctx.interaction === "user-connect" ? "interaction-required" : "permission-denied";
+    return { status: "failed", code, reasonCode: "keychain-denied", action: actionFor(code), trace };
+  }
+  if (d.status === "unsupported") {
+    return { status: "failed", code: "unsupported", reasonCode: d.reasonCode ?? "reader-unavailable", action: actionFor("unsupported"), trace };
+  }
+
+  // resolve：执行读取（仍不输出正文）
+  let resolved;
+  try {
+    resolved = store.resolve(source.implementationId, source, { compatibility: ctx.compatibility, interaction: ctx.interaction });
+  } catch (e) {
+    if (e instanceof ReaderOutcome) {
+      const code = outcomeToCode(e);
+      trace.push({ sourceId: source.id, reader: source.reader, outcome: e.status, reasonCode: e.reasonCode });
+      return { status: "failed", code, reasonCode: e.reasonCode, action: actionFor(code), trace };
+    }
+    trace.push({ sourceId: source.id, reader: source.reader, outcome: "rejected", reasonCode: "io-error" });
+    return { status: "failed", code: "io-error", reasonCode: "io-error", action: actionFor("io-error"), trace };
+  }
+  trace.push({ sourceId: source.id, reader: source.reader, outcome: "resolved" });
+
+  // 到期检查（§2.3）：已知过期 → expired，停止
+  const expiry = resolved.expiry ?? { state: "unknown" };
+  if (expiry.state === "known" && expiry.expiresAtMs <= ctx.nowMs) {
+    return { status: "failed", code: "expired", reasonCode: "credential-expired", action: "relogin-owner", trace };
+  }
+
+  // identity：无可验证身份 → source-bound scope（scope 随凭证内容变化）
+  const revision = credentialRevision(resolved.bytes, localSalt(ctx.stateDir));
+  const scopeKey = `scope-${providerId}-${profile.id}-${revision.slice(0, 16)}`;
+  const identity = {
+    scopeKey,
+    assurance: "source-bound",
+    accountKey: undefined,
+  };
+
+  const access = ctx.broker.put(resolved.bytes, [providerId]);
+  const lease = {
+    providerId,
+    profileId: profile.id,
+    purpose: source.purpose ?? "primary",
+    source: { id: source.id, kind: source.kind, reader: source.reader, purpose: source.purpose ?? "primary", originOfChoice: source.originOfChoice ?? "discovered" },
+    identity,
+    kind: source.credentialKind ?? "api-key",
+    access,
+    owner: source.owner ?? "external",
+    renewMode: source.renewMode ?? "none",
+    expiry,
+    acquiredAtMs: ctx.nowMs,
+    credentialRevision: revision,
+    capabilityId: resolved.capabilityId,
+  };
+  return { status: "resolved", lease, trace };
+}
+
+function outcomeToCode(e) {
+  switch (e.status) {
+    case "missing": return "not-configured";
+    case "rejected":
+      if (e.reasonCode === "keychain-denied") return "permission-denied";
+      if (e.reasonCode === "credential-expired") return "expired";
+      return "invalid";
+    case "skipped": return "not-configured";
+    case "unsupported": return "unsupported";
+    default: return "io-error";
+  }
+}
+
+function actionFor(code) { return RESOLVE_TO_ACTION[code] ?? "none"; }
+
+/**
+ * 链式解析：按 profile.sources 显式链（非空）或 manifest 内置链执行 §2.1 规则。
+ * chain: [{id, kind, reader, implementationId, purpose, ...}]
+ */
+export async function resolveChain(providerId, profile, chain, ctx) {
+  const trace = [];
+  if (profile.discovery === "only" && (!profile.sources || profile.sources.length === 0)) {
+    return { status: "failed", code: "invalid-config", reasonCode: "invalid-config", action: "configure-source", trace };
+  }
+  const sources = (profile.sources && profile.sources.length > 0)
+    ? profile.sources // 显式覆盖：不追加默认链
+    : chain;
+  let lastFailure = null;
+  for (const source of sources) {
+    const r = await resolveSource(providerId, profile, source, ctx);
+    trace.push(...r.trace);
+    if (r.status === "resolved") return { status: "resolved", lease: r.lease, trace };
+    lastFailure = r;
+    // 缺失/不适用可继续；invalid/过期/权限/身份不符停止（§2.1）
+    if (r.code !== "not-configured") return { status: "failed", code: r.code, reasonCode: r.reasonCode, action: r.action, trace };
+  }
+  return lastFailure ?? { status: "failed", code: "not-configured", reasonCode: "not-configured", action: "configure-source", trace };
+}

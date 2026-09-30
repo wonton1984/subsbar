@@ -1,0 +1,230 @@
+{
+  "schemaVersion": 1,
+  "id": "codex",
+  "name": "Codex",
+  "product": "Codex subscription",
+  "releaseStatus": "supported",
+  "adapterVersion": "0.1.0",
+  "platforms": [
+    "darwin"
+  ],
+  "docsPath": "docs/providers/codex.md",
+  "documentationUrls": [
+    "https://github.com/subsbar/subsbar#readme"
+  ],
+  "credentialReaders": [
+    {
+      "id": "codex-official",
+      "kind": "cli",
+      "credentialKinds": [
+        "cli-session"
+      ],
+      "implementationId": "codex-official",
+      "configurable": [
+        "executablePath"
+      ],
+      "requires": [],
+      "purposes": [
+        "primary"
+      ],
+      "owner": "external",
+      "renewMode": "owner-cli"
+    },
+    {
+      "id": "codex-auth-file",
+      "kind": "file",
+      "credentialKinds": [
+        "oauth"
+      ],
+      "implementationId": "codex-auth-file",
+      "configurable": [
+        "path"
+      ],
+      "requires": [],
+      "purposes": [
+        "primary"
+      ],
+      "owner": "external",
+      "renewMode": "none"
+    },
+    {
+      "id": "codex-subsbar-key",
+      "kind": "keychain",
+      "credentialKinds": [
+        "oauth"
+      ],
+      "implementationId": "codex-subsbar-key",
+      "configurable": [
+        "service",
+        "account"
+      ],
+      "requires": [
+        "keychain"
+      ],
+      "purposes": [
+        "primary"
+      ],
+      "owner": "subsbar",
+      "renewMode": "subsbar-store"
+    },
+    {
+      "id": "codex-env-token",
+      "kind": "env",
+      "credentialKinds": [
+        "oauth"
+      ],
+      "implementationId": "env-generic",
+      "configurable": [
+        "envName"
+      ],
+      "requires": [],
+      "purposes": [
+        "primary"
+      ],
+      "owner": "external",
+      "renewMode": "none"
+    },
+    {
+      "id": "openai-codex",
+      "kind": "pi",
+      "credentialKinds": [
+        "oauth"
+      ],
+      "implementationId": "openai-codex",
+      "configurable": [
+        "path"
+      ],
+      "requires": [],
+      "purposes": [
+        "primary"
+      ],
+      "owner": "external",
+      "renewMode": "none"
+    }
+  ],
+  "endpoints": [
+    {
+      "id": "wham-usage",
+      "transport": "https",
+      "operation": "usage",
+      "readOnly": true,
+      "grade": "C",
+      "maxResponseBytes": 65536,
+      "authPurpose": "primary",
+      "documentationUrl": "https://github.com/subsbar/subsbar#readme",
+      "method": "GET",
+      "origin": "https://chatgpt.com",
+      "pathTemplate": "/backend-api/wham/usage"
+    },
+    {
+      "id": "codex-usage-cli",
+      "transport": "cli",
+      "operation": "usage",
+      "readOnly": true,
+      "grade": "B",
+      "commandId": "codex-usage",
+      "maxResponseBytes": 65536,
+      "authPurpose": "primary",
+      "documentationUrl": "https://github.com/subsbar/subsbar#readme"
+    }
+  ],
+  "dataSources": [
+    {
+      "id": "codex-wham",
+      "kind": "community-api",
+      "grade": "C",
+      "admission": "approved",
+      "approvalNote": "docs/providers/codex.md",
+      "endpointIds": [
+        "wham-usage"
+      ],
+      "credentialChain": [
+        "codex-auth-file",
+        "codex-subsbar-key",
+        "codex-env-token",
+        "openai-codex"
+      ],
+      "capabilities": [
+        "quota"
+      ],
+      "coverageMetricRules": [
+        "codex-primary",
+        "codex-additional"
+      ],
+      "coverageMatch": "any",
+      "minimumIntervalSeconds": 300
+    },
+    {
+      "id": "codex-official-cli",
+      "kind": "official-cli",
+      "grade": "B",
+      "admission": "pending",
+      "approvalNote": "docs/providers/codex.md",
+      "endpointIds": [
+        "codex-usage-cli"
+      ],
+      "credentialChain": [
+        "codex-official"
+      ],
+      "capabilities": [
+        "quota"
+      ],
+      "coverageMetricRules": [
+        "codex-primary"
+      ],
+      "coverageMatch": "any"
+    }
+  ],
+  "refresh": {
+    "minimumIntervalSeconds": 60,
+    "defaultIntervalSeconds": 300,
+    "taskTimeoutSeconds": 30,
+    "requestTimeoutSeconds": 15
+  },
+  "metricRules": [
+    {
+      "id": "codex-primary",
+      "metricId": "codex-primary",
+      "kind": "quota",
+      "unit": "percent",
+      "scope": "subscription",
+      "period": "rolling",
+      "derivations": [
+        "remaining-from-limit-used"
+      ],
+      "description": "primary window used_percent by real limit_window_seconds; >100 preserved",
+      "missingPolicy": "unknown"
+    },
+    {
+      "id": "codex-additional",
+      "metricId": "codex-additional",
+      "kind": "quota",
+      "unit": "percent",
+      "scope": "subscription",
+      "period": "rolling",
+      "derivations": [
+        "remaining-from-limit-used"
+      ],
+      "description": "additional_rate_limits buckets; metricIdPrefix applied by adapter",
+      "missingPolicy": "unknown"
+    }
+  ],
+  "primaryPreference": [
+    "codex-primary"
+  ],
+  "diagnosticCodes": [
+    "codex-secondary-null",
+    "codex-bucket-null"
+  ],
+  "reasonCodes": [
+    "http-401",
+    "http-403",
+    "http-429",
+    "http-5xx"
+  ],
+  "fixtureIds": [
+    "codex-synthetic-normal",
+    "codex-synthetic-missing"
+  ],
+  "provenance": []
+}

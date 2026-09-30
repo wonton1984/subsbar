@@ -1,0 +1,171 @@
+{
+  "schemaVersion": 1,
+  "id": "opencode",
+  "name": "OpenCode",
+  "product": "OpenCode Go subscription",
+  "releaseStatus": "supported",
+  "adapterVersion": "0.1.0",
+  "platforms": [
+    "darwin"
+  ],
+  "docsPath": "docs/providers/opencode.md",
+  "documentationUrls": [
+    "https://github.com/subsbar/subsbar#readme"
+  ],
+  "credentialReaders": [
+    {
+      "id": "opencode-auth-file",
+      "kind": "file",
+      "credentialKinds": [
+        "api-key"
+      ],
+      "implementationId": "opencode-auth-file",
+      "configurable": [
+        "path"
+      ],
+      "requires": [],
+      "purposes": [
+        "primary"
+      ],
+      "owner": "external",
+      "renewMode": "none"
+    },
+    {
+      "id": "opencode-subsbar-key",
+      "kind": "keychain",
+      "credentialKinds": [
+        "api-key"
+      ],
+      "implementationId": "opencode-subsbar-key",
+      "configurable": [
+        "service",
+        "account"
+      ],
+      "requires": [
+        "keychain"
+      ],
+      "purposes": [
+        "primary"
+      ],
+      "owner": "subsbar",
+      "renewMode": "none"
+    },
+    {
+      "id": "opencode-go",
+      "kind": "pi",
+      "credentialKinds": [
+        "api-key"
+      ],
+      "implementationId": "opencode-go",
+      "configurable": [
+        "path"
+      ],
+      "requires": [],
+      "purposes": [
+        "primary"
+      ],
+      "owner": "external",
+      "renewMode": "none"
+    }
+  ],
+  "endpoints": [
+    {
+      "id": "go-usage",
+      "transport": "https",
+      "operation": "usage",
+      "readOnly": true,
+      "grade": "C",
+      "maxResponseBytes": 65536,
+      "authPurpose": "primary",
+      "documentationUrl": "https://github.com/subsbar/subsbar#readme",
+      "method": "GET",
+      "origin": "https://opencode.ai",
+      "pathTemplate": "/zen/go/v1/usage"
+    }
+  ],
+  "dataSources": [
+    {
+      "id": "opencode-go-usage",
+      "kind": "community-api",
+      "grade": "C",
+      "admission": "approved",
+      "approvalNote": "docs/providers/opencode.md",
+      "endpointIds": [
+        "go-usage"
+      ],
+      "credentialChain": [
+        "opencode-auth-file",
+        "opencode-subsbar-key",
+        "opencode-go"
+      ],
+      "capabilities": [
+        "quota"
+      ],
+      "coverageMetricRules": [
+        "go-session",
+        "go-weekly",
+        "go-monthly"
+      ],
+      "coverageMatch": "any"
+    }
+  ],
+  "refresh": {
+    "minimumIntervalSeconds": 60,
+    "defaultIntervalSeconds": 300,
+    "taskTimeoutSeconds": 30,
+    "requestTimeoutSeconds": 15
+  },
+  "metricRules": [
+    {
+      "id": "go-session",
+      "metricId": "session",
+      "kind": "quota",
+      "unit": "count",
+      "scope": "subscription",
+      "period": "rolling",
+      "derivations": [
+        "remaining-from-limit-used"
+      ],
+      "description": "Go session window",
+      "missingPolicy": "unknown"
+    },
+    {
+      "id": "go-weekly",
+      "metricId": "weekly",
+      "kind": "quota",
+      "unit": "count",
+      "scope": "subscription",
+      "period": "rolling",
+      "derivations": [
+        "remaining-from-limit-used"
+      ],
+      "description": "Go weekly window",
+      "missingPolicy": "unknown"
+    },
+    {
+      "id": "go-monthly",
+      "metricId": "monthly",
+      "kind": "quota",
+      "unit": "percent",
+      "scope": "subscription",
+      "period": "calendar",
+      "derivations": [],
+      "description": "Go monthly used percent",
+      "missingPolicy": "unknown"
+    }
+  ],
+  "primaryPreference": [
+    "go-session"
+  ],
+  "diagnosticCodes": [
+    "opencode-entitlement"
+  ],
+  "reasonCodes": [
+    "http-403"
+  ],
+  "fixtureIds": [
+    "opencode-synthetic-normal",
+    "opencode-synthetic-missing"
+  ],
+  "provenance": []
+}

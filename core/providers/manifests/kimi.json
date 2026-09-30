@@ -1,0 +1,173 @@
+{
+  "schemaVersion": 1,
+  "id": "kimi",
+  "name": "Kimi",
+  "product": "Kimi Code subscription",
+  "releaseStatus": "supported",
+  "adapterVersion": "0.1.0",
+  "platforms": [
+    "darwin"
+  ],
+  "docsPath": "docs/providers/kimi.md",
+  "documentationUrls": [
+    "https://github.com/subsbar/subsbar#readme"
+  ],
+  "credentialReaders": [
+    {
+      "id": "kimi-env-key",
+      "kind": "env",
+      "credentialKinds": [
+        "api-key"
+      ],
+      "implementationId": "env-generic",
+      "configurable": [
+        "envName"
+      ],
+      "requires": [],
+      "purposes": [
+        "primary"
+      ],
+      "owner": "external",
+      "renewMode": "none"
+    },
+    {
+      "id": "kimi-subsbar-key",
+      "kind": "keychain",
+      "credentialKinds": [
+        "api-key"
+      ],
+      "implementationId": "kimi-subsbar-key",
+      "configurable": [
+        "service",
+        "account"
+      ],
+      "requires": [
+        "keychain"
+      ],
+      "purposes": [
+        "primary"
+      ],
+      "owner": "subsbar",
+      "renewMode": "none"
+    },
+    {
+      "id": "kimi-coding",
+      "kind": "pi",
+      "credentialKinds": [
+        "api-key"
+      ],
+      "implementationId": "kimi-coding",
+      "configurable": [
+        "path"
+      ],
+      "requires": [],
+      "purposes": [
+        "primary"
+      ],
+      "owner": "external",
+      "renewMode": "none"
+    }
+  ],
+  "endpoints": [
+    {
+      "id": "kimi-usages",
+      "transport": "https",
+      "operation": "usage",
+      "readOnly": true,
+      "grade": "C",
+      "maxResponseBytes": 65536,
+      "authPurpose": "primary",
+      "documentationUrl": "https://github.com/subsbar/subsbar#readme",
+      "method": "GET",
+      "origin": "https://api.kimi.com",
+      "pathTemplate": "/coding/v1/usages"
+    }
+  ],
+  "dataSources": [
+    {
+      "id": "kimi-coding-usages",
+      "kind": "community-api",
+      "grade": "C",
+      "admission": "approved",
+      "approvalNote": "docs/providers/kimi.md",
+      "endpointIds": [
+        "kimi-usages"
+      ],
+      "credentialChain": [
+        "kimi-env-key",
+        "kimi-subsbar-key",
+        "kimi-coding"
+      ],
+      "capabilities": [
+        "quota",
+        "balance"
+      ],
+      "coverageMetricRules": [
+        "kimi-5h",
+        "kimi-weekly",
+        "kimi-wallet"
+      ],
+      "coverageMatch": "any"
+    }
+  ],
+  "refresh": {
+    "minimumIntervalSeconds": 60,
+    "defaultIntervalSeconds": 300,
+    "taskTimeoutSeconds": 30,
+    "requestTimeoutSeconds": 15
+  },
+  "metricRules": [
+    {
+      "id": "kimi-5h",
+      "metricId": "fiveHour",
+      "kind": "quota",
+      "unit": "count",
+      "scope": "subscription",
+      "period": "rolling",
+      "derivations": [
+        "remaining-from-limit-used"
+      ],
+      "description": "Kimi 5h window",
+      "missingPolicy": "unknown"
+    },
+    {
+      "id": "kimi-weekly",
+      "metricId": "weekly",
+      "kind": "quota",
+      "unit": "count",
+      "scope": "subscription",
+      "period": "rolling",
+      "derivations": [
+        "remaining-from-limit-used"
+      ],
+      "description": "Kimi weekly window",
+      "missingPolicy": "unknown"
+    },
+    {
+      "id": "kimi-wallet",
+      "metricId": "wallet",
+      "kind": "balance",
+      "unit": "currency",
+      "scope": "subscription",
+      "period": "unknown",
+      "derivations": [],
+      "description": "wallet amountLeft; missing is unknown, never 0",
+      "missingPolicy": "unknown",
+      "currency": "CNY"
+    }
+  ],
+  "primaryPreference": [
+    "kimi-5h"
+  ],
+  "diagnosticCodes": [
+    "kimi-wallet-missing"
+  ],
+  "reasonCodes": [
+    "http-403"
+  ],
+  "fixtureIds": [
+    "kimi-synthetic-normal",
+    "kimi-synthetic-missing"
+  ],
+  "provenance": []
+}

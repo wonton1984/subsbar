@@ -1,0 +1,122 @@
+{
+  "schemaVersion": 1,
+  "id": "grok",
+  "name": "Grok",
+  "product": "Grok Build subscription",
+  "releaseStatus": "planned",
+  "adapterVersion": "0.1.0",
+  "platforms": [
+    "darwin"
+  ],
+  "docsPath": "docs/providers/grok.md",
+  "documentationUrls": [
+    "https://github.com/subsbar/subsbar#readme"
+  ],
+  "credentialReaders": [
+    {
+      "id": "grok-auth-file",
+      "kind": "file",
+      "credentialKinds": [
+        "oauth"
+      ],
+      "implementationId": "grok-auth-file",
+      "configurable": [
+        "path"
+      ],
+      "requires": [],
+      "purposes": [
+        "primary"
+      ],
+      "owner": "external",
+      "renewMode": "none"
+    },
+    {
+      "id": "grok-subsbar-oauth",
+      "kind": "keychain",
+      "credentialKinds": [
+        "oauth"
+      ],
+      "implementationId": "grok-subsbar-key",
+      "configurable": [
+        "service",
+        "account"
+      ],
+      "requires": [
+        "keychain"
+      ],
+      "purposes": [
+        "primary"
+      ],
+      "owner": "subsbar",
+      "renewMode": "none"
+    }
+  ],
+  "endpoints": [
+    {
+      "id": "grok-billing",
+      "transport": "https",
+      "operation": "usage",
+      "readOnly": true,
+      "grade": "C",
+      "maxResponseBytes": 65536,
+      "authPurpose": "primary",
+      "documentationUrl": "https://github.com/subsbar/subsbar#readme",
+      "method": "GET",
+      "origin": "https://cli-chat-proxy.grok.com",
+      "pathTemplate": "/v1/billing"
+    }
+  ],
+  "dataSources": [
+    {
+      "id": "grok-proxy",
+      "kind": "community-api",
+      "grade": "C",
+      "admission": "pending",
+      "approvalNote": "docs/providers/grok.md",
+      "endpointIds": [
+        "grok-billing"
+      ],
+      "credentialChain": [
+        "grok-auth-file",
+        "grok-subsbar-oauth"
+      ],
+      "capabilities": [
+        "quota",
+        "balance"
+      ],
+      "coverageMetricRules": [
+        "grok-weekly"
+      ],
+      "coverageMatch": "any"
+    }
+  ],
+  "refresh": {
+    "minimumIntervalSeconds": 60,
+    "defaultIntervalSeconds": 300,
+    "taskTimeoutSeconds": 30,
+    "requestTimeoutSeconds": 15
+  },
+  "metricRules": [
+    {
+      "id": "grok-weekly",
+      "metricId": "weekly",
+      "kind": "quota",
+      "unit": "credits",
+      "scope": "subscription",
+      "period": "rolling",
+      "derivations": [],
+      "description": "shared weekly by real period; PAYG cap separate",
+      "missingPolicy": "unknown"
+    }
+  ],
+  "primaryPreference": [
+    "grok-weekly"
+  ],
+  "diagnosticCodes": [],
+  "reasonCodes": [],
+  "fixtureIds": [
+    "grok-synthetic-normal",
+    "grok-synthetic-missing"
+  ],
+  "provenance": []
+}

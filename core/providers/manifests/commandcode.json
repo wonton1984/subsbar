@@ -1,0 +1,187 @@
+{
+  "schemaVersion": 1,
+  "id": "commandcode",
+  "name": "CommandCode",
+  "product": "CommandCode subscription",
+  "releaseStatus": "supported",
+  "adapterVersion": "0.1.0",
+  "platforms": [
+    "darwin"
+  ],
+  "docsPath": "docs/providers/commandcode.md",
+  "documentationUrls": [
+    "https://github.com/subsbar/subsbar#readme"
+  ],
+  "credentialReaders": [
+    {
+      "id": "commandcode-env-key",
+      "kind": "env",
+      "credentialKinds": [
+        "api-key"
+      ],
+      "implementationId": "env-generic",
+      "configurable": [
+        "envName"
+      ],
+      "requires": [],
+      "purposes": [
+        "primary"
+      ],
+      "owner": "external",
+      "renewMode": "none"
+    },
+    {
+      "id": "commandcode-subsbar-key",
+      "kind": "keychain",
+      "credentialKinds": [
+        "api-key"
+      ],
+      "implementationId": "commandcode-subsbar-key",
+      "configurable": [
+        "service",
+        "account"
+      ],
+      "requires": [
+        "keychain"
+      ],
+      "purposes": [
+        "primary"
+      ],
+      "owner": "subsbar",
+      "renewMode": "none"
+    },
+    {
+      "id": "commandcode",
+      "kind": "pi",
+      "credentialKinds": [
+        "api-key"
+      ],
+      "implementationId": "commandcode",
+      "configurable": [
+        "path"
+      ],
+      "requires": [],
+      "purposes": [
+        "primary"
+      ],
+      "owner": "external",
+      "renewMode": "none"
+    }
+  ],
+  "endpoints": [
+    {
+      "id": "cmdcode-whoami",
+      "transport": "https",
+      "operation": "identity",
+      "readOnly": true,
+      "grade": "C",
+      "maxResponseBytes": 65536,
+      "authPurpose": "primary",
+      "documentationUrl": "https://github.com/subsbar/subsbar#readme",
+      "method": "GET",
+      "origin": "https://api.commandcode.ai",
+      "pathTemplate": "/alpha/whoami"
+    },
+    {
+      "id": "cmdcode-credits",
+      "transport": "https",
+      "operation": "usage",
+      "readOnly": true,
+      "grade": "C",
+      "maxResponseBytes": 65536,
+      "authPurpose": "primary",
+      "documentationUrl": "https://github.com/subsbar/subsbar#readme",
+      "method": "GET",
+      "origin": "https://api.commandcode.ai",
+      "pathTemplate": "/alpha/billing/credits"
+    },
+    {
+      "id": "cmdcode-usage",
+      "transport": "https",
+      "operation": "usage",
+      "readOnly": true,
+      "grade": "C",
+      "maxResponseBytes": 65536,
+      "authPurpose": "primary",
+      "documentationUrl": "https://github.com/subsbar/subsbar#readme",
+      "method": "GET",
+      "origin": "https://api.commandcode.ai",
+      "pathTemplate": "/alpha/usage/summary"
+    }
+  ],
+  "dataSources": [
+    {
+      "id": "commandcode-alpha",
+      "kind": "community-api",
+      "grade": "C",
+      "admission": "approved",
+      "approvalNote": "docs/providers/commandcode.md",
+      "endpointIds": [
+        "cmdcode-whoami",
+        "cmdcode-credits",
+        "cmdcode-usage"
+      ],
+      "credentialChain": [
+        "commandcode-env-key",
+        "commandcode-subsbar-key",
+        "commandcode"
+      ],
+      "capabilities": [
+        "quota",
+        "balance"
+      ],
+      "coverageMetricRules": [
+        "monthly-credits",
+        "rolling-five-hour"
+      ],
+      "coverageMatch": "any"
+    }
+  ],
+  "refresh": {
+    "minimumIntervalSeconds": 60,
+    "defaultIntervalSeconds": 300,
+    "taskTimeoutSeconds": 30,
+    "requestTimeoutSeconds": 15
+  },
+  "metricRules": [
+    {
+      "id": "monthly-credits",
+      "metricId": "monthly-credits",
+      "kind": "quota",
+      "unit": "currency",
+      "scope": "subscription",
+      "period": "billing",
+      "derivations": [
+        "limit-from-used-remaining"
+      ],
+      "description": "monthly credits: with summary used=totalCost limit=used+remaining; summary missing -> remaining-only",
+      "missingPolicy": "unknown",
+      "currency": "USD"
+    },
+    {
+      "id": "rolling-five-hour",
+      "metricId": "window-fiveHour",
+      "kind": "quota",
+      "unit": "count",
+      "scope": "subscription",
+      "period": "rolling",
+      "derivations": [],
+      "description": "upstream rolling used/cap; resetAt=0 -> unknown",
+      "missingPolicy": "unknown"
+    }
+  ],
+  "primaryPreference": [
+    "monthly-credits"
+  ],
+  "diagnosticCodes": [
+    "summary-unavailable"
+  ],
+  "reasonCodes": [
+    "http-403"
+  ],
+  "fixtureIds": [
+    "commandcode-synthetic-normal",
+    "commandcode-synthetic-missing"
+  ],
+  "provenance": []
+}

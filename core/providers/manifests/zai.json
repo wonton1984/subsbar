@@ -1,0 +1,166 @@
+{
+  "schemaVersion": 1,
+  "id": "zai",
+  "name": "Z.AI / GLM Coding Plan",
+  "product": "GLM Coding Plan",
+  "releaseStatus": "planned",
+  "adapterVersion": "0.1.0",
+  "platforms": [
+    "darwin"
+  ],
+  "docsPath": "docs/providers/zai.md",
+  "documentationUrls": [
+    "https://github.com/subsbar/subsbar#readme"
+  ],
+  "credentialReaders": [
+    {
+      "id": "zai-env-key",
+      "kind": "env",
+      "credentialKinds": [
+        "api-key"
+      ],
+      "implementationId": "env-generic",
+      "configurable": [
+        "envName"
+      ],
+      "requires": [],
+      "purposes": [
+        "primary"
+      ],
+      "owner": "external",
+      "renewMode": "none"
+    },
+    {
+      "id": "zai-subsbar-key",
+      "kind": "keychain",
+      "credentialKinds": [
+        "api-key"
+      ],
+      "implementationId": "zai-subsbar-key",
+      "configurable": [
+        "service",
+        "account"
+      ],
+      "requires": [
+        "keychain"
+      ],
+      "purposes": [
+        "primary"
+      ],
+      "owner": "subsbar",
+      "renewMode": "none"
+    },
+    {
+      "id": "zai",
+      "kind": "pi",
+      "credentialKinds": [
+        "api-key"
+      ],
+      "implementationId": "zai",
+      "configurable": [
+        "path"
+      ],
+      "requires": [],
+      "purposes": [
+        "primary"
+      ],
+      "owner": "external",
+      "renewMode": "none"
+    }
+  ],
+  "endpoints": [
+    {
+      "id": "zai-quota",
+      "transport": "https",
+      "operation": "usage",
+      "readOnly": true,
+      "grade": "C",
+      "maxResponseBytes": 65536,
+      "authPurpose": "primary",
+      "documentationUrl": "https://github.com/subsbar/subsbar#readme",
+      "method": "GET",
+      "regionOrigins": {
+        "global": "https://api.z.ai",
+        "cn": "https://open.bigmodel.cn"
+      },
+      "pathTemplate": "/api/coding/purchases/quota"
+    }
+  ],
+  "dataSources": [
+    {
+      "id": "zai-quota",
+      "kind": "community-api",
+      "grade": "B",
+      "admission": "pending",
+      "approvalNote": "docs/providers/zai.md",
+      "endpointIds": [
+        "zai-quota"
+      ],
+      "credentialChain": [
+        "zai-env-key",
+        "zai-subsbar-key",
+        "zai"
+      ],
+      "capabilities": [
+        "quota"
+      ],
+      "coverageMetricRules": [
+        "zai-5h",
+        "zai-weekly",
+        "zai-tool"
+      ],
+      "coverageMatch": "any"
+    }
+  ],
+  "refresh": {
+    "minimumIntervalSeconds": 60,
+    "defaultIntervalSeconds": 300,
+    "taskTimeoutSeconds": 30,
+    "requestTimeoutSeconds": 15
+  },
+  "metricRules": [
+    {
+      "id": "zai-5h",
+      "metricId": "5h",
+      "kind": "quota",
+      "unit": "count",
+      "scope": "subscription",
+      "period": "rolling",
+      "derivations": [],
+      "description": "5h tool quota",
+      "missingPolicy": "unknown"
+    },
+    {
+      "id": "zai-weekly",
+      "metricId": "weekly",
+      "kind": "quota",
+      "unit": "count",
+      "scope": "subscription",
+      "period": "rolling",
+      "derivations": [],
+      "description": "weekly quota",
+      "missingPolicy": "unknown"
+    },
+    {
+      "id": "zai-tool",
+      "metricId": "tool",
+      "kind": "quota",
+      "unit": "requests",
+      "scope": "subscription",
+      "period": "rolling",
+      "derivations": [],
+      "description": "tool call quota",
+      "missingPolicy": "unknown"
+    }
+  ],
+  "primaryPreference": [
+    "zai-5h"
+  ],
+  "diagnosticCodes": [],
+  "reasonCodes": [],
+  "fixtureIds": [
+    "zai-synthetic-normal",
+    "zai-synthetic-missing"
+  ],
+  "provenance": []
+}

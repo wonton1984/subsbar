@@ -1,0 +1,180 @@
+{
+  "schemaVersion": 1,
+  "id": "droid",
+  "name": "Droid",
+  "product": "Factory Droid subscription",
+  "releaseStatus": "supported",
+  "adapterVersion": "0.1.0",
+  "platforms": [
+    "darwin"
+  ],
+  "docsPath": "docs/providers/droid.md",
+  "documentationUrls": [
+    "https://github.com/subsbar/subsbar#readme"
+  ],
+  "credentialReaders": [
+    {
+      "id": "droid-env-key",
+      "kind": "env",
+      "credentialKinds": [
+        "api-key"
+      ],
+      "implementationId": "env-generic",
+      "configurable": [
+        "envName"
+      ],
+      "requires": [],
+      "purposes": [
+        "primary"
+      ],
+      "owner": "external",
+      "renewMode": "none"
+    },
+    {
+      "id": "factory-login-keychain",
+      "kind": "file",
+      "credentialKinds": [
+        "api-key"
+      ],
+      "implementationId": "factory-login-composite",
+      "configurable": [
+        "path",
+        "account"
+      ],
+      "requires": [
+        "keychain"
+      ],
+      "purposes": [
+        "primary"
+      ],
+      "owner": "external",
+      "renewMode": "none"
+    },
+    {
+      "id": "droid-subsbar-key",
+      "kind": "keychain",
+      "credentialKinds": [
+        "api-key"
+      ],
+      "implementationId": "droid-subsbar-key",
+      "configurable": [
+        "service",
+        "account"
+      ],
+      "requires": [
+        "keychain"
+      ],
+      "purposes": [
+        "primary"
+      ],
+      "owner": "subsbar",
+      "renewMode": "none"
+    }
+  ],
+  "endpoints": [
+    {
+      "id": "droid-usage",
+      "transport": "https",
+      "operation": "usage",
+      "readOnly": true,
+      "grade": "C",
+      "maxResponseBytes": 65536,
+      "authPurpose": "primary",
+      "documentationUrl": "https://github.com/subsbar/subsbar#readme",
+      "method": "GET",
+      "origin": "https://api.factory.ai",
+      "pathTemplate": "/api/organization/usage"
+    }
+  ],
+  "dataSources": [
+    {
+      "id": "droid-org-usage",
+      "kind": "community-api",
+      "grade": "C",
+      "admission": "approved",
+      "approvalNote": "docs/providers/droid.md",
+      "endpointIds": [
+        "droid-usage"
+      ],
+      "credentialChain": [
+        "droid-env-key",
+        "factory-login-keychain",
+        "droid-subsbar-key"
+      ],
+      "capabilities": [
+        "quota"
+      ],
+      "coverageMetricRules": [
+        "droid-five-hour",
+        "droid-standard"
+      ],
+      "coverageMatch": "any"
+    }
+  ],
+  "refresh": {
+    "minimumIntervalSeconds": 60,
+    "defaultIntervalSeconds": 300,
+    "taskTimeoutSeconds": 30,
+    "requestTimeoutSeconds": 15
+  },
+  "metricRules": [
+    {
+      "id": "droid-five-hour",
+      "metricId": "fiveHour",
+      "kind": "quota",
+      "unit": "percent",
+      "scope": "subscription",
+      "period": "rolling",
+      "derivations": [],
+      "description": "rolling 5h; primary; 0% preserved",
+      "missingPolicy": "unknown"
+    },
+    {
+      "id": "droid-weekly",
+      "metricId": "weekly",
+      "kind": "quota",
+      "unit": "percent",
+      "scope": "subscription",
+      "period": "rolling",
+      "derivations": [],
+      "description": "rolling week",
+      "missingPolicy": "unknown"
+    },
+    {
+      "id": "droid-monthly",
+      "metricId": "monthly",
+      "kind": "quota",
+      "unit": "percent",
+      "scope": "subscription",
+      "period": "rolling",
+      "derivations": [],
+      "description": "rolling month",
+      "missingPolicy": "unknown"
+    },
+    {
+      "id": "droid-standard",
+      "metricId": "standard",
+      "kind": "quota",
+      "unit": "tokens",
+      "scope": "subscription",
+      "period": "billing",
+      "derivations": [],
+      "description": "billing pool tokens; independent from rolling, never summed",
+      "missingPolicy": "unknown"
+    }
+  ],
+  "primaryPreference": [
+    "droid-five-hour"
+  ],
+  "diagnosticCodes": [
+    "droid-missing-self-user-id"
+  ],
+  "reasonCodes": [
+    "http-403"
+  ],
+  "fixtureIds": [
+    "droid-synthetic-normal",
+    "droid-synthetic-missing"
+  ],
+  "provenance": []
+}

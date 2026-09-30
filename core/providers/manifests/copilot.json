@@ -1,0 +1,169 @@
+{
+  "schemaVersion": 1,
+  "id": "copilot",
+  "name": "GitHub Copilot",
+  "product": "Copilot subscription",
+  "releaseStatus": "planned",
+  "adapterVersion": "0.1.0",
+  "platforms": [
+    "darwin"
+  ],
+  "docsPath": "docs/providers/copilot.md",
+  "documentationUrls": [
+    "https://github.com/subsbar/subsbar#readme"
+  ],
+  "credentialReaders": [
+    {
+      "id": "copilot-official",
+      "kind": "cli",
+      "credentialKinds": [
+        "cli-session"
+      ],
+      "implementationId": "copilot-official",
+      "configurable": [
+        "executablePath"
+      ],
+      "requires": [],
+      "purposes": [
+        "primary"
+      ],
+      "owner": "external",
+      "renewMode": "owner-cli"
+    },
+    {
+      "id": "copilot-editor-config",
+      "kind": "file",
+      "credentialKinds": [
+        "oauth"
+      ],
+      "implementationId": "json-file-generic",
+      "configurable": [
+        "path"
+      ],
+      "requires": [],
+      "purposes": [
+        "primary"
+      ],
+      "owner": "external",
+      "renewMode": "none"
+    },
+    {
+      "id": "copilot-gh-keychain",
+      "kind": "keychain",
+      "credentialKinds": [
+        "oauth"
+      ],
+      "implementationId": "keychain-generic",
+      "configurable": [
+        "service",
+        "account"
+      ],
+      "requires": [
+        "keychain"
+      ],
+      "purposes": [
+        "primary"
+      ],
+      "owner": "external",
+      "renewMode": "none"
+    }
+  ],
+  "endpoints": [
+    {
+      "id": "copilot-internal",
+      "transport": "https",
+      "operation": "usage",
+      "readOnly": true,
+      "grade": "C",
+      "maxResponseBytes": 65536,
+      "authPurpose": "primary",
+      "documentationUrl": "https://github.com/subsbar/subsbar#readme",
+      "method": "GET",
+      "origin": "https://api.github.com",
+      "pathTemplate": "/copilot_internal/user"
+    },
+    {
+      "id": "copilot-cli-usage",
+      "transport": "cli",
+      "operation": "usage",
+      "readOnly": true,
+      "grade": "C",
+      "maxResponseBytes": 65536,
+      "authPurpose": "primary",
+      "documentationUrl": "https://github.com/subsbar/subsbar#readme",
+      "commandId": "copilot-usage"
+    }
+  ],
+  "dataSources": [
+    {
+      "id": "copilot-official-cli",
+      "kind": "official-cli",
+      "grade": "A",
+      "admission": "pending",
+      "approvalNote": "docs/providers/copilot.md",
+      "endpointIds": [
+        "copilot-cli-usage"
+      ],
+      "credentialChain": [
+        "copilot-official"
+      ],
+      "capabilities": [
+        "quota"
+      ],
+      "coverageMetricRules": [
+        "copilot-credits"
+      ],
+      "coverageMatch": "any"
+    },
+    {
+      "id": "copilot-editor",
+      "kind": "community-api",
+      "grade": "C",
+      "admission": "pending",
+      "approvalNote": "docs/providers/copilot.md",
+      "endpointIds": [
+        "copilot-internal"
+      ],
+      "credentialChain": [
+        "copilot-editor-config",
+        "copilot-gh-keychain"
+      ],
+      "capabilities": [
+        "quota"
+      ],
+      "coverageMetricRules": [
+        "copilot-credits"
+      ],
+      "coverageMatch": "any"
+    }
+  ],
+  "refresh": {
+    "minimumIntervalSeconds": 60,
+    "defaultIntervalSeconds": 300,
+    "taskTimeoutSeconds": 30,
+    "requestTimeoutSeconds": 15
+  },
+  "metricRules": [
+    {
+      "id": "copilot-credits",
+      "metricId": "credits",
+      "kind": "quota",
+      "unit": "count",
+      "scope": "subscription",
+      "period": "calendar",
+      "derivations": [],
+      "description": "AI credits / legacy premium requests classification",
+      "missingPolicy": "unknown"
+    }
+  ],
+  "primaryPreference": [
+    "copilot-credits"
+  ],
+  "diagnosticCodes": [],
+  "reasonCodes": [],
+  "fixtureIds": [
+    "copilot-synthetic-normal",
+    "copilot-synthetic-missing"
+  ],
+  "provenance": []
+}

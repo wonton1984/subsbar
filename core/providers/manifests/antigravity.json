@@ -1,0 +1,126 @@
+{
+  "schemaVersion": 1,
+  "id": "antigravity",
+  "name": "Antigravity",
+  "product": "Antigravity subscription",
+  "releaseStatus": "planned",
+  "adapterVersion": "0.1.0",
+  "platforms": [
+    "darwin"
+  ],
+  "docsPath": "docs/providers/antigravity.md",
+  "documentationUrls": [
+    "https://github.com/subsbar/subsbar#readme"
+  ],
+  "credentialReaders": [
+    {
+      "id": "agy-official-usage",
+      "kind": "cli",
+      "credentialKinds": [
+        "cli-session"
+      ],
+      "implementationId": "agy-official-usage",
+      "configurable": [
+        "executablePath"
+      ],
+      "requires": [],
+      "purposes": [
+        "primary"
+      ],
+      "owner": "external",
+      "renewMode": "owner-cli"
+    },
+    {
+      "id": "antigravity-local-api",
+      "kind": "local-api",
+      "credentialKinds": [
+        "oauth"
+      ],
+      "implementationId": "localapi-generic",
+      "configurable": [],
+      "requires": [
+        "local-api"
+      ],
+      "purposes": [
+        "primary"
+      ],
+      "owner": "external",
+      "renewMode": "none"
+    }
+  ],
+  "endpoints": [
+    {
+      "id": "agy-usage",
+      "transport": "cli",
+      "operation": "usage",
+      "readOnly": true,
+      "grade": "C",
+      "maxResponseBytes": 65536,
+      "authPurpose": "primary",
+      "documentationUrl": "https://github.com/subsbar/subsbar#readme",
+      "commandId": "agy-usage"
+    },
+    {
+      "id": "antigravity-server",
+      "transport": "loopback",
+      "operation": "usage",
+      "readOnly": true,
+      "grade": "C",
+      "maxResponseBytes": 65536,
+      "authPurpose": "primary",
+      "documentationUrl": "https://github.com/subsbar/subsbar#readme",
+      "helperId": "antigravity-language-server"
+    }
+  ],
+  "dataSources": [
+    {
+      "id": "antigravity-cli",
+      "kind": "official-cli",
+      "grade": "A",
+      "admission": "pending",
+      "approvalNote": "docs/providers/antigravity.md",
+      "endpointIds": [
+        "agy-usage"
+      ],
+      "credentialChain": [
+        "agy-official-usage"
+      ],
+      "capabilities": [
+        "quota"
+      ],
+      "coverageMetricRules": [
+        "antigravity-gemini"
+      ],
+      "coverageMatch": "any"
+    }
+  ],
+  "refresh": {
+    "minimumIntervalSeconds": 60,
+    "defaultIntervalSeconds": 300,
+    "taskTimeoutSeconds": 30,
+    "requestTimeoutSeconds": 15
+  },
+  "metricRules": [
+    {
+      "id": "antigravity-gemini",
+      "metricId": "gemini",
+      "kind": "quota",
+      "unit": "percent",
+      "scope": "subscription",
+      "period": "rolling",
+      "derivations": [],
+      "description": "Gemini / non-Gemini pools as returned",
+      "missingPolicy": "unknown"
+    }
+  ],
+  "primaryPreference": [
+    "antigravity-gemini"
+  ],
+  "diagnosticCodes": [],
+  "reasonCodes": [],
+  "fixtureIds": [
+    "antigravity-synthetic-normal",
+    "antigravity-synthetic-missing"
+  ],
+  "provenance": []
+}
