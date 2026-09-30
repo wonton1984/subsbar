@@ -7,8 +7,18 @@ covers the AI coding subscriptions you actually pay for, showing real quota,
 balance and reset times — with honest degradation when data is missing.
 
 **Status: public preview in preparation (target 14 providers for v0.1).** Six
-providers are implemented and verified against real accounts; eight more are
-implemented-but-unverified (see matrix below).
+providers are implemented with offline tests; eight more are implemented
+(defensive parsers + offline tests) but have not been verified against real
+endpoints. Community verification is welcome.
+
+![Card overview, light (synthetic data)](docs/assets/screenshot-overview-cards-light.png)
+
+![Card overview, dark (synthetic data)](docs/assets/screenshot-overview-cards-dark.png)
+
+![Connection page, not connected (synthetic data)](docs/assets/screenshot-connect-unconnected.png)
+
+All screenshots are off-screen synthetic renders. Values and accounts are
+synthetic, not live usage.
 
 ## Target providers (14)
 

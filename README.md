@@ -5,7 +5,15 @@
 
 macOS 菜单栏订阅额度面板 + 可独立运行的 Node 数据层。目标是在一个原生面板里完整覆盖你实际购买的 AI Coding 订阅，统一展示真实额度、余额与重置时间。
 
-**状态：公开预览准备中（v0.1 目标 14 家 provider）。** 当前仓库为公开候选树：六家 provider（Codex / OpenCode Go / Kimi Code / CommandCode / Factory Droid / Cursor）已有本地实现与离线测试；其余八家为首发目标，尚未实现，不能视为已支持。
+**状态：公开预览准备中（v0.1 目标 14 家 provider）。** 当前仓库为公开候选树：六家 provider（Codex / OpenCode Go / Kimi Code / CommandCode / Factory Droid / Cursor）已有本地实现与离线测试；其余八家已实现（防御性解析 + 离线测试），未经真实端点验证，欢迎社区验证。
+
+![卡片视图浅色（合成数据）](docs/assets/screenshot-overview-cards-light.png)
+
+![卡片视图深色（合成数据）](docs/assets/screenshot-overview-cards-dark.png)
+
+![连接页未连接（合成数据）](docs/assets/screenshot-connect-unconnected.png)
+
+示例画面全部来自离屏合成渲染，数值与账户为合成数据，不是真实用量。
 
 ## 首发目标 provider（14 家）
 

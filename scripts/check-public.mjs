@@ -236,19 +236,63 @@ function* walk(dir) {
   }
 }
 
+function pngWidth(buf) {
+  return buf.length >= 24 ? buf.readUInt32BE(16) : 0;
+}
+
+function isPngMagic(buf) {
+  return buf.length >= 8 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47;
+}
+
+/** README 合成截图：禁止把压缩像素当文本跑邮箱/token 规则（误报），只扫高信号 PII。 */
+const PNG_PRIVACY_RULES = new Set(["username", "home-path", "usage-fingerprint", "real-epoch", "real-era-iso-ms", "evidence-ref"]);
+
+function scanPngPrivacy(buf, relPath) {
+  const latin1 = buf.toString("latin1");
+  for (const rule of RULES) {
+    if (!PNG_PRIVACY_RULES.has(rule.id)) continue;
+    const matches = latin1.match(rule.pattern);
+    if (!matches) continue;
+    if (isExempt(rule.id, relPath, latin1)) continue;
+    for (const m of new Set(matches)) {
+      findings.push({
+        where: relPath,
+        rule: rule.id,
+        reason: rule.reason,
+        sample: m.length > 8 ? `${m.slice(0, 4)}…${m.slice(-4)}（len ${m.length}）` : m,
+      });
+    }
+  }
+}
+
+function pngRejectReason(buf, relPath) {
+  if (!isPngMagic(buf)) return "非 PNG 魔数";
+  const width = pngWidth(buf);
+  const name = relPath.split("/").pop() ?? "";
+  const posix = relPath.replaceAll("\\", "/");
+  if (buf.length < 4096 && width === 18) return null; // 菜单栏 18px fixture
+  if (
+    posix.includes("docs/assets/") &&
+    /^screenshot-[a-z0-9-]+\.png$/.test(name) &&
+    buf.length <= 1_048_576 &&
+    width >= 320 &&
+    width <= 1800
+  ) {
+    return null;
+  }
+  return "非预期二进制或尺寸异常的 PNG（疑似截图）";
+}
+
 function scanWorktree() {
   for (const full of walk(root)) {
     const rel = relative(root, full);
     const ext = extname(full);
     if (!TEXT_EXTS.has(ext)) {
-      // 二进制：仅允许白名单内的 PNG fixture，且检查其确为小尺寸 PNG（防止误带截图）
       if (ext === ".png") {
         const buf = readFileSync(full);
-        const ok =
-          buf.length < 4096 &&
-          buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47 &&
-          buf[16] === 0 && buf[17] === 0 && buf[18] === 0 && buf[19] === 18; // IHDR width=18（大端高 16 位）
-        if (!ok) findings.push({ where: rel, rule: "binary", reason: "非预期二进制或尺寸异常的 PNG（疑似截图）", sample: `${buf.length} bytes` });
+        const why = pngRejectReason(buf, rel);
+        if (why) findings.push({ where: rel, rule: "binary", reason: why, sample: `${buf.length} bytes` });
+        else scanPngPrivacy(buf, rel);
       } else {
         findings.push({ where: rel, rule: "binary", reason: "非白名单二进制类型", sample: ext || "(无扩展名)" });
       }
@@ -278,8 +322,16 @@ function scanGitHistory() {
       .split("\n")
       .filter(Boolean);
     for (const f of files) {
+      const where = `(history ${commit.slice(0, 7)}) ${f}`;
+      if (extname(f) === ".png") {
+        const blob = execFileSync(git[0], [...git.slice(1), "show", `${commit}:${f}`], { encoding: "buffer", maxBuffer: 8 * 1024 * 1024 });
+        const why = pngRejectReason(blob, f);
+        if (why) findings.push({ where, rule: "binary", reason: why, sample: `${blob.length} bytes` });
+        else scanPngPrivacy(blob, where);
+        continue;
+      }
       const blob = execFileSync(git[0], [...git.slice(1), "show", `${commit}:${f}`], { encoding: "utf-8", maxBuffer: 64 * 1024 * 1024 });
-      scanText(blob, `(history ${commit.slice(0, 7)}) ${f}`);
+      scanText(blob, where);
     }
   }
 }

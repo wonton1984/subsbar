@@ -34,6 +34,15 @@ Highlights:
 | `profiles[]` | `id`, `discovery` ("auto"/"only"), permission flags (`allowKeychain/allowBrowser/allowLocalApi`), explicit `sources[]`, optional `region`/`organizationId` |
 | `compatibility` | `pi.enabled` (explicit opt-in), `legacyCache` import policy |
 
+Cards overview uses one column (360pt) when at most three providers are enabled, and a two-column row-major grid (560pt) from the fourth enabled provider. Grid cards show the primary metric and status; expanding a card still shows every visible metric and pin control. Compact (`overviewMode: "single"`) uses the same card model for one selected provider.
+
+`pinnedMetrics` holds at most two `{providerId, profileId, metricId, field}` pins for the menu bar. A missing, disabled, or foreign-profile pin renders as unknown and never substitutes another metric.
+
+Synthetic UI examples (same golden fixtures as the README; not live usage):
+[compact view](assets/screenshot-overview-compact.png),
+[settings](assets/screenshot-settings.png),
+[connected](assets/screenshot-connect-connected.png).
+
 ## Source specs
 
 A source references a manifest reader: `{id, kind, reader, purpose, …}` with
