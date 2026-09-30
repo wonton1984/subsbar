@@ -159,7 +159,11 @@ console.log("\n== R5. Keychain 命名约定（IPC freeze rev5）==");
   // keychain reader 按约定 service/account 读取（discover 静默；不存在 → missing 不弹框）
   const stores = createCredentialStores({ env: process.env });
   const d = stores.discover("keychain-generic", { service: subsbarCredentialService("synthetic-prov"), account: subsbarCredentialAccount("synthetic-prov", "p") }, { compatibility: { pi: { enabled: false } } });
-  check("约定命名的项不存在 → missing（无弹框路径）", d.status === "missing" && d.reasonCode === "not-configured");
+  if (process.platform === "darwin") {
+    check("约定命名的项不存在 → missing（无弹框路径）", d.status === "missing" && d.reasonCode === "not-configured");
+  } else {
+    check("非 darwin → unsupported（该平台无 Keychain 存储）", d.status === "unsupported" && d.reasonCode === "reader-unavailable");
+  }
   // manifest 投影一致性：registry 输出渲染后的具体服务名（模板仅存在于 manifest 源文件）
   const { ProviderRegistry } = await import("../core/providers/registry.mjs");
   const reg = new ProviderRegistry();

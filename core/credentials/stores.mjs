@@ -115,8 +115,11 @@ export function createCredentialStores({ env = process.env } = {}) {
   });
 
   // ---- Keychain：无提示存在性检查；resolve 才读取（交互仅 user-connect）----
+  // 平台守卫：Security 框架仅 macOS；其他平台该存储不存在 → unsupported（非错误）。
+  const IS_DARWIN = process.platform === "darwin";
   register("keychain-generic", {
     discover(spec) {
+      if (!IS_DARWIN) return { status: "unsupported", reasonCode: "reader-unavailable" };
       const { service, account } = spec;
       if (typeof service !== "string" || !service) return { status: "unsupported", reasonCode: "reader-unavailable" };
       // find-generic-password 无 -w 不读密码，可静默判定存在性；非零+itemNotFound → missing
@@ -131,6 +134,7 @@ export function createCredentialStores({ env = process.env } = {}) {
       }
     },
     resolve(spec, ctx) {
+      if (!IS_DARWIN) throw new ReaderOutcome("unsupported", "reader-unavailable");
       const { service, account } = spec;
       if (ctx.interaction !== "user-connect" && spec.reader?.endsWith("owner-keychain") === false) {
         // 后台：仅允许无提示读取（owner 存储的项一般可无提示读）；拒绝即 permission-denied，不弹框
@@ -222,6 +226,7 @@ export function createCredentialStores({ env = process.env } = {}) {
       if (!fileExistsQuiet(file)) return { status: "missing", reasonCode: "not-configured" };
       // Keychain 项可用性（无提示）
       const kc = impls.get("keychain-generic").discover({ service: "Factory CLI", account: spec.account ?? "auth-encryption-key" });
+      if (kc.status === "unsupported") return { status: "unsupported", reasonCode: "reader-unavailable" };
       if (kc.status === "missing") return { status: "missing", reasonCode: "not-configured" };
       if (kc.status === "locked") return { status: "locked", reasonCode: "keychain-denied" };
       return { status: "resolved", reasonCode: undefined };
