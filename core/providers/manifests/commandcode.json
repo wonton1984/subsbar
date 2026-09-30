@@ -142,8 +142,8 @@
   "refresh": {
     "minimumIntervalSeconds": 60,
     "defaultIntervalSeconds": 300,
-    "taskTimeoutSeconds": 30,
-    "requestTimeoutSeconds": 15
+    "taskTimeoutSeconds": 75,
+    "requestTimeoutSeconds": 20
   },
   "metricRules": [
     {
@@ -179,7 +179,10 @@
     "summary-unavailable"
   ],
   "reasonCodes": [
-    "http-403"
+    "http-403",
+    "http-5xx",
+    "timeout",
+    "connect-refused"
   ],
   "fixtureIds": [
     "commandcode-synthetic-normal",

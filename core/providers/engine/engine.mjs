@@ -90,6 +90,21 @@ function sanitizeDisplayText(value, maxChars = 160) {
 const MAX_SUCCESS_BODY_BYTES = 64 * 1024;
 const MAX_ERROR_BODY_BYTES = 4 * 1024;
 
+function transportError(kind, message, extra = {}) {
+  const err = new Error(message);
+  err.transportKind = kind;
+  if (extra.httpStatus !== undefined) err.httpStatus = extra.httpStatus;
+  if (extra.cause !== undefined) err.cause = extra.cause;
+  return err;
+}
+
+function fetchCauseCode(error) {
+  return error?.cause?.code ?? error?.code ?? error?.cause?.cause?.code;
+}
+
+const FETCH_CONNECT_REFUSED = new Set(["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "EHOSTUNREACH", "ENETUNREACH"]);
+const FETCH_TIMEOUT_CODES = new Set(["ETIMEDOUT", "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_BODY_TIMEOUT"]);
+
 export async function fetchJson({ url, headers, description, secrets, timeoutMs, method = "GET", body, signal: callerSignal }) {
   const timeout = timeoutMs ?? FETCH_TIMEOUT_MS;
   const controller = new AbortController();
@@ -121,9 +136,12 @@ export async function fetchJson({ url, headers, description, secrets, timeoutMs,
     }
     if (!response.ok) {
       const detail = text.trim().slice(0, 200);
-      throw new Error(`${description} returned ${response.status}${detail ? `: ${detail}` : ""}`);
+      const err = new Error(`${description} returned ${response.status}${detail ? `: ${detail}` : ""}`);
+      err.httpStatus = response.status;
+      if (response.status >= 500 && response.status <= 599) err.transportKind = "http-5xx";
+      throw err;
     }
-    if (timedOut) throw new Error(`${description} timed out`);
+    if (timedOut) throw transportError("timeout", `${description} timed out`);
     try {
       const parsed = JSON.parse(text);
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
@@ -134,7 +152,21 @@ export async function fetchJson({ url, headers, description, secrets, timeoutMs,
       throw new Error(`${description} returned invalid JSON`);
     }
   } catch (error) {
-    if (timedOut || controller.signal.aborted) throw new Error(`${description} timed out`);
+    if (error?.transportKind) throw error;
+    if (Number.isInteger(error?.httpStatus)) throw error;
+    if (timedOut) throw transportError("timeout", `${description} timed out`);
+    const code = fetchCauseCode(error);
+    if (FETCH_TIMEOUT_CODES.has(code)) throw transportError("timeout", `${description} timed out`, { cause: error });
+    if (FETCH_CONNECT_REFUSED.has(code)) throw transportError("connect-refused", `${description} connect-refused`, { cause: error });
+    if (error?.name === "AbortError" || controller.signal.aborted) {
+      const reason = String(callerSignal?.reason ?? "");
+      if (callerSignal?.aborted && /timeout/i.test(reason)) throw transportError("timeout", `${description} timed out`);
+      if (callerSignal?.aborted && !timedOut) throw transportError("aborted", `${description} cancelled`);
+      throw transportError("timeout", `${description} timed out`);
+    }
+    if (error?.name === "TypeError" && /fetch failed/i.test(String(error.message))) {
+      throw transportError("connect-refused", `${description} connect-refused`, { cause: error });
+    }
     throw error;
   } finally {
     clearTimeout(timer);
@@ -629,19 +661,37 @@ function windowDurationLabel(windowMinutes) {
 // ---------------------------------------------------------------------------
 
 const COMMANDCODE_BASE = "https://api.commandcode.ai";
+/** 实测 2026-09-30：未鉴权 whoami ~760ms 回 403，源站可达。旧实现 15s AbortController 包住 whoami+credits/subscriptions+summary 三轮，慢响应会被打成 timeout 且 reason=http-5xx。 */
+const COMMANDCODE_TASK_TIMEOUT_MS = 60_000;
+const COMMANDCODE_REQUEST_TIMEOUT_MS = 20_000;
 
-export async function fetchCommandCode(accessToken) {
+export async function fetchCommandCode(accessToken, ctx = {}) {
+  const started = Date.now();
+  try {
+    return await fetchCommandCodeOnce(accessToken, ctx);
+  } catch (error) {
+    const isTimeout = error?.transportKind === "timeout" || /timed out|timeout/i.test(String(error?.message ?? error));
+    if (!isTimeout || ctx.signal?.aborted || Date.now() - started > 35_000) throw error;
+    return await fetchCommandCodeOnce(accessToken, ctx);
+  }
+}
+
+async function fetchCommandCodeOnce(accessToken, ctx = {}) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 15_000);
+  const timer = setTimeout(() => controller.abort("timeout"), COMMANDCODE_TASK_TIMEOUT_MS);
+  const onCallerAbort = () => controller.abort();
+  if (ctx.signal) {
+    if (ctx.signal.aborted) controller.abort();
+    else ctx.signal.addEventListener("abort", onCallerAbort, { once: true });
+  }
   const headers = { accept: "application/json", Authorization: `Bearer ${accessToken}` };
   const secrets = [accessToken];
+  const jsonOpts = { headers, secrets, timeoutMs: COMMANDCODE_REQUEST_TIMEOUT_MS, signal: controller.signal };
   try {
     const whoamiRaw = await fetchJson({
       url: `${COMMANDCODE_BASE}/alpha/whoami`,
-      headers,
       description: "CmdCode whoami",
-      secrets,
-      signal: controller.signal,
+      ...jsonOpts,
     });
     const account = commandCodeWhoami(whoamiRaw);
     if (!account) throw new Error("Command Code 返回了无法识别的账户响应。");
@@ -651,19 +701,15 @@ export async function fetchCommandCode(accessToken) {
       commandCodeSafe(() =>
         fetchJson({
           url: commandCodeUrl("/alpha/billing/credits", { orgId }),
-          headers,
           description: "CmdCode credits",
-          secrets,
-          signal: controller.signal,
+          ...jsonOpts,
         }),
       ),
       commandCodeSafe(() =>
         fetchJson({
           url: commandCodeUrl("/alpha/billing/subscriptions", { orgId }),
-          headers,
           description: "CmdCode subscription",
-          secrets,
-          signal: controller.signal,
+          ...jsonOpts,
         }),
       ),
     ]);
@@ -680,10 +726,8 @@ export async function fetchCommandCode(accessToken) {
           orgId,
           since: subscription?.currentPeriodStart ?? undefined,
         }),
-        headers,
         description: "CmdCode summary",
-        secrets,
-        signal: controller.signal,
+        ...jsonOpts,
       }),
     );
     const summary = commandCodeSummary(summaryRaw);
@@ -695,6 +739,7 @@ export async function fetchCommandCode(accessToken) {
     return commandCodeReport(account, credits, subscription, summary, unavailable, Date.now());
   } finally {
     clearTimeout(timer);
+    ctx.signal?.removeEventListener?.("abort", onCallerAbort);
   }
 }
 

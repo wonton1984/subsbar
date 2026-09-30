@@ -73,7 +73,12 @@ imports from `scripts/`, and the bundled app ships `core/` + `schemas/` +
   `deferred` receipt.
 - Per-provider tasks are isolated: one provider failing (or throwing) never
   affects the others. Commit-time checks re-validate scope and config
-  generation; stale results are dropped.
+  generation; stale results are dropped. After a completed resample
+  (`success`/`partial`/`failed`), `applyResult` stamps `profileId`/`scopeKey`
+  from that attempt so a profile switch does not keep the previous
+  `profileId` (usage projection would otherwise strip new windows as
+  stale-foreign). Fetch failures classify `timeout`, `connect-refused`, and
+  `http-5xx` separately; generic network errors are `network`, not `http-5xx`.
 - Backoff: `max(effectiveInterval, min(3600, 300·2^(n-1)·(1+jitter)))`
   seconds, server `Retry-After` takes precedence, success resets the
   failure counter. The batch deadline is 120 s.

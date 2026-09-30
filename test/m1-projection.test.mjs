@@ -5,6 +5,7 @@
  * 运行：node test/m1-projection.test.mjs ；退出码 0 = 全过。
  */
 import { projectUsage } from "../core/runtime/project.mjs";
+import { applyResult } from "../core/runtime/scheduler.mjs";
 
 let ok = 0, fail = 0;
 const failures = [];
@@ -71,6 +72,46 @@ console.log("\n== P5. 匹配场景原样保留 ==");
   const out = projectUsage(envelope([baseEntry()]), { config: cfgEnabled("personal"), invalidated: {} });
   const e = out.providers[0];
   check("report/scopeKey/status 保留", e.status === "ok" && e.report !== undefined && e.scopeKey === "scope-synthetic-a");
+}
+
+console.log("\n== P6. 换 profile 后新采样可显示（09 cursor usage 0 窗回归）==");
+{
+  const entry = baseEntry({ profileId: "profile-03273fb1", scopeKey: "scope-old" });
+  applyResult(entry, {
+    kind: "success",
+    profileId: "dev-local",
+    scopeKey: "scope-dev-local",
+    report: baseEntry().report,
+    dataSourceId: "commandcode-alpha",
+    credentialSourceId: "my-key",
+    reader: "commandcode-subsbar-key",
+    identityAssurance: "verified",
+  }, { nowMs: 1800000001000, trigger: { reason: "manual" }, configRevision: 8 });
+  check("applyResult 成功后 profileId 跟随新采样", entry.profileId === "dev-local");
+  check("新 scopeKey 写入", entry.scopeKey === "scope-dev-local");
+  check("新 report windows 保留", (entry.report?.windows ?? []).length > 0);
+  const cfg = {
+    providers: {
+      commandcode: {
+        enabled: true, activeProfile: "dev-local",
+        profiles: [
+          { id: "profile-03273fb1", discovery: "auto", sources: [] },
+          { id: "dev-local", discovery: "auto", sources: [] },
+        ],
+      },
+    },
+  };
+  const shown = projectUsage(envelope([entry]), { config: cfg, invalidated: {} }).providers[0];
+  check("投影后新采样可显示", shown.profileId === "dev-local" && shown.status === "ok" && (shown.report?.windows ?? []).length > 0);
+
+  const failed = baseEntry({ profileId: "profile-03273fb1" });
+  applyResult(failed, {
+    kind: "failed",
+    profileId: "dev-local",
+    error: { code: "timeout", reasonCode: "timeout", action: "retry-later" },
+    retainLastGood: true,
+  }, { nowMs: 1800000001000, trigger: { reason: "manual" }, configRevision: 8 });
+  check("换 profile 失败不把旧 report 改挂到新 profile", failed.profileId === "dev-local" && failed.report === undefined);
 }
 
 console.log(`\n== 总结 ==\n通过 ${ok} / 失败 ${fail}`);

@@ -12,7 +12,7 @@ import { SecretBroker } from "../core/credentials/broker.mjs";
 import { LockBackend } from "../core/runtime/lock.mjs";
 import { RefreshCoordinator } from "../core/runtime/scheduler.mjs";
 import { parseStrictJson } from "../core/runtime/json-strict.mjs";
-import { computeBackoffMs, parseRetryAfter } from "../core/runtime/scheduler.mjs";
+import { computeBackoffMs, parseRetryAfter, fetchErrorToSafe } from "../core/runtime/scheduler.mjs";
 
 let ok = 0, fail = 0;
 const failures = [];
@@ -364,6 +364,25 @@ console.log("\n== S2. Keychain 定位：keychainPath + console user（不依赖 
   const { ProviderRegistry } = await import("../core/providers/registry.mjs");
   const factoryCfg = new ProviderRegistry().get("droid").credentialReaders.find((r) => r.id === "factory-login-keychain");
   check("manifest factory configurable 含 keychainPath", factoryCfg.configurable.includes("keychainPath"));
+}
+
+console.log("\n== S3. fetch 错误分类（timeout ≠ http-5xx）==");
+{
+  const { CORE_REASON_CODES } = await import("../core/defs.mjs");
+  const t = fetchErrorToSafe(new Error("timeout"));
+  check("timeout 的 reasonCode 不是 http-5xx", t.code === "timeout" && t.reasonCode === "timeout" && t.httpStatus === undefined);
+  const whoami = fetchErrorToSafe(new Error("CmdCode whoami timed out"));
+  check("描述性 timed out → timeout", whoami.code === "timeout" && whoami.reasonCode === "timeout");
+  const refused = fetchErrorToSafe(Object.assign(new Error("fetch failed"), { cause: { code: "ECONNREFUSED" }, transportKind: "connect-refused" }));
+  check("connect-refused 可区分", refused.code === "network" && refused.reasonCode === "connect-refused");
+  const s503 = fetchErrorToSafe(Object.assign(new Error("CmdCode credits returned 503"), { httpStatus: 503, transportKind: "http-5xx" }));
+  check("服务端 5xx 带 httpStatus", s503.code === "network" && s503.reasonCode === "http-5xx" && s503.httpStatus === 503);
+  const generic = fetchErrorToSafe(new Error("socket hang up"));
+  check("其它网络错误不是 http-5xx", generic.code === "network" && generic.reasonCode === "network");
+  check("timeout/connect-refused/network 已注册", ["timeout", "connect-refused", "network"].every((c) => CORE_REASON_CODES.includes(c)));
+  const { ProviderRegistry } = await import("../core/providers/registry.mjs");
+  const cc = new ProviderRegistry().get("commandcode");
+  check("commandcode 任务超时宽于 15s 内层 abort", cc.refresh.taskTimeoutSeconds >= 60 && cc.refresh.requestTimeoutSeconds >= 20);
 }
 
 console.log("\n== C19. 严格 JSON ==");

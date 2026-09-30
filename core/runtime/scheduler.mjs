@@ -177,19 +177,20 @@ export class RefreshCoordinator {
     const provCfg = cfgLoaded?.config?.providers?.[providerId];
     if (!manifest) return { kind: "failed", error: safeError("unsupported", "not-implemented", "contact-maintainer") };
     if (!provCfg?.enabled) return { kind: "noop-disabled" };
+    const profileId = typeof provCfg.activeProfile === "string" ? provCfg.activeProfile : undefined;
 
     const dataSource = this.registry.selectDataSource(manifest, provCfg.dataSource, { allowCommunity: !!provCfg.allowCommunityEndpoints });
-    if (!dataSource) return { kind: "failed", error: safeError("unsupported", "insufficient-scope", "contact-maintainer"), retainLastGood: true };
-    if (dataSource.admission !== "approved") return { kind: "failed", error: safeError("unsupported", "insufficient-scope", "contact-maintainer"), retainLastGood: true };
+    if (!dataSource) return { kind: "failed", error: safeError("unsupported", "insufficient-scope", "contact-maintainer"), retainLastGood: true, profileId };
+    if (dataSource.admission !== "approved") return { kind: "failed", error: safeError("unsupported", "insufficient-scope", "contact-maintainer"), retainLastGood: true, profileId };
 
-    // 退避/Retry-After 检查（§5.3）：点击不绕过
+    // 退避/Retry-After 检查（§5.3）：点击不绕过。deferred 不 stamp profileId，避免 last-good 改挂到新 profile。
     const st = runtime[providerId];
     const nextEligible = st?.nextEligibleAtMs;
     if (isAtMs(nextEligible) && nowMs < nextEligible) {
       return { kind: "deferred", reason: "backoff", nextEligibleAtMs: nextEligible, retainLastGood: true };
     }
 
-    const profile = (provCfg.profiles ?? []).find((p) => p.id === provCfg.activeProfile) ?? { id: "default", discovery: "auto", sources: [] };
+    const profile = (provCfg.profiles ?? []).find((p) => p.id === provCfg.activeProfile) ?? { id: profileId ?? "default", discovery: "auto", sources: [] };
     const chain = buildChain(manifest, dataSource);
     const ctx = {
       nowMs, signal, interaction: trigger.interaction ?? "background",
@@ -200,10 +201,10 @@ export class RefreshCoordinator {
     try {
       resolved = await resolveChain(providerId, profile, chain, ctx);
     } catch {
-      return { kind: "failed", error: safeError("io-error", "io-error", "retry-later"), retainLastGood: true };
+      return { kind: "failed", error: safeError("io-error", "io-error", "retry-later"), retainLastGood: true, profileId: profile.id };
     }
     if (resolved.status !== "resolved") {
-      return { kind: "failed", error: resolveErrorToSafe(resolved), retainLastGood: true };
+      return { kind: "failed", error: resolveErrorToSafe(resolved), retainLastGood: true, profileId: profile.id };
     }
 
     // v0 桥接 fetch：lease token → v0 fetcher → v0 report → SnapshotReport
@@ -213,19 +214,20 @@ export class RefreshCoordinator {
       const extra = { region: profile.region, organizationId: profile.organizationId ?? provCfg?.profiles?.find((p) => p.id === profile.id)?.organizationId };
       report = await withTimeout(fetchProviderSnapshot(providerId, token, extra, { signal }), manifest.refresh.taskTimeoutSeconds * 1000, signal);
     } catch (e) {
-      if (signal.aborted) return { kind: "cancelled", retainLastGood: true };
-      return { kind: "failed", error: fetchErrorToSafe(e), retainLastGood: true };
+      if (signal.aborted) return { kind: "cancelled", retainLastGood: true, profileId: profile.id };
+      return { kind: "failed", error: fetchErrorToSafe(e), retainLastGood: true, profileId: profile.id };
     } finally {
       broker.drop(resolved.lease.access);
     }
 
     if (!snapshotHasData(report)) {
-      return { kind: "failed", error: safeError("invalid-response", "empty-response", "retry-later"), retainLastGood: true, report };
+      return { kind: "failed", error: safeError("invalid-response", "empty-response", "retry-later"), retainLastGood: true, report, profileId: profile.id };
     }
     const partial = (report.diagnostics ?? []).length > 0;
     return {
       kind: partial ? "partial" : "success",
       report,
+      profileId: profile.id,
       dataSourceId: dataSource.id,
       scopeKey: resolved.lease.identity.scopeKey,
       reader: resolved.lease.source.reader,
@@ -319,7 +321,7 @@ function receiptOutcome(providers, requested, results) {
   return "unchanged";
 }
 
-function applyResult(entry, r, { nowMs, trigger, configRevision = 0 }) {
+export function applyResult(entry, r, { nowMs, trigger, configRevision = 0 }) {
   r.configRevision = configRevision;
   entry.attempt = {
     state: r.kind === "success" ? "succeeded" : r.kind === "partial" ? "partial"
@@ -329,6 +331,18 @@ function applyResult(entry, r, { nowMs, trigger, configRevision = 0 }) {
   };
   entry.lastAttemptAtMs = nowMs;
   entry.configRevision = r.configRevision;
+  const sampledProfile = r.profileId;
+  if (sampledProfile && (r.kind === "success" || r.kind === "partial" || r.kind === "failed" || r.kind === "cancelled")) {
+    if (entry.profileId !== undefined && entry.profileId !== sampledProfile) {
+      delete entry.report;
+      delete entry.scopeKey;
+      delete entry.source;
+      delete entry.lastSuccessAtMs;
+      entry.freshness = "none";
+      entry.dataDisposition = "none";
+    }
+    entry.profileId = sampledProfile;
+  }
   if (r.kind === "success" || r.kind === "partial") {
     entry.status = r.kind === "partial" ? "partial" : "ok";
     entry.freshness = "fresh";
@@ -374,21 +388,40 @@ function resolveErrorToSafe(resolved) {
   return safeError(code, resolved.reasonCode ?? reasonCode, resolved.action ?? action);
 }
 
-function fetchErrorToSafe(e) {
+const CONNECT_REFUSED_CODES = new Set(["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "EHOSTUNREACH", "ENETUNREACH"]);
+const TIMEOUT_CAUSE_CODES = new Set(["ETIMEDOUT", "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_BODY_TIMEOUT"]);
+
+function transportCauseCode(e) {
+  return e?.cause?.code ?? e?.code ?? e?.cause?.cause?.code;
+}
+
+export function fetchErrorToSafe(e) {
   const msg = String(e?.message ?? e);
+  const kind = e?.transportKind;
+  const causeCode = transportCauseCode(e);
   const retryAfter = e?.retryAfterHeader;
-  if (/returned 401/.test(msg)) return safeError("reauth-required", "http-401", "relogin-owner");
-  if (/returned 403/.test(msg)) return safeError("permission-denied", "http-403", "check-plan-region");
-  if (/returned 429/.test(msg)) {
+  const statusFromMsg = msg.match(/returned (\d{3})/);
+  const httpStatus = Number.isInteger(e?.httpStatus) ? e.httpStatus : (statusFromMsg ? parseInt(statusFromMsg[1], 10) : undefined);
+  if (httpStatus === 401 || /returned 401/.test(msg)) return safeError("reauth-required", "http-401", "relogin-owner");
+  if (httpStatus === 403 || /returned 403/.test(msg)) return safeError("permission-denied", "http-403", "check-plan-region");
+  if (httpStatus === 429 || /returned 429/.test(msg)) {
     const retryAtMs = parseRetryAfter(retryAfter);
     const err = safeError("rate-limited", "http-429", "retry-later", { httpStatus: 429 });
     if (retryAtMs) err.retryAtMs = retryAtMs;
     return err;
   }
-  const m5 = msg.match(/returned (5\d\d)/);
-  if (m5) return safeError("network", "http-5xx", "retry-later", { httpStatus: parseInt(m5[1], 10) });
-  if (/timed out|timeout/i.test(msg)) return safeError("timeout", "http-5xx", "retry-later");
-  return safeError("network", "http-5xx", "retry-later");
+  if (kind === "http-5xx" || (httpStatus >= 500 && httpStatus <= 599) || /returned (5\d\d)/.test(msg)) {
+    const status = httpStatus >= 500 && httpStatus <= 599 ? httpStatus : parseInt((msg.match(/returned (5\d\d)/) ?? [])[1], 10);
+    return safeError("network", "http-5xx", "retry-later", { httpStatus: Number.isInteger(status) ? status : undefined });
+  }
+  if (kind === "timeout" || TIMEOUT_CAUSE_CODES.has(causeCode) || /timed out|timeout/i.test(msg)) {
+    return safeError("timeout", "timeout", "retry-later");
+  }
+  if (kind === "connect-refused" || CONNECT_REFUSED_CODES.has(causeCode) || /ECONNREFUSED|ENOTFOUND|EHOSTUNREACH|connect-refused/i.test(msg)) {
+    return safeError("network", "connect-refused", "retry-later");
+  }
+  if (kind === "aborted" || /cancelled/i.test(msg)) return safeError("cancelled", "cancelled", "none");
+  return safeError("network", "network", "retry-later");
 }
 
 function withTimeout(promise, ms, signal) {

@@ -22,12 +22,12 @@ export function v0ResolveCredential(subsId, auth) {
 export function v0ReadAuth() { return v0.readAuthFile(); }
 
 /** v0 fetch 分派。 */
-export async function v0Fetch(subsId, token) {
+export async function v0Fetch(subsId, token, ctx = {}) {
   switch (subsId) {
     case "kimi": return v0.fetchKimi(token);
     case "opencode": return v0.fetchOpenCode(token);
     case "codex": return v0.fetchCodex(token);
-    case "commandcode": return v0.fetchCommandCode(token);
+    case "commandcode": return v0.fetchCommandCode(token, ctx);
     case "droid": return v0.fetchDroid(token);
     case "cursor": return v0.fetchCursor(token);
     default: throw new Error(`no adapter for ${subsId}`);
@@ -117,6 +117,6 @@ const M2_FETCH = {
 export async function fetchProviderSnapshot(providerId, token, extra = {}, ctx = {}) {
   const m2Fetch = M2_FETCH[providerId];
   if (m2Fetch) return m2Fetch(token, extra, ctx);
-  const v0Report = await v0Fetch(providerId, token);
+  const v0Report = await v0Fetch(providerId, token, ctx);
   return v0ReportToSnapshot(providerId, v0Report, { capturedAtMs: Date.now() });
 }
