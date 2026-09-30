@@ -31,6 +31,8 @@ If Node cannot be found, **Choose Node…** probes the chosen executable for at 
 
 ## Display and refresh
 
+The default popover lists every enabled subscription as a vertical card: primary window bar, one secondary window or balance, reset countdown, freshness and status. Clicking a card expands its details (all visible metrics, source, sampling time, diagnostics, pin buttons) for the current session; the persisted default stays in settings. The header (view toggle, refresh, settings) and footer stay fixed while the list scrolls. Enabled providers stay visible when they fail; disabled ones are listed under **添加订阅** and open their connection settings. The compact single-provider view remains a preference and renders the same card model. Provider tiles are neutral lettered monograms, not vendor logos.
+
 Settings control single-provider or cards view, provider and metric order, expansion, favorites, hidden metrics, selected provider, appearance, density and up to two stable metric pins. Missing or disabled pins show unknown and never switch to another metric. All preferences use the shared config.
 
 Usage v1 is rendered without adapter-specific normalization. Remaining-only values have no invented used/limit or percentage. Zero is retained, zero denominators are unknown, over-limit details remain above 100% while graphics are clipped. The primary metric never switches merely because another window has data. Invalid optional metrics are isolated. All v1 timestamps are milliseconds; an elapsed reset does not refill a quota.
@@ -43,7 +45,7 @@ Only child processes created by this app can be cancelled. SIGTERM permits a can
 
 ## Verification
 
-CoreChecks retains the original 91 legacy regression checks and adds M1 wire/config/CAS/process/presentation checks. It consumes the shared `test/fixtures/ipc/` files, including the Node-generated `usage-golden-normalized.json`; Swift does not implement a duplicate raw-provider normalizer. CLT installations without XCTest use CoreChecks. With full Xcode, `SUBSBAR_XCTEST=1 swift test` runs the shared suites.
+CoreChecks retains the original 91 legacy regression checks and adds M1 wire/config/CAS/process/presentation checks. M2 checks build a 14-provider scene from `usage-golden-normalized.json` and assert that the card overview and the compact view show identical values and states, matching the Node output. It consumes the shared `test/fixtures/ipc/` files, including the Node-generated `usage-golden-normalized.json`; Swift does not implement a duplicate raw-provider normalizer. CLT installations without XCTest use CoreChecks. With full Xcode, `SUBSBAR_XCTEST=1 swift test` runs the shared suites.
 
 The live CLI checks use a temporary synthetic configuration and isolated HOME/XDG directories. They exercise CAS writes, revision and external-edit conflicts, and empty-home discovery without refreshing real accounts. Packaging also runs the bundled registry in an empty environment before signing, so a missing engine dependency fails the build.
 
@@ -51,8 +53,10 @@ Synthetic SwiftUI captures can be generated without credentials, config writes o
 
 ```sh
 /tmp/subsbar-native-build/swift/debug/SubsBar --render-synthetic \
-  test/fixtures/ipc /tmp/subsbar-native-captures
+  test/fixtures/ipc /tmp/subsbar-native-captures [/tmp/registry.json]
 ```
+
+The optional last argument is a `registry --json` output (for example from an empty HOME) that supplies the 14 provider names for the M2 scenes.
 
 These captures test rendering, not real mouse/keyboard interactions. Keep all screenshots and logs outside the public tree. The old `Cache`/`Runtime` compatibility helpers remain for regression tests; the active M1 app never reads the private legacy cache or runs its refresh guard.
 

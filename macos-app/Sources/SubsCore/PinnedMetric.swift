@@ -1,6 +1,7 @@
 import Foundation
 
 public struct PinnedMetric: Sendable {
+    public static let limit = 2
     public let text: String
     public let fraction: Double?
     public let style: String

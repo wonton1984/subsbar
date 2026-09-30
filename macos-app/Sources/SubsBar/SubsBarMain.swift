@@ -55,23 +55,10 @@ import Darwin
         }
         button.toolTip = model.tooltip; button.setAccessibilityLabel(model.tooltip)
         if model.config["ui"]["menuBarMode"].text == "pinned" {
-            let pins = model.config["ui"]["pinnedMetrics"].array.prefix(2).map {
-                PinnedMetric(pin: $0, usage: model.usage, enabled: model.config["providers"][$0["providerId"].text]["enabled"].bool, now: model.now)
-            }
+            let pinned = Self.pinnedTitle(model: model, appearance: button.effectiveAppearance)
+            button.toolTip = pinned.tooltip; button.setAccessibilityLabel(pinned.tooltip)
             button.image = nil
-            button.title = pins.isEmpty ? "—" : pins.map(\.text).joined(separator: " · ")
-            let title = NSMutableAttributedString()
-            for (index, pin) in pins.enumerated() {
-                if index > 0 { title.append(NSAttributedString(string: " · ")) }
-                if pin.style == "mini-bar" {
-                    let attachment = NSTextAttachment()
-                    attachment.image = PieIconRenderer.miniBar(pin.fraction, appearance: button.effectiveAppearance)
-                    title.append(NSAttributedString(attachment: attachment))
-                    title.append(NSAttributedString(string: " "))
-                }
-                title.append(NSAttributedString(string: pin.text))
-            }
-            if !pins.isEmpty { button.attributedTitle = title }
+            button.attributedTitle = pinned.text
             iconKey = ""
         } else {
             button.title = model.config["ui"]["showMenuBarPercent"].bool ? " " + (model.fraction.map { Cache.format($0 * 100) + "%" } ?? "—") : ""
@@ -81,13 +68,37 @@ import Darwin
         popover.appearance = preferred; settings?.appearance = preferred
         if popover.isShown { resize() }
     }
+    static func pinnedTitle(model: AppModel, appearance: NSAppearance) -> (text: NSAttributedString, tooltip: String) {
+        let declared = Array(model.pins.prefix(PinnedMetric.limit))
+        let pins = declared.map {
+            PinnedMetric(pin: $0, usage: model.usage, enabled: model.config["providers"][$0["providerId"].text]["enabled"].bool, now: model.now)
+        }
+        let summary = zip(declared, pins).map { pin, value in
+            let label = model.usage?.providers.first { $0.id == pin["providerId"].text }.flatMap { provider in (provider.windows + provider.metrics).first { $0.id == pin["metricId"].text }?.label }
+            return model.name(pin["providerId"].text) + " · " + (label ?? Presentation.text(pin["metricId"].text)) + " " + value.text
+        }
+        let title = NSMutableAttributedString()
+        for (index, pin) in pins.enumerated() {
+            if index > 0 { title.append(NSAttributedString(string: " · ")) }
+            if pin.style == "mini-bar" {
+                let attachment = NSTextAttachment()
+                attachment.image = PieIconRenderer.miniBar(pin.fraction, appearance: appearance)
+                title.append(NSAttributedString(attachment: attachment))
+                title.append(NSAttributedString(string: " "))
+            }
+            title.append(NSAttributedString(string: pin.text))
+        }
+        if pins.isEmpty { title.append(NSAttributedString(string: "—")) }
+        let font = NSFont.menuBarFont(ofSize: 0)
+        title.addAttributes([.font: font, .foregroundColor: NSColor.labelColor], range: NSRange(location: 0, length: title.length))
+        return (title, "SubsBar · " + (summary.isEmpty ? "未固定指标" : summary.joined(separator: "；")))
+    }
     private func resize() {
-        let count = 250
         let maxHeight = max(230, (item.button?.window?.screen?.visibleFrame.height ?? 700) - 40)
-        let desiredHeight = ceil(model.detailsHeight ?? CGFloat(count)) + 146
+        let desiredHeight = ceil(model.detailsHeight ?? 250) + ceil(model.chromeHeight ?? PopoverLayout.fallbackChrome)
         let height = min(maxHeight, max(230, desiredHeight))
         if abs(model.height - height) > 0.5 { model.height = height }
-        popover.contentSize = NSSize(width: 350, height: model.height)
+        popover.contentSize = NSSize(width: PopoverLayout.width, height: model.height)
     }
     @objc func toggle() {
         if popover.isShown { popover.performClose(nil); return }
@@ -167,10 +178,11 @@ import Darwin
         }
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
-        if CommandLine.arguments.count == 4 && CommandLine.arguments[1] == "--render-synthetic" {
+        if [4, 5].contains(CommandLine.arguments.count) && CommandLine.arguments[1] == "--render-synthetic" {
             do {
-                try SyntheticRender.run(fixtures: URL(fileURLWithPath: CommandLine.arguments[2]), output: URL(fileURLWithPath: CommandLine.arguments[3]))
-            } catch { print("Synthetic rendering failed"); exit(1) }
+                try SyntheticRender.run(fixtures: URL(fileURLWithPath: CommandLine.arguments[2]), output: URL(fileURLWithPath: CommandLine.arguments[3]),
+                                        registryOverride: CommandLine.arguments.count == 5 ? URL(fileURLWithPath: CommandLine.arguments[4]) : nil)
+            } catch { print("Synthetic rendering failed: \(error)"); exit(1) }
             return
         }
         let delegate = AppDelegate(); app.delegate = delegate
