@@ -14,14 +14,16 @@ macOS 菜单栏订阅额度面板 + 可独立运行的 Node 数据层。目标�
 | CommandCode | 已实现 | `/alpha/whoami` + billing/usage |
 | Factory Droid | 已实现 | organization subscription usage |
 | Cursor | 已实现 | IDE state.vscdb + usage-summary RPC |
-| Claude | 计划中 | 官方 CLI `/usage` 优先；OAuth 来源待准入审阅 |
-| GitHub Copilot | 计划中 | 官方 Copilot 能力优先；内部接口为社区来源 |
-| Z.AI / GLM Coding Plan | 计划中 | quota/limit 接口（社区来源） |
-| OpenRouter | 计划中 | `/api/v1/key`（官方） |
-| Antigravity | 计划中 | 官方 `agy /usage` 优先 |
-| Devin | 计划中 | CLI 凭证 / app DB / 手动导入网页会话 |
-| Grok Build | 计划中 | `cli-chat-proxy.grok.com/v1/billing` |
-| Ollama Cloud | 计划中 | 本地签名请求（`~/.ollama/id_ed25519`） |
+| Claude | 已实现（未验证） | OAuth usage 接口；来源政策准入未验证 |
+| GitHub Copilot | 已实现（未验证） | `copilot_internal/user`（社区来源） |
+| Z.AI / GLM Coding Plan | 已实现（未验证） | quota/limit 接口（社区来源，region 必填） |
+| OpenRouter | 已实现（未验证） | `/api/v1/key`（官方） |
+| Antigravity | 已实现（未验证） | `agy /usage`（防御性解析） |
+| Devin | 已实现（未验证） | 网页组织 quota（防御性解析，需 organizationId） |
+| Grok Build | 已实现（未验证） | `cli-chat-proxy.grok.com/v1/billing`（防御性解析） |
+| Ollama Cloud | 已实现（未验证） | 本地签名请求（防御性解析） |
+
+> 上表「已实现（未验证）」八家：响应结构已防御性实现，但维护者本机无此订阅、未经真实端点验证——字段名可能偏差，欢迎社区贡献者以真实账号验证（参考 `docs/providers/<id>.md` 与各 manifest 的 pending-verification 标注）。
 
 每家的来源等级、凭证方式、窗口口径与已知缺口见 `docs/providers/<id>.md`。社区内部接口的 adapter 默认关闭，启用前请阅读对应文档与适用服务条款。
 
