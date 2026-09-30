@@ -63,6 +63,23 @@ import SubsCore
         }
         try scene(enabled: [])
         try popover("M2-cards-empty.png")
+
+        // Connection flow: not connected -> guide -> connected, on the real Codex manifest declarations.
+        let home = try read("registry-empty-home.json")
+        func connectShot(_ name: String) throws {
+            try render(SettingsView(model: model, initialProvider: "codex"), size: NSSize(width: 820, height: 560), to: output.appendingPathComponent(name)); outputs.append(name)
+        }
+        try scene(enabled: [])
+        model.registry = home; model.usage = nil; model.receipt = nil
+        model.guideOpen = []
+        try connectShot("M3-connect-1-unconnected.png")
+        model.guideOpen = ["codex"]
+        try connectShot("M3-connect-2-guide.png")
+        try scene(enabled: ["codex"])
+        let resolved = Wire.object(["sources": .array([.object(["id": .string("auto-codex"), "kind": .string("cli"), "reader": .string("codex-official"), "purpose": .string("primary"), "originOfChoice": .string("auto"), "availability": .string("resolved")])])])
+        model.registry = home.setting("providers", .array(home["providers"].array.enumerated().map { $0.offset == 0 ? $0.element.setting("profiles", .array([resolved])) : $0.element }))
+        model.guideOpen = []
+        try connectShot("M3-connect-3-connected.png")
         print("PASS: \(3 + outputs.count) synthetic SwiftUI renders; no refresh, config writes or credentials")
     }
     private static func syntheticRegistry(names: Wire) -> Wire {

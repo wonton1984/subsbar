@@ -213,7 +213,9 @@ struct ProviderCardView: View {
     @ViewBuilder var details: some View {
         Divider()
         VStack(alignment: .leading, spacing: 3) {
-            if let source = card.source { Text("来源：" + source) }
+            if let manifest = model.providers.first(where: { $0["providerId"].text == card.providerID }),
+               let sentence = ConnectionGuide.sourceSentence(manifest: manifest, name: card.name) { Text(sentence) }
+            if let source = card.source { Text("数据来自：" + source) }
             if let sampled = card.sampledAtMs { Text("采样：" + Date(timeIntervalSince1970: sampled / 1000).formatted(date: .abbreviated, time: .standard)) }
             if let account = card.accountLabel { Text("账户：" + account) }
             ForEach(Array(card.diagnostics.enumerated()), id: \.offset) { _, text in Text(text) }

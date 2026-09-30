@@ -31,7 +31,7 @@ struct SettingsView: View {
                         ForEach(Array(model.providers.enumerated()), id: \.offset) { _, row in
                             VStack(alignment: .leading) {
                                 Text(model.name(row["providerId"].text))
-                                Text(row["supported"].bool ? (model.config["providers"][row["providerId"].text]["enabled"].bool ? "已启用" : "未启用") : "尚不支持")
+                                Text(row["supported"].bool ? (model.config["providers"][row["providerId"].text]["enabled"].bool ? "已添加" : "未添加") : "尚不支持")
                                     .font(.caption).foregroundStyle(.secondary)
                             }.tag(row["providerId"].text)
                         }
@@ -40,7 +40,7 @@ struct SettingsView: View {
                         ConnectionEditor(model: model, base: document, manifest: manifest)
                             .id(providerID + editorVersion.uuidString + document.contentToken)
                             .frame(minWidth: 350)
-                    } else { Text("选择订阅以设置连接。所有来源能力由数据引擎声明。").padding() }
+                    } else { Text("选择一个订阅开始连接。").padding() }
                 }
             } else if let document = model.document {
                 PreferencesEditor(model: model, base: document).id(editorVersion.uuidString + document.contentToken)
@@ -59,6 +59,8 @@ struct ConnectionEditor: View {
     @State private var profileIndex = 0
     @State private var readerID = ""
     @State private var saved = false
+    @State private var copied = false
+    @State private var advancedOpen = false
     init(model: AppModel, base: ConfigDocument, manifest: Wire) {
         self.model = model; self.base = base; self.manifest = manifest
         let existing = base.config["providers"][manifest["providerId"].text]
@@ -89,11 +91,74 @@ struct ConnectionEditor: View {
         profileIndex = profiles.count - 1
         if draft["activeProfile"].text.isEmpty { draft = draft.setting("activeProfile", .string(id)) }
     }
+    var guide: ConnectionGuide { ConnectionGuide(manifest: manifest, name: model.name(providerID)) }
+    var card: CardModel { model.card(providerID, single: false) }
+    var connected: Bool { card.enabled && card.hasReport && !card.needsRepair }
+    var guideOpen: Bool { model.guideOpen.contains(providerID) }
     var body: some View {
         ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack {
+                    Text(model.name(providerID)).font(.title3.bold())
+                    Spacer()
+                    if guide.kind != .unsupported {
+                        Label(connected ? "已连接" : card.enabled && card.needsRepair ? "需要重新登录" : "未连接",
+                              systemImage: connected ? "checkmark.circle.fill" : "circle.dashed")
+                            .foregroundStyle(connected ? Palette.band(.green) : card.needsRepair ? Palette.band(.orange) : .secondary)
+                    }
+                }
+                primaryAction
+                DisclosureGroup("高级", isExpanded: $advancedOpen) {
+                    advanced.padding(.top, 8)
+                }
+            }.padding(12)
+        }
+    }
+    @ViewBuilder var primaryAction: some View {
+        if guide.kind == .unsupported {
+            Text(guide.instruction).foregroundStyle(.secondary)
+        } else {
+            if connected {
+                VStack(alignment: .leading, spacing: 3) {
+                    if let sentence = ConnectionGuide.sourceSentence(manifest: manifest, name: model.name(providerID)) { Text(sentence) }
+                    if let updated = card.updated { Text(updated).foregroundStyle(.secondary) }
+                }
+            }
+            HStack {
+                Button(connected ? (guide.kind == .apiKey ? "更换 API Key" : "重新登录") : guide.primaryTitle) { model.toggleGuide(providerID) }
+                    .buttonStyle(.borderedProminent).controlSize(.large)
+                if connected { Button("重新检测") { detect() }.disabled(model.saving || model.refreshing) }
+            }
+            if guideOpen {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(guide.instruction).fixedSize(horizontal: false, vertical: true)
+                    if let command = guide.command {
+                        HStack {
+                            Text(command).font(.system(.body, design: .monospaced)).padding(.horizontal, 8).padding(.vertical, 4)
+                                .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
+                            Button(copied ? "已复制" : "复制命令") {
+                                NSPasteboard.general.clearContents(); NSPasteboard.general.setString(command, forType: .string); copied = true
+                            }
+                        }
+                    }
+                    HStack {
+                        Button("我已完成，检测连接") { detect() }.disabled(model.saving || model.refreshing)
+                        if model.saving || model.refreshing { ProgressView().controlSize(.small) }
+                    }
+                }.padding(10).background(Color.secondary.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
+            }
+            if !connected, card.enabled, let issue = card.issue {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(issue)
+                    if let action = card.action { Text(action).foregroundStyle(.secondary) }
+                }.foregroundStyle(Palette.band(.orange))
+            }
+        }
+    }
+    func detect() { model.connect(provider: providerID, base: base, draft: draft) }
+    @ViewBuilder var advanced: some View {
             VStack(alignment: .leading, spacing: 12) {
-                Text(model.name(providerID)).font(.title3.bold())
-                Text("能力：" + manifest["capabilities"].array.map(\.text).joined(separator: " · ")).foregroundStyle(.secondary)
+                Text("默认会自动发现登录信息。只有连接不上时才需要在这里手动指定。").font(.caption).foregroundStyle(.secondary)
                 Toggle("启用此订阅（失败时仍保留卡片）", isOn: flag("enabled"))
                 Picker("用量来源", selection: field("dataSource")) {
                     Text("自动选择已准入来源").tag("auto")
@@ -170,8 +235,7 @@ struct ConnectionEditor: View {
                 }
                 if saved { Text("已保存。重新载入设置后可继续编辑。").foregroundStyle(.secondary) }
                 Text("先保存，再连接。连接只检查这一家；可能请求一次来源授权。此表单只保存来源引用，不接收或显示凭证。").font(.caption).foregroundStyle(.secondary)
-            }.padding(12).textFieldStyle(.roundedBorder)
-        }
+            }.textFieldStyle(.roundedBorder)
     }
     func save() { model.save(base: base, patch: .object(["providers": .object([providerID: draft])])) { saved = $0 } }
     func availability(_ value: String) -> String {

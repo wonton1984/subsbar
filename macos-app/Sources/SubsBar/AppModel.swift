@@ -16,6 +16,8 @@ import SubsCore
     @Published var receipt: String?
     @Published var expandedOverrides: [String: Bool] = [:]
     @Published var addSubscriptionExpanded = false
+    @Published var guideOpen: Set<String> = []
+    private var pendingConnect: String?
     var detailsHeight: CGFloat?
     var chromeHeight: CGFloat?
     var changed: (() -> Void)?
@@ -51,6 +53,18 @@ import SubsCore
     func isExpanded(_ id: String) -> Bool { expandedOverrides[id] ?? config["ui"]["cards"][id]["expanded"].bool }
     func toggleExpanded(_ id: String) { expandedOverrides[id] = !isExpanded(id); changed?() }
     func toggleAddSubscription() { addSubscriptionExpanded.toggle(); changed?() }
+    func toggleGuide(_ id: String) {
+        if guideOpen.contains(id) { guideOpen.remove(id) } else { guideOpen.insert(id) }
+    }
+    /// "I'm done logging in": enable the provider if needed, then check only this provider.
+    /// The check waits for the config reload so it sees the enabled provider.
+    func connect(provider id: String, base: ConfigDocument, draft: Wire) {
+        if config["providers"][id]["enabled"].bool { refresh(provider: id, connect: true); return }
+        pendingConnect = id
+        save(base: base, patch: .object(["providers": .object([id: draft.setting("enabled", .bool(true))])])) { [weak self] ok in
+            if !ok { self?.pendingConnect = nil }
+        }
+    }
     func card(_ id: String, single: Bool) -> CardModel {
         CardModel(providerID: id, name: name(id), config: config, usage: usage, now: now, expanded: single || isExpanded(id))
     }
@@ -129,6 +143,7 @@ import SubsCore
                 generation += 1; cancellation.cancel()
                 document = result.0; registry = result.1; usage = result.2
                 globalError = nil; now = Date(); schedule(); changed?()
+                if let id = pendingConnect { pendingConnect = nil; refresh(provider: id, connect: true) }
                 if let bootstrap = UserDefaults.standard.string(forKey: "bootstrapNodePath") {
                     save(base: result.0, patch: .object(["runtime": .object(["nodePath": .string(bootstrap)])])) { success in
                         if success { UserDefaults.standard.removeObject(forKey: "bootstrapNodePath") }

@@ -93,6 +93,27 @@ public enum M2Suite {
         try check("pinned remaining-only shows balance, not percent", PinnedMetric(pin: pin, usage: usage, enabled: true, now: now).text == "USD 12.50")
         try check("pinned unknown primary stays unknown", PinnedMetric(pin: pin.setting("providerId", .string("claude")).setting("metricId", .string("quota-percent")).setting("field", .string("remaining-percent")), usage: usage, enabled: true, now: now).text == "—")
         try check("pin limit is two", PinnedMetric.limit == 2)
+
+        let home = try fixture("registry-empty-home.json")["providers"].array
+        func guide(_ id: String, supported: Bool = true, kinds: [String] = []) -> ConnectionGuide {
+            let manifest = home.first { $0["providerId"].text == id } ?? .object(["providerId": .string(id), "supported": .bool(supported),
+                "credentialReaders": .array(kinds.map { .object(["credentialKinds": .array([.string($0)])]) })])
+            return ConnectionGuide(manifest: manifest, name: id.capitalized)
+        }
+        let codex = guide("codex")
+        try check("guide codex is login with one-sentence command", codex.kind == .login && codex.primaryTitle == "登录 Codex" && codex.command == "codex login" && codex.instruction.contains("codex login"))
+        try check("guide unsupported provider has no action", guide("claude").kind == .unsupported && guide("claude").command == nil)
+        try check("guide login provider without verified command shows no command", guide("droid").kind == .login && guide("droid").command == nil && guide("droid").instruction.contains("检测连接"))
+        try check("guide api-key providers", ["kimi", "openrouter", "commandcode", "opencode"].allSatisfy { guide($0).kind == .apiKey })
+        try check("guide unknown provider classified by credential kind", guide("x-new", kinds: ["api-key"]).kind == .apiKey && guide("y-new", kinds: ["oauth"]).kind == .login)
+        let developerWords = ["reader", "source", "priority", "profile", "keychain", "discovery"]
+        let texts = ["codex", "droid", "kimi", "claude"].map { guide($0) }.flatMap { [$0.primaryTitle, $0.instruction] }
+        try check("guide default copy has no developer terms", !texts.contains { text in developerWords.contains { text.lowercased().contains($0) } })
+        let resolved = Wire.object(["credentialReaders": home[0]["credentialReaders"], "profiles": .array([.object(["sources": .array([
+            .object(["reader": .string("codex-auth-file"), "availability": .string("missing")]),
+            .object(["reader": .string("codex-official"), "availability": .string("resolved")])])])])])
+        try check("connected source is one user sentence", ConnectionGuide.sourceSentence(manifest: resolved, name: "Codex") == "凭证来源：Codex 命令行登录")
+        try check("no resolved source gives no sentence", ConnectionGuide.sourceSentence(manifest: home[0], name: "Codex") == nil)
         return count
     }
 }
