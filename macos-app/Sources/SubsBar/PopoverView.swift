@@ -5,112 +5,112 @@ import SubsCore
 @MainActor func quotaColor(_ fraction: Double?) -> NSColor {
     switch Cache.band(fraction) { case .green: .systemGreen; case .orange: .systemOrange; case .red: .systemRed; case .gray: .systemGray }
 }
-struct UsageRow: View {
-    let window: UsageWindow
-    let now: Date
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack {
-                Text(window.label).fontWeight(.medium).fixedSize(horizontal: false, vertical: true)
-                Spacer()
-                if window.effectiveUsed == nil, window.limit == nil, let remaining = window.remaining {
-                    Text(window.unit.lowercased() == "usd" ? "剩 $" + String(format: "%.2f", remaining) : "剩余 \(Cache.format(remaining)) \(window.unit)").monospacedDigit()
-                } else {
-                    Text("已用 \(window.effectiveUsed.map(Cache.format) ?? "—") / \(window.limit.map(Cache.format) ?? "总额未知") \(window.unit == "percent" ? "%" : window.unit)").monospacedDigit()
-                }
-            }
-            if let fraction = window.fraction {
-                ProgressView(value: 1 - fraction).controlSize(.small).tint(Color(nsColor: quotaColor(fraction)))
-            } else { Text("比例未知").font(.system(size: 10)).foregroundStyle(.secondary) }
-            Text(Cache.countdown(window.resetsAt, now: now)).font(.system(size: 10)).foregroundStyle(.secondary).monospacedDigit()
-        }
-    }
-}
 private struct DetailsHeightKey: PreferenceKey {
     static let defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }
+struct MetricRow: View {
+    let metric: V1Metric
+    let now: Date
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(metric.label).fontWeight(.medium)
+            Text(metric.summary).monospacedDigit().fixedSize(horizontal: false, vertical: true)
+            if metric.kind == "quota" {
+                if let fraction = metric.fraction {
+                    ProgressView(value: 1 - fraction).tint(Color(nsColor: quotaColor(fraction)))
+                    if (metric.usedPercent ?? 0) > 100 { Text("超额 · 已用 \(Cache.format(metric.usedPercent!))%").foregroundStyle(.red) }
+                } else { Text("比例未知").foregroundStyle(.secondary) }
+                Text(metric.reset(at: now)).foregroundStyle(.secondary)
+            }
+            if metric.inconsistent { Text("数值不一致，比例按已用量计算").foregroundStyle(.orange) }
+        }.font(.system(size: 11)).accessibilityElement(children: .combine)
+    }
+}
+struct ProviderCard: View {
+    @ObservedObject var model: AppModel
+    let id: String
+    let single: Bool
+    var entry: V1Provider? { model.usage?.providers.first { $0.id == id } }
+    var preferences: Wire { model.config["ui"]["cards"][id] }
+    var expanded: Bool { single || preferences["expanded"].bool }
+    var metrics: [V1Metric] {
+        guard let entry else { return [] }
+        let all = entry.windows + entry.metrics
+        let hidden = preferences["hiddenMetricIds"].array.map(\.text)
+        let order = preferences["metricOrder"].array.map(\.text)
+        return all.filter { !hidden.contains($0.id) }.sorted { (order.firstIndex(of: $0.id) ?? 999) < (order.firstIndex(of: $1.id) ?? 999) }
+    }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Button {
+                    model.patchUI(.object(["cards": .object([id: .object(["expanded": .bool(!expanded)])])]))
+                } label: { Image(systemName: expanded ? "chevron.down" : "chevron.right") }.buttonStyle(.plain).disabled(single)
+                Text((preferences["favorite"].bool ? "★ " : "") + model.name(id)).font(.system(size: 13, weight: .bold))
+                Spacer()
+                Button("连接") { model.openSettings?(id) }.controlSize(.small)
+            }
+            if !model.config["providers"][id]["enabled"].bool { Text("未启用").foregroundStyle(.secondary) }
+            else if let entry {
+                HStack {
+                    Text(Presentation.status(entry.status))
+                    Spacer()
+                    Text("剩余 \(entry.iconFraction(at: model.now).map { Cache.format($0 * 100) + "%" } ?? "未知")")
+                }.foregroundStyle(Color(nsColor: quotaColor(entry.iconFraction(at: model.now))))
+                if let issue = entry.issue { Text(issue).foregroundStyle(.orange) }
+                if let attempt = entry.attemptMessage { Text(attempt).foregroundStyle(.secondary) }
+                if entry.report.isObject {
+                    let freshness = entry.freshness(at: model.now)
+                    if freshness != "fresh" { Text(freshness == "stale" ? "上次数据 · 已陈旧" : "历史或时间异常数据 · 比例不用于菜单栏").foregroundStyle(.secondary) }
+                    if model.config["ui"]["showAccountLabel"].bool, let label = entry.raw["account"]["label"].string { Text(Presentation.text(label)).foregroundStyle(.secondary) }
+                    if expanded {
+                        ForEach(metrics) { MetricRow(metric: $0, now: model.now) }
+                        ForEach(Array(entry.report["diagnostics"].array.enumerated()), id: \.offset) { _, item in Text(Presentation.diagnostic(item["code"].text)).foregroundStyle(.secondary) }
+                    } else if let primary = entry.primary { MetricRow(metric: primary, now: model.now) }
+                } else { Text("暂无用量数据；连接状态保持可见").foregroundStyle(.secondary) }
+            } else { Text("暂无用量数据").foregroundStyle(.secondary) }
+        }.padding(8).background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+    }
+}
 struct PopoverView: View {
     @ObservedObject var model: AppModel
+    var single: Bool { model.config["ui"]["overviewMode"].text == "single" }
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            buttons
-            Divider()
-            HStack(alignment: .firstTextBaseline) {
-                Text(model.provider.name).font(.system(size: 14, weight: .bold))
+        VStack(alignment: .leading, spacing: model.config["ui"]["density"].text == "comfortable" ? 12 : 7) {
+            HStack {
+                Text("SubsBar").font(.headline)
                 Spacer()
-                Text("剩余 \(model.fraction.map { Cache.format($0 * 100) + "%" } ?? "未知")").font(.system(size: 13, weight: .medium)).foregroundStyle(Color(nsColor: quotaColor(model.fraction)))
+                Button("设置") { model.openSettings?(nil) }
             }
-            ScrollView {
-                details.frame(maxWidth: .infinity, alignment: .leading).padding(.trailing, 10)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .background(GeometryReader { geometry in
-                        Color.clear.preference(key: DetailsHeightKey.self, value: geometry.size.height)
-                    })
-            }.scrollIndicators(.hidden)
-                .onPreferenceChange(DetailsHeightKey.self) { value in
-                    Task { @MainActor in model.measureDetails(value) }
-                }
+            if single {
+                Picker("订阅", selection: Binding(get: { model.selected }, set: { model.choose($0) })) {
+                    Text("未选择").tag("")
+                    ForEach(Array(model.providers.enumerated()), id: \.offset) { _, row in Text(model.name(row["providerId"].text)).tag(row["providerId"].text) }
+                }.labelsHidden()
+            }
             Divider()
-            footer
-        }.font(.system(size: 11)).padding(10).frame(width: 350, height: model.height)
-    }
-    private var buttons: some View {
-        HStack(spacing: 3) {
-            ForEach(Provider.all) { provider in
-                Button { model.choose(provider.id) } label: {
-                    Text(provider.name).font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(!provider.supported ? Color.secondary : model.selected == provider.id ? Color.white : Color.primary)
-                        .padding(.horizontal, 5).padding(.vertical, 5)
-                        .background(model.selected == provider.id ? (provider.supported ? Color.accentColor : Color.secondary.opacity(0.2)) : Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
-                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(model.selected == provider.id ? Color.accentColor : .clear, lineWidth: 1))
-                }.buttonStyle(.plain)
-                    .help(provider.id == "commandcode" ? "CommandCode" : provider.name)
-                    .accessibilityLabel(provider.id == "commandcode" ? "CommandCode" : provider.name)
-                    .accessibilityValue(model.selected == provider.id ? "已选择" : "未选择")
-            }
-        }
-    }
-    @ViewBuilder private var details: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if !model.provider.supported {
-                Text("未接入：用量接口和凭证接入尚未完成").foregroundStyle(.secondary)
-            } else {
-                if let error = model.globalError ?? model.snapshot.error { Text("✗ \(error)").foregroundStyle(.red) }
-                if let message = model.outcomes[model.selected] { Text(message).foregroundStyle(message == "已更新" ? Color.secondary : Color.red).font(.system(size: 10)) }
-                if let message = model.snapshot.diagnostics[model.selected] { Text("✗ \(message)").foregroundStyle(.orange).font(.system(size: 10)) }
-                if let entry = model.entry {
-                    if model.selected == "droid" && !entry.windows.isEmpty && entry.windows.allSatisfy({ ["标准额度", "高级额度", "Premium额度"].contains($0.label) }) {
-                        Text("5 小时 / 每周额度尚未由数据源提供；以下仅为总额度").font(.system(size: 10)).foregroundStyle(.orange)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 8) {
+                    if let error = model.globalError { Text(error).foregroundStyle(.orange) }
+                    if model.loading { ProgressView("读取配置…") }
+                    if single && !model.selected.isEmpty { ProviderCard(model: model, id: model.selected, single: true) }
+                    else {
+                        ForEach(Array(model.enabled.enumerated()), id: \.offset) { _, row in ProviderCard(model: model, id: row["providerId"].text, single: false) }
+                        if model.enabled.isEmpty { Text("尚未启用订阅。打开设置，选择来源并连接；不会自动读取凭证或发起网络请求。").foregroundStyle(.secondary) }
                     }
-                    Text(model.cacheStatus + (entry.main.map { " · 主窗口：\($0.label)" } ?? "")).font(.system(size: 10)).foregroundStyle(.secondary)
-                    if let error = entry.error { Text("✗ \(error)").foregroundStyle(.red) }
-                    ForEach(entry.warnings, id: \.self) { Text("✗ \($0)").font(.system(size: 10)).foregroundStyle(.orange) }
-                    ForEach(entry.windows) { UsageRow(window: $0, now: model.now) }
-                    ForEach(entry.metrics) { metric in HStack { Text(metric.label); Spacer(); Text(metric.value).monospacedDigit() } }
-                    ForEach(Array(entry.notes.enumerated()), id: \.offset) { _, note in Text(note).font(.system(size: 10)).foregroundStyle(.secondary) }
-                    if entry.windows.isEmpty && entry.metrics.isEmpty { Text("暂无额度数据").foregroundStyle(.secondary) }
-                } else { Text("暂无可用缓存").foregroundStyle(.secondary) }
-            }
-        }.textSelection(.enabled)
-    }
-    private var footer: some View {
-        HStack(spacing: 6) {
-            Button(model.refreshing ? "刷新中…" : "手动刷新") { model.refresh() }.disabled(model.refreshing)
-                .help("刷新已接入的六家订阅；旧刷新服务加载时暂停刷新")
-            if model.refreshing { ProgressView().controlSize(.small) }
-            Spacer(minLength: 0)
-            VStack(alignment: .trailing, spacing: 2) {
-                Text("缓存时间 · \(age)").foregroundStyle(.secondary)
-                Text(model.entry?.fetchedAt?.formatted(date: .abbreviated, time: .standard) ?? "未知")
-            }.font(.system(size: 10))
-            Button("退出") { NSApp.terminate(nil) }
-        }.controlSize(.small)
-    }
-    private var age: String {
-        guard let date = model.entry?.fetchedAt else { return "未知" }
-        let delta = model.now.timeIntervalSince(date)
-        guard delta >= -300 else { return "时钟异常" }
-        return "\(Int(max(0, delta) / 60)) 分钟前"
+                    if let receipt = model.receipt { Text(receipt).foregroundStyle(.secondary) }
+                }.frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .background(GeometryReader { Color.clear.preference(key: DetailsHeightKey.self, value: $0.size.height) })
+            }.scrollIndicators(.hidden).onPreferenceChange(DetailsHeightKey.self) { value in Task { @MainActor in model.measureDetails(value) } }
+            Divider()
+            HStack {
+                Button(model.refreshing ? "刷新中…" : "手动刷新") { model.refresh() }.disabled(model.refreshing || model.document == nil)
+                if model.refreshing { Button("取消") { model.cancelRefresh() } }
+                Spacer()
+                Button("退出") { NSApp.terminate(nil) }
+            }.controlSize(.small)
+        }.font(.system(size: 11)).padding(10).frame(width: 350, height: model.height)
     }
 }

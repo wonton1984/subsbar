@@ -1,0 +1,45 @@
+{
+  "description": "refresh request:RefreshReceipt 样例（envelope 内 request 字段）。completedProviderIds 表示任务已得终态（含失败），不是成功计数。",
+  "updated": {
+    "requestId": "request-synthetic-a",
+    "outcome": "updated",
+    "requestedProviderIds": ["codex", "kimi"],
+    "completedProviderIds": ["codex", "kimi"],
+    "cachePersisted": true
+  },
+  "unchanged": {
+    "requestId": "request-synthetic-b",
+    "outcome": "unchanged",
+    "requestedProviderIds": ["codex"],
+    "completedProviderIds": ["codex"],
+    "cachePersisted": false
+  },
+  "partial": {
+    "requestId": "request-synthetic-c",
+    "outcome": "partial",
+    "requestedProviderIds": ["codex", "kimi", "droid"],
+    "completedProviderIds": ["codex", "kimi", "droid"],
+    "cachePersisted": true
+  },
+  "deferred-busy": {
+    "requestId": "request-synthetic-d",
+    "outcome": "deferred",
+    "requestedProviderIds": ["codex"],
+    "completedProviderIds": [],
+    "cachePersisted": false
+  },
+  "cancelled": {
+    "requestId": "request-synthetic-e",
+    "outcome": "cancelled",
+    "requestedProviderIds": ["codex", "kimi"],
+    "completedProviderIds": ["kimi"],
+    "cachePersisted": true
+  },
+  "no-op": {
+    "requestId": "request-synthetic-f",
+    "outcome": "no-op",
+    "requestedProviderIds": [],
+    "completedProviderIds": [],
+    "cachePersisted": false
+  }
+}

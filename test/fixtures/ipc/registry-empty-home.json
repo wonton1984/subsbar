@@ -1,0 +1,185 @@
+{
+  "schemaVersion": 1,
+  "kind": "registry",
+  "contextId": "context-synthetic-default",
+  "generatedAtMs": 1800000000000,
+  "providers": [
+    {
+      "providerId": "codex",
+      "name": "Codex",
+      "product": "Codex subscription",
+      "grade": "C",
+      "releaseStatus": "supported",
+      "admission": "approved",
+      "supported": true,
+      "capabilities": ["quota"],
+      "minimumRefreshIntervalSeconds": 60,
+      "defaultRefreshIntervalSeconds": 300,
+      "credentialReaders": [
+        {
+          "id": "codex-official",
+          "kind": "cli",
+          "credentialKinds": ["cli-session"],
+          "implementationId": "codex-official",
+          "configurable": ["executablePath"],
+          "requires": [],
+          "purposes": ["primary"],
+          "owner": "external",
+          "renewMode": "owner-cli",
+          "implemented": true,
+          "expiryCapability": { "discover": "unknown", "resolve": "unknown" }
+        },
+        {
+          "id": "codex-auth-file",
+          "kind": "file",
+          "credentialKinds": ["oauth"],
+          "implementationId": "codex-auth-file",
+          "configurable": ["path"],
+          "requires": [],
+          "purposes": ["primary"],
+          "owner": "external",
+          "renewMode": "none",
+          "implemented": true,
+          "expiryCapability": { "discover": "unknown", "resolve": "jwt-claim-if-decodable" }
+        },
+        {
+          "id": "codex-subsbar-key",
+          "kind": "keychain",
+          "credentialKinds": ["oauth"],
+          "implementationId": "codex-subsbar-key",
+          "configurable": ["service", "account"],
+          "requires": ["keychain"],
+          "purposes": ["primary"],
+          "owner": "subsbar",
+          "renewMode": "subsbar-store",
+          "implemented": true,
+          "expiryCapability": { "discover": "unknown-or-owner-metadata", "resolve": "jwt-claim-if-decodable" }
+        },
+        {
+          "id": "openai-codex",
+          "kind": "pi",
+          "credentialKinds": ["oauth"],
+          "implementationId": "pi-openai-codex",
+          "configurable": ["path"],
+          "requires": [],
+          "purposes": ["primary"],
+          "owner": "external",
+          "renewMode": "none",
+          "implemented": true,
+          "expiryCapability": { "discover": "unknown", "resolve": "jwt-claim-if-decodable" }
+        }
+      ],
+      "dataSources": [
+        {
+          "id": "codex-official-cli",
+          "kind": "official-cli",
+          "grade": "B",
+          "admission": "pending",
+          "endpointIds": ["codex-usage-cli"],
+          "capabilities": ["quota"],
+          "coverageMetricRules": ["codex-primary-window"],
+          "coverageMatch": "any"
+        },
+        {
+          "id": "codex-wham",
+          "kind": "community-api",
+          "grade": "C",
+          "admission": "approved",
+          "endpointIds": ["wham-usage"],
+          "capabilities": ["quota"],
+          "coverageMetricRules": ["codex-primary-window"],
+          "coverageMatch": "any"
+        }
+      ],
+      "configured": false,
+      "enabled": false,
+      "profiles": []
+    },
+    {
+      "providerId": "claude",
+      "name": "Claude",
+      "product": "Claude Pro/Max subscription",
+      "grade": "D",
+      "releaseStatus": "planned",
+      "admission": "pending",
+      "supported": false,
+      "capabilities": ["quota"],
+      "minimumRefreshIntervalSeconds": 300,
+      "defaultRefreshIntervalSeconds": 300,
+      "credentialReaders": [
+        {
+          "id": "claude-official-usage",
+          "kind": "cli",
+          "credentialKinds": ["cli-session"],
+          "implementationId": "claude-official-usage",
+          "configurable": ["executablePath"],
+          "requires": [],
+          "purposes": ["primary"],
+          "owner": "external",
+          "renewMode": "owner-cli",
+          "implemented": false,
+          "expiryCapability": { "discover": "unknown", "resolve": "unknown" },
+          "unsupportedReason": "reader-unavailable"
+        }
+      ],
+      "dataSources": [
+        {
+          "id": "claude-cli-usage",
+          "kind": "official-cli",
+          "grade": "B",
+          "admission": "pending",
+          "endpointIds": ["claude-usage-cli"],
+          "capabilities": ["quota"],
+          "coverageMetricRules": ["claude-session"],
+          "coverageMatch": "any"
+        }
+      ],
+      "configured": false,
+      "enabled": false,
+      "profiles": []
+    },
+    {
+      "providerId": "zai",
+      "name": "Z.AI / GLM Coding Plan",
+      "product": "GLM Coding Plan",
+      "grade": "B",
+      "releaseStatus": "planned",
+      "admission": "pending",
+      "supported": false,
+      "capabilities": ["quota"],
+      "minimumRefreshIntervalSeconds": 300,
+      "defaultRefreshIntervalSeconds": 300,
+      "credentialReaders": [
+        {
+          "id": "zai-env-key",
+          "kind": "env",
+          "credentialKinds": ["api-key"],
+          "implementationId": "zai-env-key",
+          "configurable": ["envName"],
+          "requires": [],
+          "purposes": ["primary"],
+          "owner": "external",
+          "renewMode": "none",
+          "implemented": true,
+          "expiryCapability": { "discover": "unknown", "resolve": "unknown" }
+        }
+      ],
+      "dataSources": [
+        {
+          "id": "zai-quota-global",
+          "kind": "community-api",
+          "grade": "B",
+          "admission": "pending",
+          "endpointIds": ["zai-quota"],
+          "capabilities": ["quota"],
+          "coverageMetricRules": ["zai-5h", "zai-weekly", "zai-tool"],
+          "coverageMatch": "any"
+        }
+      ],
+      "configured": false,
+      "enabled": false,
+      "profiles": []
+    }
+  ],
+  "diagnostics": []
+}

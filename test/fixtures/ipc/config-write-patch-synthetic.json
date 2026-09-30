@@ -1,0 +1,42 @@
+{
+  "description": "config set --stdin 输入样例。valid 数组为可成功应用的 patch；invalid 数组为必须被拒绝的 patch 及预期 error.code。",
+  "valid": [
+    {
+      "name": "ui-only-change",
+      "input": { "baseRevision": 4, "contentToken": "tok-synthetic-a1b2c3", "patch": { "ui": { "density": "comfortable", "selectedProvider": null } } },
+      "expected": { "kind": "config-write", "revision": 5, "invalidatedProviderIds": [] }
+    },
+    {
+      "name": "enable-provider",
+      "input": { "baseRevision": 5, "contentToken": "tok-synthetic-d4e5f6", "patch": { "providers": { "codex": { "enabled": true, "dataSource": "codex-wham", "allowCommunityEndpoints": true, "activeProfile": "personal", "profiles": [{ "id": "personal", "discovery": "auto", "allowKeychain": false, "allowBrowser": false, "allowLocalApi": false, "sources": [] }] } } } },
+      "expected": { "kind": "config-write", "revision": 6, "invalidatedProviderIds": [] }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "revision-conflict",
+      "input": { "baseRevision": 3, "contentToken": "tok-synthetic-a1b2c3", "patch": { "ui": { "density": "compact" } } },
+      "expected": { "kind": "error", "error": { "code": "config-conflict", "action": "retry-later" } }
+    },
+    {
+      "name": "unknown-field",
+      "input": { "baseRevision": 4, "contentToken": "tok-synthetic-a1b2c3", "patch": { "runtime": { "magic": true } } },
+      "expected": { "kind": "error", "error": { "code": "invalid-config", "action": "none" } }
+    },
+    {
+      "name": "schema-version-patch",
+      "input": { "baseRevision": 4, "contentToken": "tok-synthetic-a1b2c3", "patch": { "schemaVersion": 2 } },
+      "expected": { "kind": "error", "error": { "code": "invalid-config", "action": "none" } }
+    },
+    {
+      "name": "dangling-active-profile",
+      "input": { "baseRevision": 4, "contentToken": "tok-synthetic-a1b2c3", "patch": { "providers": { "commandcode": { "activeProfile": "ghost" } } } },
+      "expected": { "kind": "error", "error": { "code": "invalid-config", "action": "none" } }
+    },
+    {
+      "name": "secret-in-patch",
+      "input": { "baseRevision": 4, "contentToken": "tok-synthetic-a1b2c3", "patch": { "providers": { "commandcode": { "profiles": [{ "id": "personal", "apiKey": "sk-synthetic-000" }] } } } },
+      "expected": { "kind": "error", "error": { "code": "invalid-config", "action": "none" } }
+    }
+  ]
+}

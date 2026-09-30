@@ -4,144 +4,182 @@ import SubsCore
 
 @MainActor func record(_ value: String) { NSLog("SubsBar %@", value) }
 @MainActor final class AppModel: ObservableObject {
-    @Published var snapshot = Snapshot()
-    @Published var selected = "codex"
+    @Published var document: ConfigDocument?
+    @Published var registry: Wire = .null
+    @Published var usage: UsageV1?
     @Published var refreshing = false
-    @Published var outcomes: [String: String] = [:]
+    @Published var saving = false
+    @Published var loading = false
     @Published var globalError: String?
     @Published var now = Date()
-    @Published var visible = false
     @Published var height: CGFloat = 300
+    @Published var receipt: String?
     var detailsHeight: CGFloat?
+    var changed: (() -> Void)?
+    var openSettings: ((String?) -> Void)?
+    private var bridge: NodeBridge?
+    private var generation = 0
+    private var stopping = false
+    private var cancellation = Cancellation()
+    private var activeCalls: [UUID: Cancellation] = [:]
+    private var startedRefresh = false
+    private var timer: Timer?
+    private var clock: Timer?
+    private var wake: NSObjectProtocol?
+    var config: Wire { document?.config ?? .null }
+    var selected: String { config["ui"]["selectedProvider"].text }
+    var entry: V1Provider? { usage?.providers.first { $0.id == selected } }
+    var fraction: Double? { entry?.iconFraction(at: now) }
+    var tooltip: String { "SubsBar · \(name(selected)) · 剩余 \(fraction.map { Cache.format($0 * 100) + "%" } ?? "未知")" }
+    var providers: [Wire] {
+        let all = registry["providers"].array
+        let order = config["ui"]["providerOrder"].array.map(\.text)
+        return all.sorted { (order.firstIndex(of: $0["providerId"].text) ?? 999) < (order.firstIndex(of: $1["providerId"].text) ?? 999) }
+    }
+    var enabled: [Wire] { providers.filter { config["providers"][$0["providerId"].text]["enabled"].bool } }
+    func name(_ id: String) -> String { Presentation.text(providers.first { $0["providerId"].text == id }?["name"].text ?? (id.isEmpty ? "选择订阅" : id)) }
     func measureDetails(_ value: CGFloat) {
         guard value.isFinite, value > 0, abs((detailsHeight ?? 0) - value) > 0.5 else { return }
-        detailsHeight = value
-        changed?()
-    }
-    var changed: (() -> Void)?
-    private let queue = DispatchQueue(label: "com.subsbar.native.io", qos: .utility)
-    private let defaults = UserDefaults.standard
-    private let paths: DataPaths?
-    private var loaded = false
-    private var reading = false
-    private var stopping = false
-    private var timers: [Timer] = []
-    private var countdownTimer: Timer?
-    private var wake: NSObjectProtocol?
-    private var lastAttempt: Date?
-    private var cancellation = Cancellation()
-    var entry: Entry? { snapshot.entries[selected] }
-    var provider: Provider { Provider.all.first(where: { $0.id == selected })! }
-    var fraction: Double? { provider.supported ? entry?.iconFraction(at: now) : nil }
-    var cacheStatus: String {
-        guard provider.supported else { return "未接入" }
-        guard let entry else { return "暂无可用缓存" }
-        return entry.freshness(at: now).rawValue
-    }
-    var tooltip: String { "\(provider.name) · 剩余 \(fraction.map { Cache.format($0 * 100) + "%" } ?? "未知") · \(cacheStatus)\(snapshot.error == nil && snapshot.diagnostics[selected] == nil ? "" : " · 上次数据")" }
-    init() {
-        do { paths = try DataPaths() } catch { paths = nil; globalError = String(describing: error) }
+        detailsHeight = value; changed?()
     }
     func start() {
-        readCache(initial: true)
-        timer(300) { model in model.refresh() }
-        timer(60) { model in model.now = Date(); model.changed?() }
-        wake = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in
-                guard let self else { return }
-                self.now = Date(); self.changed?()
-                if Date().timeIntervalSince(self.lastAttempt ?? .distantPast) >= 300 { self.refresh() }
-            }
-        }
+        reload()
+        clock = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in Task { @MainActor in self?.now = Date(); self?.changed?() } }
+        wake = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in Task { @MainActor in self?.refresh(reason: "wake") } }
     }
-    private func timer(_ interval: TimeInterval, action: @escaping @MainActor (AppModel) -> Void) {
-        let t = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { if let self, !self.stopping { action(self) } }
-        }
-        RunLoop.main.add(t, forMode: .common); timers.append(t)
+    private func schedule() {
+        timer?.invalidate()
+        let interval = config["runtime"]["refreshIntervalSeconds"].number ?? 300
+        timer = Timer.scheduledTimer(withTimeInterval: max(60, interval), repeats: true) { [weak self] _ in Task { @MainActor in self?.refresh(reason: "timer") } }
     }
-    func choose(_ id: String) {
-        selected = id; defaults.set(id, forKey: "nativeSelectedProvider"); changed?()
-        record("selected=\(id)")
+    private func locate(cancellation: Cancellation) async throws -> NodeBridge {
+        let explicit = config["runtime"]["nodePath"].string
+        let bootstrap = UserDefaults.standard.string(forKey: "bootstrapNodePath")
+        let root: URL
+        if Bundle.main.bundleURL.pathExtension == "app", let resources = Bundle.main.resourceURL { root = resources }
+        else { root = URL(fileURLWithPath: ProcessInfo.processInfo.environment["SUBSBAR_PROJECT_DIR"] ?? FileManager.default.currentDirectoryPath) }
+        let configPath = ProcessInfo.processInfo.environment["SUBSBAR_CONFIG"]
+        return try await Task.detached {
+            let node = try NodeLocator.locate(explicit: bootstrap ?? (explicit == "auto" ? nil : explicit), cancellation: cancellation)
+            return NodeBridge(node: node, root: root, configPath: configPath)
+        }.value
     }
-    func setVisible(_ value: Bool) {
-        visible = value
-        countdownTimer?.invalidate(); countdownTimer = nil
-        if value {
-            now = Date(); readCache()
-            let t = Timer(timeInterval: 1, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.now = Date() } }
-            RunLoop.main.add(t, forMode: .common); countdownTimer = t
-        }
-    }
-    func readCache(initial: Bool = false) {
-        guard let paths, !reading, !stopping else { return }
-        reading = true
-        queue.async { [weak self] in
-            let result = CacheReader.read(paths)
-            DispatchQueue.main.async {
-                guard let self else { return }
-                self.reading = false
-                guard !self.stopping else { return }
-                self.snapshot = self.snapshot.merging(result)
-                self.now = Date()
-                if !self.loaded {
-                    self.selected = Cache.selection(native: self.defaults.string(forKey: "nativeSelectedProvider"), shared: result.shared, entries: result.entries, now: self.now)
-                    self.loaded = true
-                }
-                self.changed?()
-                record("cache read providers=\(result.entries.count) selected=\(self.selected) remaining=\(self.fraction.map { Cache.format($0 * 100) } ?? "unknown")")
-                if initial && Provider.all.filter(\.supported).contains(where: { (result.entries[$0.id]?.fetchedAt ?? .distantPast) < self.now.addingTimeInterval(-300) }) { self.refresh() }
-            }
-        }
-    }
-    func refresh() {
-        guard !refreshing, !stopping, let paths else { return }
-        refreshing = true; lastAttempt = Date()
-        let before = snapshot
-        let token = Cancellation(); cancellation = token
-        let nodePath = defaults.string(forKey: "nativeNodePath")
-        let script: URL?
-        if let resources = Bundle.main.resourceURL, Bundle.main.bundleURL.pathExtension == "app" {
-            script = resources.appendingPathComponent("scripts/subs.mjs")
-        } else if let root = ProcessInfo.processInfo.environment["SUBS_BAR_PROJECT_DIR"], root.hasPrefix("/") {
-            script = URL(fileURLWithPath: root).appendingPathComponent("scripts/subs.mjs")
-        } else { script = nil }
-        queue.async { [weak self] in
-            var failure: String?
-            var conflict = false
-            let deadline = ProcessInfo.processInfo.systemUptime + 120
+    func reload() {
+        guard !loading, !stopping else { return }
+        loading = true
+        let operation = UUID(), token = Cancellation(); activeCalls[operation] = token
+        Task {
+            defer { loading = false; finished(operation) }
             do {
-                conflict = LegacyRefreshGuard.conflict(cancellation: token)
-                if conflict { throw LocalFailure("检测到旧版 com.subsbar.refresh LaunchAgent（历史版本遗留）；请先停用它再刷新") }
-                guard let script, FileManager.default.isReadableFile(atPath: script.path) else { throw LocalFailure("脚本缺失；请运行完整 .app，开发运行需 SUBS_BAR_PROJECT_DIR") }
-                let node = try NodeLocator.locate(explicit: nodePath, cancellation: token)
-                var environment = ProcessInfo.processInfo.environment
-                environment["PI_CODING_AGENT_DIR"] = paths.agent.path
-                environment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:" + (environment["PATH"] ?? "")
-                let result = ProcessRunner.run(executable: node, arguments: [script.path, "--refresh"], directory: script.deletingLastPathComponent().deletingLastPathComponent(), environment: environment, timeout: max(0, deadline - ProcessInfo.processInfo.systemUptime), cancellation: token)
-                failure = result.failure
-                DispatchQueue.main.async { record("refresh process pid=\(result.pid ?? -1) exit=\(result.status ?? -1) cancelled=\(token.cancelled)") }
-            } catch { failure = String(describing: error) }
-            let after = CacheReader.read(paths)
-            let results = RefreshContract.outcomes(before: before, after: after, failure: failure)
-            let finalFailure = failure
-            let blocked = conflict
-            DispatchQueue.main.async {
-                guard let self else { return }
-                self.refreshing = false
-                if self.stopping { NSApp.reply(toApplicationShouldTerminate: true); return }
-                self.snapshot = self.snapshot.merging(after); self.now = Date()
-                self.globalError = blocked ? finalFailure : nil
-                self.outcomes = results
-                self.changed?()
-                record("refresh finished updated=\(results.values.filter { $0 == "已更新" }.count) / \(Provider.all.filter(\.supported).count)\(blocked ? " legacy-launchagent-blocked" : "")")
+                let bridge = try await locate(cancellation: token); self.bridge = bridge
+                let result = try await Task.detached { () throws -> (ConfigDocument, Wire, UsageV1) in
+                    let read = try bridge.call(["config", "read", "--json"], cancellation: token)
+                    if let code = read.errorCode { throw LocalFailure(code) }
+                    let doc = try ConfigDocument(read.value)
+                    let registry = try bridge.call(["registry", "--json"], cancellation: token)
+                    if let code = registry.errorCode { throw LocalFailure(code) }
+                    guard registry.value["kind"].text == "registry" else { throw LocalFailure("schema-unsupported") }
+                    let usage = try bridge.call(["usage", "--json"], cancellation: token)
+                    if let code = usage.errorCode { throw LocalFailure(code) }
+                    return (doc, registry.value, try UsageV1(usage.value))
+                }.value
+                guard !stopping else { return }
+                // Replace the entire context. Never merge provider-only snapshots across identities.
+                generation += 1; cancellation.cancel()
+                document = result.0; registry = result.1; usage = result.2
+                globalError = nil; now = Date(); schedule(); changed?()
+                if let bootstrap = UserDefaults.standard.string(forKey: "bootstrapNodePath") {
+                    save(base: result.0, patch: .object(["runtime": .object(["nodePath": .string(bootstrap)])])) { success in
+                        if success { UserDefaults.standard.removeObject(forKey: "bootstrapNodePath") }
+                    }
+                } else if !startedRefresh {
+                    startedRefresh = true
+                    refresh(reason: "startup")
+                }
+            } catch { globalError = safeFailure(error); changed?() }
+        }
+    }
+    private func safeFailure(_ error: Error) -> String {
+        let code = String(describing: error)
+        if ["core-unavailable", "node-unavailable"].contains(code) { return "无法连接数据引擎：请在设置中选择 Node，或重新安装完整应用" }
+        return Presentation.error(code)
+    }
+    func bootstrap(_ path: String) {
+        let operation = UUID(), token = Cancellation(); activeCalls[operation] = token
+        Task {
+            defer { finished(operation) }
+            do {
+                _ = try await Task.detached { try NodeLocator.locate(explicit: path, cancellation: token) }.value
+                guard !stopping else { return }
+                UserDefaults.standard.set(path, forKey: "bootstrapNodePath"); reload()
+            } catch { globalError = "Node 不可用：请选择可执行的 Node 程序" }
+        }
+    }
+    func save(base: ConfigDocument, patch: Wire, completion: @escaping @MainActor (Bool) -> Void = { _ in }) {
+        guard !saving, !stopping, let bridge else { completion(false); return }
+        saving = true
+        let operation = UUID(), token = Cancellation(); activeCalls[operation] = token
+        Task {
+            defer { finished(operation) }
+            do {
+                let response = try await Task.detached { try bridge.call(["config", "set", "--stdin"], input: base.submission(patch: patch), cancellation: token) }.value
+                guard !stopping else { saving = false; return }
+                if let code = response.errorCode { throw LocalFailure(code) }
+                guard response.value["kind"].text == "config-write" else { throw LocalFailure("schema-unsupported") }
+                generation += 1; cancellation.cancel()
+                // A successful write may invalidate an identity. Do not show any old-scope result.
+                if !response.value["invalidatedProviderIds"].array.isEmpty { usage = nil }
+                saving = false; globalError = nil; completion(true); reload()
+            } catch {
+                saving = false; globalError = safeFailure(error); completion(false)
+                // Keep the editor draft. Reload is explicit; never retry a conflicting CAS automatically.
             }
         }
+    }
+    func patchUI(_ patch: Wire) { guard let document else { return }; save(base: document, patch: .object(["ui": patch])) }
+    func choose(_ id: String) { patchUI(.object(["selectedProvider": id.isEmpty ? .null : .string(id)])) }
+    func setVisible(_ value: Bool) { if value { now = Date(); changed?() } }
+    func refresh(reason: String = "manual", provider: String? = nil, connect: Bool = false) {
+        guard !refreshing, !stopping, !saving, let bridge, document != nil else { return }
+        guard !enabled.isEmpty else { receipt = "没有已启用的订阅"; return }
+        if connect && provider == nil { return }
+        refreshing = true; let token = Cancellation(); cancellation = token; let version = generation
+        let operation = UUID(); activeCalls[operation] = token
+        var args = ["refresh", "--json", "--reason", reason, "--interaction", connect ? "user-connect" : "background"]
+        if let provider { args += ["--provider", provider] }
+        let arguments = args
+        Task {
+            defer {
+                refreshing = false
+                finished(operation)
+                changed?()
+            }
+            do {
+                let response = try await Task.detached { try bridge.call(arguments, cancellation: token) }.value
+                guard version == generation, !stopping else { return }
+                if let code = response.errorCode { throw LocalFailure(code) }
+                let snapshot = try UsageV1(response.value)
+                guard usage == nil || usage?.context == snapshot.context else { throw LocalFailure("invalid-response") }
+                usage = snapshot; receipt = snapshot.receiptText; now = Date()
+            } catch {
+                guard !stopping, version == generation else { return }
+                receipt = token.cancelled ? "刷新已取消" : safeFailure(error)
+                // A killed/crashed child is not evidence that any provider failed.
+                let recovery = Cancellation(); activeCalls[operation] = recovery
+                if let response = try? await Task.detached(operation: { try bridge.call(["usage", "--json"], cancellation: recovery) }).value,
+                   let cached = try? UsageV1(response.value) { usage = cached }
+            }
+        }
+    }
+    func cancelRefresh() { cancellation.cancel() }
+    private func finished(_ id: UUID) {
+        activeCalls.removeValue(forKey: id)
+        if stopping && activeCalls.isEmpty { NSApp.reply(toApplicationShouldTerminate: true) }
     }
     func stop() -> Bool {
-        stopping = true; timers.forEach { $0.invalidate() }; countdownTimer?.invalidate()
+        stopping = true; timer?.invalidate(); clock?.invalidate(); cancellation.cancel()
+        activeCalls.values.forEach { $0.cancel() }
         if let wake { NSWorkspace.shared.notificationCenter.removeObserver(wake) }
-        cancellation.cancel()
-        return refreshing
+        return !activeCalls.isEmpty
     }
 }

@@ -1,0 +1,130 @@
+{
+  "schemaVersion": 1,
+  "kind": "registry",
+  "contextId": "context-synthetic-default",
+  "generatedAtMs": 1800000000000,
+  "providers": [
+    {
+      "providerId": "commandcode",
+      "name": "CommandCode",
+      "product": "CommandCode subscription",
+      "grade": "C",
+      "releaseStatus": "experimental",
+      "admission": "approved",
+      "supported": true,
+      "capabilities": ["quota", "balance"],
+      "minimumRefreshIntervalSeconds": 300,
+      "defaultRefreshIntervalSeconds": 300,
+      "credentialReaders": [
+        {
+          "id": "commandcode-subsbar-key",
+          "kind": "keychain",
+          "credentialKinds": ["api-key"],
+          "implementationId": "commandcode-subsbar-key",
+          "configurable": ["service", "account"],
+          "requires": ["keychain"],
+          "purposes": ["primary"],
+          "owner": "subsbar",
+          "renewMode": "none",
+          "implemented": true,
+          "expiryCapability": { "discover": "unknown", "resolve": "unknown-or-owner-metadata" }
+        },
+        {
+          "id": "commandcode-cli",
+          "kind": "cli",
+          "credentialKinds": ["api-key"],
+          "implementationId": "commandcode-cli",
+          "configurable": ["executablePath"],
+          "requires": [],
+          "purposes": ["primary"],
+          "owner": "external",
+          "renewMode": "none",
+          "implemented": false,
+          "expiryCapability": { "discover": "unknown", "resolve": "unknown" },
+          "unsupportedReason": "reader-unavailable"
+        }
+      ],
+      "dataSources": [
+        {
+          "id": "commandcode-alpha",
+          "kind": "community-api",
+          "grade": "C",
+          "admission": "approved",
+          "endpointIds": ["whoami", "billing-credits", "usage-summary"],
+          "capabilities": ["quota", "balance"],
+          "coverageMetricRules": ["monthly-credits", "rolling-five-hour"],
+          "coverageMatch": "any"
+        }
+      ],
+      "configured": true,
+      "enabled": true,
+      "profiles": [
+        {
+          "profileId": "personal",
+          "label": "主号",
+          "active": true,
+          "region": null,
+          "discovery": "only",
+          "allowKeychain": true,
+          "allowBrowser": false,
+          "allowLocalApi": false,
+          "sources": [
+            {
+              "id": "my-key",
+              "kind": "keychain",
+              "reader": "commandcode-subsbar-key",
+              "purpose": "primary",
+              "originOfChoice": "explicit",
+              "availability": "resolved",
+              "credentialExpiry": { "state": "unknown" },
+              "unsupportedReason": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "providerId": "cursor",
+      "name": "Cursor",
+      "product": "Cursor subscription",
+      "grade": "C",
+      "releaseStatus": "planned",
+      "admission": "pending",
+      "supported": false,
+      "capabilities": ["quota"],
+      "minimumRefreshIntervalSeconds": 300,
+      "defaultRefreshIntervalSeconds": 300,
+      "credentialReaders": [
+        {
+          "id": "cursor-state-db",
+          "kind": "file",
+          "credentialKinds": ["oauth"],
+          "implementationId": "cursor-state-db",
+          "configurable": ["path"],
+          "requires": [],
+          "purposes": ["primary"],
+          "owner": "external",
+          "renewMode": "owner-cli",
+          "implemented": true,
+          "expiryCapability": { "discover": "unknown", "resolve": "jwt-claim-if-decodable" }
+        }
+      ],
+      "dataSources": [
+        {
+          "id": "cursor-ide-rest",
+          "kind": "community-api",
+          "grade": "C",
+          "admission": "pending",
+          "endpointIds": ["usage-summary"],
+          "capabilities": ["quota"],
+          "coverageMetricRules": ["included-percent"],
+          "coverageMatch": "all"
+        }
+      ],
+      "configured": false,
+      "enabled": false,
+      "profiles": []
+    }
+  ],
+  "diagnostics": []
+}

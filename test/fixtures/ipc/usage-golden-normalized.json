@@ -1,0 +1,386 @@
+{
+  "schemaVersion": 1,
+  "kind": "golden-normalized",
+  "nowMs": 1800000000000,
+  "vectors": {
+    "zero": {
+      "inputLayer": "provider-raw",
+      "output": {
+        "id": "quota-percent",
+        "ruleId": "quota-percent",
+        "label": "quota-percent",
+        "kind": "quota",
+        "state": "known",
+        "unit": "percent",
+        "scope": "subscription",
+        "provenance": "derived",
+        "sourceEndpointIds": [],
+        "quotaState": "within-limit",
+        "derivations": [
+          {
+            "field": "limit",
+            "formula": "used-plus-remaining"
+          }
+        ],
+        "period": {
+          "kind": "unknown",
+          "resetState": "unknown"
+        },
+        "diagnostics": [],
+        "used": 0,
+        "limit": 100,
+        "usedPercent": 0,
+        "iconFraction": 1
+      }
+    },
+    "unknown": {
+      "inputLayer": "provider-raw",
+      "output": {
+        "id": "quota-percent",
+        "ruleId": "quota-percent",
+        "label": "quota-percent",
+        "kind": "quota",
+        "state": "unknown",
+        "unit": "percent",
+        "scope": "subscription",
+        "provenance": "reported",
+        "sourceEndpointIds": [],
+        "quotaState": "unknown",
+        "derivations": [],
+        "period": {
+          "kind": "unknown",
+          "resetState": "unknown"
+        },
+        "diagnostics": [
+          {
+            "code": "missing-data",
+            "severity": "info"
+          }
+        ],
+        "usedPercent": null,
+        "iconFraction": null
+      }
+    },
+    "zero-denominator": {
+      "inputLayer": "provider-raw",
+      "output": {
+        "id": "quota-count",
+        "ruleId": "quota-count",
+        "label": "quota-count",
+        "kind": "quota",
+        "state": "known",
+        "unit": "count",
+        "scope": "subscription",
+        "provenance": "reported",
+        "sourceEndpointIds": [],
+        "quotaState": "unknown",
+        "derivations": [],
+        "period": {
+          "kind": "unknown",
+          "resetState": "unknown"
+        },
+        "diagnostics": [],
+        "used": 0,
+        "limit": 0,
+        "usedPercent": null,
+        "iconFraction": null
+      }
+    },
+    "remaining-only": {
+      "inputLayer": "provider-raw",
+      "output": {
+        "id": "monthly-credits",
+        "ruleId": "monthly-credits",
+        "label": "monthly-credits",
+        "kind": "quota",
+        "state": "remaining-only",
+        "unit": "currency",
+        "scope": "subscription",
+        "provenance": "reported",
+        "sourceEndpointIds": [],
+        "quotaState": "unknown",
+        "derivations": [],
+        "period": {
+          "kind": "unknown",
+          "resetState": "unknown"
+        },
+        "diagnostics": [
+          {
+            "code": "summary-unavailable",
+            "severity": "warning"
+          }
+        ],
+        "remaining": 12.5,
+        "currency": "USD",
+        "usedPercent": null,
+        "iconFraction": null
+      }
+    },
+    "over-limit": {
+      "inputLayer": "provider-raw",
+      "output": {
+        "id": "quota-count",
+        "ruleId": "quota-count",
+        "label": "quota-count",
+        "kind": "quota",
+        "state": "known",
+        "unit": "count",
+        "scope": "subscription",
+        "provenance": "derived",
+        "sourceEndpointIds": [],
+        "quotaState": "over-limit",
+        "derivations": [
+          {
+            "field": "remaining",
+            "formula": "max-zero-limit-minus-used"
+          }
+        ],
+        "period": {
+          "kind": "unknown",
+          "resetState": "unknown"
+        },
+        "diagnostics": [],
+        "used": 150,
+        "remaining": 0,
+        "limit": 100,
+        "usedPercent": 150,
+        "iconFraction": 0
+      }
+    },
+    "inconsistent": {
+      "inputLayer": "provider-raw",
+      "output": {
+        "id": "quota-count",
+        "ruleId": "quota-count",
+        "label": "quota-count",
+        "kind": "quota",
+        "state": "known",
+        "unit": "count",
+        "scope": "subscription",
+        "provenance": "reported",
+        "sourceEndpointIds": [],
+        "quotaState": "within-limit",
+        "derivations": [],
+        "period": {
+          "kind": "unknown",
+          "resetState": "unknown"
+        },
+        "diagnostics": [
+          {
+            "code": "inconsistent-values",
+            "severity": "warning"
+          }
+        ],
+        "used": 30,
+        "remaining": 90,
+        "limit": 100,
+        "usedPercent": 30,
+        "iconFraction": 0.7
+      }
+    },
+    "inconsistent-remaining-over-limit": {
+      "inputLayer": "provider-raw",
+      "output": {
+        "id": "quota-count",
+        "ruleId": "quota-count",
+        "label": "quota-count",
+        "kind": "quota",
+        "state": "known",
+        "unit": "count",
+        "scope": "subscription",
+        "provenance": "reported",
+        "sourceEndpointIds": [],
+        "quotaState": "unknown",
+        "derivations": [],
+        "period": {
+          "kind": "unknown",
+          "resetState": "unknown"
+        },
+        "diagnostics": [
+          {
+            "code": "inconsistent-values",
+            "severity": "warning"
+          }
+        ],
+        "remaining": 120,
+        "limit": 100,
+        "usedPercent": null,
+        "iconFraction": null
+      }
+    },
+    "primary-unknown": {
+      "inputLayer": "provider-raw",
+      "output": {
+        "primary": {
+          "id": "quota-percent",
+          "ruleId": "quota-percent",
+          "label": "quota-percent",
+          "kind": "quota",
+          "state": "unknown",
+          "unit": "percent",
+          "scope": "subscription",
+          "provenance": "reported",
+          "sourceEndpointIds": [],
+          "quotaState": "unknown",
+          "derivations": [],
+          "period": {
+            "kind": "unknown",
+            "resetState": "unknown"
+          },
+          "diagnostics": [
+            {
+              "code": "missing-data",
+              "severity": "info"
+            }
+          ],
+          "usedPercent": null,
+          "iconFraction": null
+        },
+        "secondary": {
+          "id": "secondary",
+          "ruleId": "quota-count",
+          "label": "secondary",
+          "kind": "quota",
+          "state": "known",
+          "unit": "count",
+          "scope": "subscription",
+          "provenance": "derived",
+          "sourceEndpointIds": [],
+          "quotaState": "within-limit",
+          "derivations": [
+            {
+              "field": "remaining",
+              "formula": "max-zero-limit-minus-used"
+            }
+          ],
+          "period": {
+            "kind": "unknown",
+            "resetState": "unknown"
+          },
+          "diagnostics": [],
+          "used": 0,
+          "remaining": 100,
+          "limit": 100,
+          "usedPercent": 0,
+          "iconFraction": 1
+        },
+        "primaryMetricIdStays": "primary"
+      }
+    },
+    "partial-balance": {
+      "inputLayer": "provider-raw",
+      "output": {
+        "metrics": [
+          {
+            "id": "wallet",
+            "ruleId": "wallet",
+            "label": "Wallet",
+            "kind": "balance",
+            "state": "known",
+            "unit": "currency",
+            "currency": "USD",
+            "scope": "account",
+            "provenance": "reported",
+            "sourceEndpointIds": [],
+            "value": 42,
+            "diagnostics": []
+          }
+        ],
+        "reportStatus": "partial",
+        "iconFraction": null,
+        "note": "windows 为空：无饼图，余额可显示"
+      }
+    },
+    "stale-network": {
+      "inputLayer": "v1-wire",
+      "output": {
+        "status": "stale",
+        "freshness": "stale",
+        "dataDisposition": "last-good",
+        "error": {
+          "code": "network",
+          "reasonCode": "http-5xx",
+          "action": "retry-later"
+        },
+        "statusRule": "网络失败 + 同 scope last-good → stale，错误保留，lastSuccessAtMs 不变"
+      }
+    },
+    "rate-limited-fresh-cache": {
+      "inputLayer": "v1-wire",
+      "output": {
+        "status": "rate-limited",
+        "freshness": "fresh",
+        "dataDisposition": "last-good",
+        "capturedAgeMs": 60000,
+        "error": {
+          "code": "rate-limited",
+          "reasonCode": "http-429",
+          "action": "retry-later",
+          "httpStatus": 429,
+          "retryAtMs": 1800000660000
+        },
+        "computedFreshness": "fresh"
+      }
+    },
+    "expired-cache": {
+      "inputLayer": "v1-wire",
+      "output": {
+        "freshness": "expired",
+        "capturedAgeMs": 86400000,
+        "computedFreshness": "expired"
+      }
+    },
+    "future-clock": {
+      "inputLayer": "v1-wire",
+      "output": {
+        "capturedAtMs": 1800000301000,
+        "nowMs": 1800000000000,
+        "computedFreshness": "invalid"
+      }
+    },
+    "scope-switched": {
+      "inputLayer": "v1-wire",
+      "output": {
+        "oldScopeKey": "scope-synthetic-a",
+        "newScopeKey": "scope-synthetic-b",
+        "mergeDecision": "drop-old-scope",
+        "note": "scope/generation 不符的结果在提交前丢弃；缓存不得跨 scope 合并"
+      }
+    },
+    "legacy-commandcode": {
+      "inputLayer": "legacy-cache",
+      "output": {
+        "metric": {
+          "id": "monthly-credits",
+          "ruleId": "legacy-monthly-credits",
+          "label": "monthly-credits",
+          "kind": "quota",
+          "state": "remaining-only",
+          "unit": "currency",
+          "scope": "subscription",
+          "provenance": "legacy-unverified",
+          "sourceEndpointIds": [],
+          "quotaState": "unknown",
+          "derivations": [],
+          "period": {
+            "kind": "billing",
+            "resetState": "known",
+            "resetsAtMs": 1800000000000
+          },
+          "diagnostics": [
+            {
+              "code": "legacy-unverified",
+              "severity": "warning"
+            }
+          ],
+          "remaining": 12.5,
+          "currency": "USD",
+          "usedPercent": null,
+          "iconFraction": null
+        },
+        "dataDisposition": "legacy",
+        "freshness": "expired"
+      }
+    }
+  }
+}

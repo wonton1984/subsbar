@@ -1,0 +1,23 @@
+{
+  "description": "error envelope 样例（{schemaVersion:1,kind:'error',error:SafeError}），stdout 退出码均为 2。",
+  "config-conflict": {
+    "schemaVersion": 1,
+    "kind": "error",
+    "error": { "code": "config-conflict", "reasonCode": "config-conflict", "action": "retry-later" }
+  },
+  "invalid-config": {
+    "schemaVersion": 1,
+    "kind": "error",
+    "error": { "code": "invalid-config", "reasonCode": "file-malformed", "action": "none" }
+  },
+  "schema-unsupported": {
+    "schemaVersion": 1,
+    "kind": "error",
+    "error": { "code": "schema-unsupported", "reasonCode": "schema-unsupported", "action": "contact-maintainer" }
+  },
+  "invalid-parameter": {
+    "schemaVersion": 1,
+    "kind": "error",
+    "error": { "code": "invalid-config", "reasonCode": "invalid-parameter", "action": "none" }
+  }
+}

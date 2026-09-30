@@ -6,7 +6,7 @@ import Darwin
 @MainActor final class SingleInstanceGuard {
     private var fd: Int32 = -1
     func acquire() -> Bool {
-        let path = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Caches/com.subsbar.native")
+        let path = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Caches/com.subsbar.public-native")
         do { try FileManager.default.createDirectory(at: path, withIntermediateDirectories: true) } catch { return false }
         fd = open(path.appendingPathComponent("instance.lock").path, O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC, S_IRUSR | S_IWUSR)
         return fd >= 0 && flock(fd, LOCK_EX | LOCK_NB) == 0
@@ -18,13 +18,14 @@ import Darwin
     let item: NSStatusItem
     let popover = NSPopover()
     private var iconKey = ""
+    private var settings: NSWindow?
     private var local: Any?
     private var global: Any?
     private var appearance: NSKeyValueObservation?
     private var screenObserver: NSObjectProtocol?
     init(model: AppModel) {
         self.model = model
-        item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         super.init()
         item.menu = nil
         item.button?.target = self; item.button?.action = #selector(toggle)
@@ -34,7 +35,16 @@ import Darwin
         appearance = item.button?.observe(\.effectiveAppearance, options: [.new]) { [weak self] _, _ in Task { @MainActor in self?.update() } }
         screenObserver = NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in Task { @MainActor in self?.update() } }
         model.changed = { [weak self] in self?.update() }
+        model.openSettings = { [weak self] provider in self?.showSettings(provider) }
         update()
+    }
+    func showSettings(_ provider: String?) {
+        if settings == nil {
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 680, height: 640), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+            window.title = "SubsBar 设置"; window.isReleasedWhenClosed = false; window.center(); settings = window
+        }
+        settings?.contentViewController = NSHostingController(rootView: SettingsView(model: model, initialProvider: provider))
+        NSApp.activate(ignoringOtherApps: true); settings?.makeKeyAndOrderFront(nil)
     }
     func update() {
         guard let button = item.button else { return }
@@ -44,14 +54,23 @@ import Darwin
             button.image = PieIconRenderer.draw(model.fraction, appearance: button.effectiveAppearance)
         }
         button.toolTip = model.tooltip; button.setAccessibilityLabel(model.tooltip)
+        if model.config["ui"]["menuBarMode"].text == "pinned" {
+            let pins = model.config["ui"]["pinnedMetrics"].array.prefix(2).map {
+                PinnedMetric(pin: $0, usage: model.usage, enabled: model.config["providers"][$0["providerId"].text]["enabled"].bool, now: model.now)
+            }
+            button.image = nil
+            button.title = pins.isEmpty ? "—" : pins.map(\.text).joined(separator: " · ")
+            iconKey = ""
+        } else {
+            button.title = model.config["ui"]["showMenuBarPercent"].bool ? " " + (model.fraction.map { Cache.format($0 * 100) + "%" } ?? "—") : ""
+        }
+        let appearanceName = model.config["ui"]["appearance"].text
+        let preferred: NSAppearance? = appearanceName == "dark" ? NSAppearance(named: .darkAqua) : appearanceName == "light" ? NSAppearance(named: .aqua) : nil
+        popover.appearance = preferred; settings?.appearance = preferred
         if popover.isShown { resize() }
     }
     private func resize() {
-        let entry = model.entry
-        let windows = (entry?.windows.count ?? 0) * 54
-        let metrics = (entry?.metrics.count ?? 0) * 22
-        let notes = (entry?.notes.count ?? 0) * 18
-        let count = windows + metrics + notes
+        let count = 250
         let maxHeight = max(230, (item.button?.window?.screen?.visibleFrame.height ?? 700) - 40)
         let desiredHeight = ceil(model.detailsHeight ?? CGFloat(count)) + 146
         let height = min(maxHeight, max(230, desiredHeight))

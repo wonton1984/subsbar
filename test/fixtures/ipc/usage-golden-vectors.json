@@ -1,0 +1,305 @@
+{
+  "description": "M1 共享 golden 向量（contracts §8）。输入层：provider-raw=原始响应归一化输入；legacy-cache=v0 缓存导入；v1-wire=已序列化的 usage-v1 片段。预期字段：state/quotaState 为 QuotaMetric 语义；usedPercent 为已用百分比（可>100）；iconFraction=clamp(1-usedPercent/100,0,1)（null 表示图形未知/灰）。固定测试时钟 nowMs=1800000000000。",
+  "nowMs": 1800000000000,
+  "vectors": [
+    {
+      "id": "zero",
+      "inputLayer": "provider-raw",
+      "input": {
+        "metricRule": "quota-percent",
+        "payload": {
+          "unit": "percent",
+          "used": 0
+        }
+      },
+      "expected": {
+        "state": "known",
+        "quotaState": "within-limit",
+        "limitNormalized": 100,
+        "usedPercent": 0,
+        "iconFraction": 1
+      }
+    },
+    {
+      "id": "unknown",
+      "inputLayer": "provider-raw",
+      "input": {
+        "metricRule": "quota-percent",
+        "payload": {
+          "unit": "percent"
+        }
+      },
+      "expected": {
+        "state": "unknown",
+        "quotaState": "unknown",
+        "usedPercent": null,
+        "iconFraction": null
+      }
+    },
+    {
+      "id": "zero-denominator",
+      "inputLayer": "provider-raw",
+      "input": {
+        "metricRule": "quota-count",
+        "payload": {
+          "unit": "count",
+          "used": 0,
+          "limit": 0
+        }
+      },
+      "expected": {
+        "state": "known",
+        "quotaState": "unknown",
+        "usedPercent": null,
+        "iconFraction": null
+      }
+    },
+    {
+      "id": "remaining-only",
+      "inputLayer": "provider-raw",
+      "input": {
+        "metricRule": "monthly-credits",
+        "payload": {
+          "unit": "currency",
+          "currency": "USD",
+          "remaining": 12.5,
+          "resetState": "unknown",
+          "summaryMissing": true
+        }
+      },
+      "expected": {
+        "state": "remaining-only",
+        "quotaState": "unknown",
+        "usedPercent": null,
+        "iconFraction": null,
+        "diagnostics": [
+          "summary-unavailable"
+        ]
+      }
+    },
+    {
+      "id": "over-limit",
+      "inputLayer": "provider-raw",
+      "input": {
+        "metricRule": "quota-count",
+        "payload": {
+          "unit": "count",
+          "used": 150,
+          "limit": 100
+        }
+      },
+      "expected": {
+        "state": "known",
+        "quotaState": "over-limit",
+        "usedPercent": 150,
+        "iconFraction": 0,
+        "detailKeepsRaw": {
+          "used": 150,
+          "limit": 100
+        }
+      }
+    },
+    {
+      "id": "inconsistent",
+      "inputLayer": "provider-raw",
+      "input": {
+        "metricRule": "quota-count",
+        "payload": {
+          "unit": "count",
+          "used": 30,
+          "remaining": 90,
+          "limit": 100
+        }
+      },
+      "expected": {
+        "state": "known",
+        "quotaState": "within-limit",
+        "usedPercent": 30,
+        "iconFraction": 0.7,
+        "diagnostics": [
+          "inconsistent-values"
+        ],
+        "valuesUnchanged": true
+      }
+    },
+    {
+      "id": "inconsistent-remaining-over-limit",
+      "inputLayer": "provider-raw",
+      "input": {
+        "metricRule": "quota-count",
+        "payload": {
+          "unit": "count",
+          "remaining": 120,
+          "limit": 100
+        }
+      },
+      "expected": {
+        "state": "known",
+        "quotaState": "unknown",
+        "usedPercent": null,
+        "iconFraction": null,
+        "diagnostics": [
+          "inconsistent-values"
+        ]
+      }
+    },
+    {
+      "id": "primary-unknown",
+      "inputLayer": "provider-raw",
+      "input": {
+        "primary": {
+          "unit": "percent"
+        },
+        "secondary": {
+          "id": "secondary",
+          "unit": "count",
+          "used": 0,
+          "limit": 100
+        }
+      },
+      "expected": {
+        "primaryUsedPercent": null,
+        "primaryIconFraction": null,
+        "secondaryUsedPercent": 0,
+        "secondaryIconFraction": 1,
+        "primaryMustNotSwitch": true
+      }
+    },
+    {
+      "id": "partial-balance",
+      "inputLayer": "provider-raw",
+      "input": {
+        "windows": [],
+        "metrics": [
+          {
+            "kind": "balance",
+            "unit": "currency",
+            "currency": "USD",
+            "value": 42
+          }
+        ]
+      },
+      "expected": {
+        "reportStatus": "partial",
+        "iconFraction": null,
+        "balanceShown": 42
+      }
+    },
+    {
+      "id": "stale-network",
+      "inputLayer": "v1-wire",
+      "input": {
+        "status": "stale",
+        "freshness": "stale",
+        "dataDisposition": "last-good",
+        "error": {
+          "code": "network",
+          "reasonCode": "http-5xx",
+          "action": "retry-later"
+        }
+      },
+      "expected": {
+        "uiMustShow": [
+          "过时/上次数据",
+          "本次失败"
+        ],
+        "mustNotShow": [
+          "已更新"
+        ]
+      }
+    },
+    {
+      "id": "rate-limited-fresh-cache",
+      "inputLayer": "v1-wire",
+      "input": {
+        "status": "rate-limited",
+        "freshness": "fresh",
+        "dataDisposition": "last-good",
+        "capturedAgeMs": 60000,
+        "error": {
+          "code": "rate-limited",
+          "reasonCode": "http-429",
+          "action": "retry-later",
+          "httpStatus": 429,
+          "retryAtMs": 1800000660000
+        }
+      },
+      "expected": {
+        "uiMustShow": [
+          "剩 USD 12.50",
+          "本次限流",
+          "上次数据"
+        ],
+        "pieGray": true,
+        "mustNotShow": [
+          "0/12.50",
+          "100%剩余",
+          "已更新"
+        ]
+      }
+    },
+    {
+      "id": "expired-cache",
+      "inputLayer": "v1-wire",
+      "input": {
+        "freshness": "expired",
+        "capturedAgeMs": 86400000
+      },
+      "expected": {
+        "coloredIconForbidden": true,
+        "detailMayShowHistoricalValue": true
+      }
+    },
+    {
+      "id": "future-clock",
+      "inputLayer": "v1-wire",
+      "input": {
+        "capturedAtMs": 1800000301000,
+        "nowMs": 1800000000000
+      },
+      "expected": {
+        "freshness": "invalid",
+        "futureToleranceMs": 300000
+      }
+    },
+    {
+      "id": "scope-switched",
+      "inputLayer": "v1-wire",
+      "input": {
+        "oldScopeKey": "scope-synthetic-a",
+        "newScopeKey": "scope-synthetic-b"
+      },
+      "expected": {
+        "oldReportMustNotAppear": true,
+        "mergeAcrossScopeForbidden": true
+      }
+    },
+    {
+      "id": "legacy-commandcode",
+      "inputLayer": "legacy-cache",
+      "input": {
+        "provider": "commandcode",
+        "windows": [
+          {
+            "id": "monthly-credits",
+            "label": "月度credits（剩余）",
+            "limit": 12.5,
+            "unit": "usd",
+            "resetsAt": 1800000000
+          }
+        ],
+        "fetchedAtMs": 1800000000000
+      },
+      "expected": {
+        "state": "remaining-only",
+        "remaining": 12.5,
+        "unit": "currency",
+        "currency": "USD",
+        "resetsAtMs": 1800000000000,
+        "provenance": "legacy-unverified",
+        "dataDisposition": "legacy",
+        "freshness": "expired"
+      }
+    }
+  ]
+}
