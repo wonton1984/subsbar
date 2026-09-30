@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "revision": 0,
+  "runtime": {
+    "nodePath": "auto",
+    "refreshIntervalSeconds": 300,
+    "timeoutSeconds": 15,
+    "maxConcurrency": 3
+  },
+  "privacy": {
+    "allowBrowserDiscovery": false,
+    "diagnostics": "local-redacted"
+  },
+  "ui": {
+    "locale": "zh-Hans",
+    "appearance": "system",
+    "density": "compact",
+    "overviewMode": "cards",
+    "menuBarMode": "single-pie",
+    "selectedProvider": null,
+    "showMenuBarPercent": true,
+    "showAccountLabel": false,
+    "providerOrder": [
+      "codex",
+      "opencode",
+      "kimi",
+      "commandcode",
+      "droid",
+      "cursor",
+      "claude",
+      "copilot",
+      "zai",
+      "openrouter",
+      "antigravity",
+      "devin",
+      "grok",
+      "ollama"
+    ],
+    "pinnedMetrics": [],
+    "cards": {}
+  },
+  "providers": {
+    "commandcode": {
+      "enabled": false,
+      "dataSource": "commandcode-alpha",
+      "allowCommunityEndpoints": false,
+      "activeProfile": "personal",
+      "profiles": [
+        {
+          "id": "personal",
+          "discovery": "only",
+          "allowKeychain": true,
+          "allowBrowser": false,
+          "allowLocalApi": false,
+          "sources": [
+            {
+              "id": "my-key",
+              "kind": "keychain",
+              "reader": "commandcode-subsbar-key",
+              "purpose": "primary",
+              "service": "SubsBar",
+              "account": "commandcode:personal"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "compatibility": {
+    "pi": {
+      "enabled": false
+    },
+    "legacyCache": {
+      "import": "never"
+    }
+  }
+}

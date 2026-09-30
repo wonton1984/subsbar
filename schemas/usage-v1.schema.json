@@ -1,0 +1,678 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/subsbar/subsbar/schemas/usage-v1.schema.json",
+  "title": "SubsBar usage report v1",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "kind",
+    "contextId",
+    "generatedAtMs",
+    "cacheRevision",
+    "providers"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "kind": {
+      "const": "usage"
+    },
+    "contextId": {
+      "type": "string",
+      "maxLength": 64
+    },
+    "generatedAtMs": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 253402300799000
+    },
+    "cacheRevision": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "providers": {
+      "type": "array",
+      "maxItems": 128,
+      "items": {
+        "$ref": "#/$defs/providerEntry"
+      }
+    },
+    "diagnostics": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "$ref": "#/$defs/diagnostic"
+      }
+    },
+    "coordinatorError": {
+      "$ref": "#/$defs/safeError"
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requestId",
+        "outcome",
+        "requestedProviderIds",
+        "completedProviderIds",
+        "cachePersisted"
+      ],
+      "properties": {
+        "requestId": {
+          "type": "string"
+        },
+        "outcome": {
+          "enum": [
+            "updated",
+            "unchanged",
+            "partial",
+            "failed",
+            "deferred",
+            "cancelled",
+            "no-op"
+          ]
+        },
+        "requestedProviderIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "completedProviderIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "cachePersisted": {
+          "type": "boolean"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "safeError": {
+      "type": "object",
+      "required": [
+        "code",
+        "reasonCode",
+        "action"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "enum": [
+            "not-configured",
+            "invalid-credential",
+            "credential-expired",
+            "permission-denied",
+            "invalid-config",
+            "account-mismatch",
+            "interaction-required",
+            "unsupported",
+            "network",
+            "timeout",
+            "rate-limited",
+            "invalid-response",
+            "io-error",
+            "cache-write-failed",
+            "config-conflict",
+            "schema-unsupported",
+            "cancelled"
+          ]
+        },
+        "reasonCode": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "action": {
+          "enum": [
+            "none",
+            "configure-source",
+            "select-profile",
+            "allow-source",
+            "relogin-owner",
+            "check-permission",
+            "check-plan-region",
+            "update-client",
+            "retry-later",
+            "contact-maintainer"
+          ]
+        },
+        "httpStatus": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 599
+        },
+        "retryAtMs": {
+          "type": "integer",
+          "exclusiveMinimum": 0
+        }
+      }
+    },
+    "diagnostic": {
+      "type": "object",
+      "required": [
+        "code",
+        "severity"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "type": "string",
+          "pattern": "^[a-z0-9-]{1,64}$"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning"
+          ]
+        },
+        "metricId": {
+          "type": "string"
+        },
+        "action": {
+          "enum": [
+            "none",
+            "configure-source",
+            "select-profile",
+            "allow-source",
+            "relogin-owner",
+            "check-permission",
+            "check-plan-region",
+            "update-client",
+            "retry-later",
+            "contact-maintainer"
+          ]
+        }
+      }
+    },
+    "sourceStamp": {
+      "type": "object",
+      "required": [
+        "dataSourceId",
+        "grade",
+        "transport",
+        "identityAssurance"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "dataSourceId": {
+          "type": "string"
+        },
+        "grade": {
+          "enum": [
+            "A",
+            "B",
+            "C",
+            "D"
+          ]
+        },
+        "transport": {
+          "enum": [
+            "https",
+            "cli",
+            "loopback",
+            "local-file",
+            "legacy"
+          ]
+        },
+        "credentialSourceId": {
+          "type": "string"
+        },
+        "reader": {
+          "type": "string"
+        },
+        "identityAssurance": {
+          "enum": [
+            "verified",
+            "source-bound",
+            "unverified-legacy"
+          ]
+        }
+      }
+    },
+    "period": {
+      "type": "object",
+      "required": [
+        "kind",
+        "resetState"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "rolling",
+            "calendar",
+            "billing",
+            "lifetime",
+            "unknown"
+          ]
+        },
+        "durationSeconds": {
+          "type": "integer",
+          "exclusiveMinimum": 0
+        },
+        "startsAtMs": {
+          "type": "integer",
+          "exclusiveMinimum": 0
+        },
+        "endsAtMs": {
+          "type": "integer",
+          "exclusiveMinimum": 0
+        },
+        "resetsAtMs": {
+          "type": "integer",
+          "exclusiveMinimum": 0
+        },
+        "resetState": {
+          "enum": [
+            "known",
+            "unknown",
+            "not-started"
+          ]
+        }
+      }
+    },
+    "metricBase": {
+      "type": "object",
+      "required": [
+        "id",
+        "ruleId",
+        "label",
+        "kind",
+        "unit",
+        "scope",
+        "provenance",
+        "sourceEndpointIds",
+        "diagnostics"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9_.:-]{0,95}$"
+        },
+        "ruleId": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "unit": {
+          "enum": [
+            "percent",
+            "count",
+            "tokens",
+            "requests",
+            "credits",
+            "currency",
+            "none"
+          ]
+        },
+        "currency": {
+          "type": "string",
+          "pattern": "^[A-Z]{3}$"
+        },
+        "scope": {
+          "enum": [
+            "subscription",
+            "account",
+            "organization",
+            "api-key",
+            "local"
+          ]
+        },
+        "provenance": {
+          "enum": [
+            "reported",
+            "derived",
+            "estimated",
+            "legacy-unverified"
+          ]
+        },
+        "sourceEndpointIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/diagnostic"
+          }
+        }
+      }
+    },
+    "providerEntry": {
+      "type": "object",
+      "required": [
+        "providerId",
+        "status",
+        "freshness",
+        "dataDisposition",
+        "attempt",
+        "diagnostics"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "providerId": {
+          "type": "string"
+        },
+        "profileId": {
+          "type": "string"
+        },
+        "scopeKey": {
+          "type": "string"
+        },
+        "accountKey": {
+          "type": "string"
+        },
+        "configRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "source": {
+          "$ref": "#/$defs/sourceStamp"
+        },
+        "status": {
+          "enum": [
+            "disabled",
+            "not-configured",
+            "ok",
+            "partial",
+            "stale",
+            "reauth-required",
+            "permission-denied",
+            "rate-limited",
+            "unsupported",
+            "error"
+          ]
+        },
+        "freshness": {
+          "enum": [
+            "none",
+            "fresh",
+            "stale",
+            "expired",
+            "invalid"
+          ]
+        },
+        "dataDisposition": {
+          "enum": [
+            "none",
+            "current",
+            "last-good",
+            "legacy"
+          ]
+        },
+        "lastAttemptAtMs": {
+          "type": "integer",
+          "exclusiveMinimum": 0
+        },
+        "lastSuccessAtMs": {
+          "type": "integer",
+          "exclusiveMinimum": 0
+        },
+        "attempt": {
+          "type": "object",
+          "required": [
+            "state"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "state": {
+              "enum": [
+                "never",
+                "running",
+                "succeeded",
+                "partial",
+                "failed",
+                "deferred",
+                "cancelled"
+              ]
+            },
+            "id": {
+              "type": "string"
+            },
+            "startedAtMs": {
+              "type": "integer",
+              "exclusiveMinimum": 0
+            },
+            "finishedAtMs": {
+              "type": "integer",
+              "exclusiveMinimum": 0
+            },
+            "reason": {
+              "enum": [
+                "startup",
+                "timer",
+                "manual",
+                "wake",
+                "cli",
+                "config-change"
+              ]
+            },
+            "deferredReason": {
+              "enum": [
+                "busy",
+                "not-due",
+                "backoff",
+                "batch-budget",
+                "auth-wait"
+              ]
+            }
+          }
+        },
+        "nextEligibleAtMs": {
+          "type": "integer",
+          "exclusiveMinimum": 0
+        },
+        "report": {
+          "type": "object",
+          "required": [
+            "name",
+            "observationBasis",
+            "windows",
+            "metrics",
+            "diagnostics"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string",
+              "maxLength": 160
+            },
+            "capturedAtMs": {
+              "type": "integer",
+              "exclusiveMinimum": 0
+            },
+            "observedAtMs": {
+              "type": "integer",
+              "exclusiveMinimum": 0
+            },
+            "observationBasis": {
+              "enum": [
+                "remote-response",
+                "cli-response",
+                "local-snapshot",
+                "legacy-import"
+              ]
+            },
+            "windows": {
+              "type": "array",
+              "maxItems": 128,
+              "items": {
+                "$ref": "#/$defs/quotaMetric"
+              }
+            },
+            "metrics": {
+              "type": "array",
+              "maxItems": 128,
+              "items": {
+                "$ref": "#/$defs/valueMetric"
+              }
+            },
+            "primaryMetricId": {
+              "type": "string"
+            },
+            "diagnostics": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/diagnostic"
+              }
+            }
+          }
+        },
+        "error": {
+          "$ref": "#/$defs/safeError"
+        },
+        "diagnostics": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/diagnostic"
+          }
+        }
+      }
+    },
+    "quotaMetric": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/metricBase"
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "state",
+            "quotaState",
+            "derivations",
+            "period"
+          ],
+          "properties": {
+            "kind": {
+              "const": "quota"
+            },
+            "state": {
+              "enum": [
+                "known",
+                "remaining-only",
+                "used-only",
+                "limit-only",
+                "unknown"
+              ]
+            },
+            "used": {
+              "type": "number"
+            },
+            "remaining": {
+              "type": "number"
+            },
+            "limit": {
+              "type": "number"
+            },
+            "quotaState": {
+              "enum": [
+                "within-limit",
+                "at-limit",
+                "over-limit",
+                "unknown"
+              ]
+            },
+            "derivations": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "field",
+                  "formula"
+                ],
+                "properties": {
+                  "field": {
+                    "enum": [
+                      "used",
+                      "remaining",
+                      "limit"
+                    ]
+                  },
+                  "formula": {
+                    "enum": [
+                      "limit-minus-remaining",
+                      "max-zero-limit-minus-used",
+                      "used-plus-remaining"
+                    ]
+                  }
+                }
+              }
+            },
+            "period": {
+              "$ref": "#/$defs/period"
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "unit": {
+                "const": "none"
+              }
+            }
+          },
+          "then": {
+            "not": {}
+          }
+        }
+      ]
+    },
+    "valueMetric": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/metricBase"
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "state"
+          ],
+          "properties": {
+            "kind": {
+              "enum": [
+                "balance",
+                "spend",
+                "counter",
+                "status"
+              ]
+            },
+            "state": {
+              "enum": [
+                "known",
+                "unknown"
+              ]
+            },
+            "value": {
+              "type": "number",
+              "minimum": 0
+            },
+            "valueCode": {
+              "enum": [
+                "available",
+                "unavailable",
+                "unlimited",
+                "enabled",
+                "disabled"
+              ]
+            },
+            "period": {
+              "$ref": "#/$defs/period"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

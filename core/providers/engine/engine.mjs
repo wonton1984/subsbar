@@ -492,7 +492,6 @@ function opencodeEpoch(value) {
 // ---------------------------------------------------------------------------
 
 const CODEX_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
-const CODEX_TOKEN_URL = "https://auth.openai.com/oauth/token";
 // codex CLI 的公共 client_id（社区通行值，auth.openai.com 公开客户端）
 const CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkX67XuORkP4S";
 
@@ -623,35 +622,6 @@ function windowDurationLabel(windowMinutes) {
   if (windowMinutes % 1440 === 0) return `${windowMinutes / 1440}d`;
   if (windowMinutes % 60 === 0) return `${windowMinutes / 60}h`;
   return `${windowMinutes}m`;
-}
-
-/**
- * Codex OAuth refresh（社区通行做法：auth.openai.com/oauth/token，
- * grant_type=refresh_token，client_id 为 codex CLI 公开客户端 id）。
- * 返回 { access, expires } 或 undefined。
- */
-async function refreshCodexToken(refreshToken, signal) {
-  if (!refreshToken) return undefined;
-  try {
-    const response = await fetch(CODEX_TOKEN_URL, {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        grant_type: "refresh_token",
-        refresh_token: refreshToken,
-        client_id: CODEX_CLIENT_ID,
-      }),
-      signal,
-    });
-    if (!response.ok) return undefined;
-    const payload = await response.json();
-    const access = typeof payload?.access_token === "string" ? payload.access_token : undefined;
-    if (!access) return undefined;
-    const expiresIn = typeof payload?.expires_in === "number" ? payload.expires_in : 28_800;
-    return { access, expiresIn, refresh: payload?.refresh_token ?? undefined };
-  } catch {
-    return undefined;
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -906,13 +876,6 @@ export function commandCodeReport(account, credits, subscription, summary, unava
 }
 
 /** Command Code 长效 API key：access 即 key，"刷新" = 校验复用（见 pi-commandcode-provider oauth.ts）。 */
-async function refreshCommandCodeToken(credential) {
-  // Command Code 的 oauth access 即长效 API key，不过期（expires 为远期时间戳）。
-  // 若真的 401/403，refresh token 与 access 相同，没有可换新的端点 —— 返回原 token 让上层用缓存降级。
-  void credential;
-  return undefined;
-}
-
 // ---------------------------------------------------------------------------
 // droid (Factory) — 凭证在 Keychain "Factory CLI" 的 AES key + ~/.factory/auth.v2.loginkeychain
 // （逆向端点，见 notes/droid-cursor-usage-apis.md；token 过期不自动刷新）
@@ -1280,31 +1243,8 @@ export async function refreshAll(debug) {
         results.push({ id: subsId, status: "ok" });
       } catch (error) {
         const message = redactError(error, secrets);
-        // 401/403 → 尝试刷新 oauth
-        const authFailed = /returned 40[13]/.test(message);
-        if (authFailed && credential.kind === "oauth") {
-          const refreshed = await tryRefresh(subsId, credential, debug);
-          if (refreshed) {
-            try {
-              const report = await fetchFor(subsId, refreshed.access);
-              cache[subsId] = { report, fetchedAt: now };
-              results.push({ id: subsId, status: "ok", refreshed: true });
-              return;
-            } catch (error2) {
-              // 刷新后的 token 仍失败 → 继续走缓存降级
-              results.push({
-                id: subsId,
-                status: "stale-failed-refresh",
-                message: redactError(error2, [refreshed.access]),
-              });
-              return;
-            }
-          }
-          if (subsId === "commandcode") {
-            // Command Code access = 长效 key，无刷新端点；401 说明 key 失效
-            debug?.(`commandcode: 401/403 且无刷新端点，降级缓存`);
-          }
-        }
+        // v1 裁决（contracts §1）：不消费 borrowed refresh——401/403 归 reauth-required，
+        // 由 owner 原应用刷新后重读；本引擎不调 token endpoint、不写回任何 auth 文件。
         const entry = cache[subsId];
         if (entry && now - entry.fetchedAt < MAX_CACHE_AGE_MS) {
           results.push({ id: subsId, status: "stale", message });
@@ -1328,22 +1268,6 @@ export function fetchFor(subsId, token) {
   if (subsId === "droid") return fetchDroid(token);
   if (subsId === "cursor") return fetchCursor(token);
   throw new Error(`unknown subs id: ${subsId}`);
-}
-
-async function tryRefresh(subsId, credential, debug) {
-  if (subsId === "codex") {
-    const fresh = await refreshCodexToken(credential.refresh, undefined);
-    if (fresh) {
-      debug?.("codex: token refreshed");
-      return fresh;
-    }
-    debug?.("codex: refresh 失败");
-    return undefined;
-  }
-  if (subsId === "commandcode") {
-    return refreshCommandCodeToken(credential);
-  }
-  return undefined;
 }
 
 // ---------------------------------------------------------------------------

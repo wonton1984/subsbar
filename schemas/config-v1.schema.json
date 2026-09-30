@@ -1,0 +1,404 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/subsbar/subsbar/schemas/config-v1.schema.json",
+  "title": "SubsBar config v1",
+  "type": "object",
+  "required": [
+    "schemaVersion"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "nodePath": {
+          "type": "string",
+          "enum": [
+            "auto"
+          ],
+          "or": "absolute path (pattern ^/)"
+        },
+        "refreshIntervalSeconds": {
+          "type": "integer",
+          "minimum": 60,
+          "maximum": 86400,
+          "default": 300
+        },
+        "timeoutSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 30,
+          "default": 15
+        },
+        "maxConcurrency": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 6,
+          "default": 3
+        }
+      }
+    },
+    "privacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "allowBrowserDiscovery": {
+          "type": "boolean",
+          "default": false
+        },
+        "diagnostics": {
+          "type": "string",
+          "enum": [
+            "off",
+            "local-redacted"
+          ],
+          "default": "local-redacted"
+        }
+      }
+    },
+    "ui": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "locale": {
+          "enum": [
+            "system",
+            "zh-Hans",
+            "en"
+          ],
+          "default": "system"
+        },
+        "appearance": {
+          "enum": [
+            "system",
+            "light",
+            "dark"
+          ],
+          "default": "system"
+        },
+        "density": {
+          "enum": [
+            "compact",
+            "comfortable"
+          ],
+          "default": "compact"
+        },
+        "overviewMode": {
+          "enum": [
+            "cards",
+            "single"
+          ],
+          "default": "cards"
+        },
+        "menuBarMode": {
+          "enum": [
+            "single-pie",
+            "pinned"
+          ],
+          "default": "single-pie"
+        },
+        "selectedProvider": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "showMenuBarPercent": {
+          "type": "boolean",
+          "default": true
+        },
+        "showAccountLabel": {
+          "type": "boolean",
+          "default": false
+        },
+        "providerOrder": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,47}$"
+          },
+          "uniqueItems": true,
+          "default": []
+        },
+        "pinnedMetrics": {
+          "type": "array",
+          "maxItems": 2,
+          "default": [],
+          "items": {
+            "type": "object",
+            "required": [
+              "providerId",
+              "profileId",
+              "metricId",
+              "field"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "providerId": {
+                "type": "string"
+              },
+              "profileId": {
+                "type": "string"
+              },
+              "metricId": {
+                "type": "string"
+              },
+              "field": {
+                "enum": [
+                  "remaining-percent",
+                  "used-percent",
+                  "remaining",
+                  "used",
+                  "value"
+                ]
+              },
+              "style": {
+                "enum": [
+                  "text",
+                  "mini-bar"
+                ],
+                "default": "text"
+              }
+            }
+          }
+        },
+        "cards": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "expanded": {
+                "type": "boolean",
+                "default": false
+              },
+              "favorite": {
+                "type": "boolean",
+                "default": false
+              },
+              "metricOrder": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "default": []
+              },
+              "hiddenMetricIds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "default": []
+              }
+            }
+          }
+        }
+      }
+    },
+    "providers": {
+      "type": "object",
+      "default": {},
+      "additionalProperties": {
+        "$ref": "#/$defs/provider"
+      }
+    },
+    "compatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "pi": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false
+            },
+            "agentDir": {
+              "type": "string",
+              "pattern": "^/"
+            }
+          }
+        },
+        "legacyCache": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "import": {
+              "enum": [
+                "never",
+                "manual"
+              ],
+              "default": "never"
+            },
+            "path": {
+              "type": "string",
+              "pattern": "^/"
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "dataSource": {
+          "type": "string",
+          "default": "auto"
+        },
+        "allowCommunityEndpoints": {
+          "type": "boolean",
+          "default": false
+        },
+        "refreshIntervalSeconds": {
+          "type": "integer",
+          "minimum": 60,
+          "maximum": 86400
+        },
+        "activeProfile": {
+          "type": "string"
+        },
+        "profiles": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/profile"
+          }
+        }
+      }
+    },
+    "profile": {
+      "type": "object",
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,47}$"
+        },
+        "label": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "region": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "organizationId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "expectedAccount": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "discovery": {
+          "enum": [
+            "auto",
+            "only"
+          ],
+          "default": "auto"
+        },
+        "allowKeychain": {
+          "type": "boolean",
+          "default": false
+        },
+        "allowBrowser": {
+          "type": "boolean",
+          "default": false
+        },
+        "allowLocalApi": {
+          "type": "boolean",
+          "default": false
+        },
+        "sources": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/source"
+          }
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "reader"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,47}$"
+        },
+        "kind": {
+          "enum": [
+            "env",
+            "file",
+            "keychain",
+            "cli",
+            "pi",
+            "browser",
+            "local-api"
+          ]
+        },
+        "reader": {
+          "type": "string"
+        },
+        "purpose": {
+          "enum": [
+            "primary",
+            "management"
+          ],
+          "default": "primary"
+        },
+        "envName": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "service": {
+          "type": "string"
+        },
+        "account": {
+          "type": "string"
+        },
+        "browserProfile": {
+          "type": "string"
+        },
+        "origin": {
+          "type": "string",
+          "pattern": "^https://"
+        },
+        "executablePath": {
+          "type": "string",
+          "pattern": "^/"
+        }
+      },
+      "note": "kind 专属字段约束（env→envName、file→path、keychain→service/account、cli→executablePath、pi→path、browser→browserProfile+origin、local-api 无）由语义校验器执行"
+    }
+  }
+}

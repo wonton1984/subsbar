@@ -13,6 +13,8 @@ import { ProviderRegistry } from "./providers/registry.mjs";
 import { createCredentialStores } from "./credentials/stores.mjs";
 import { RefreshCoordinator } from "./runtime/scheduler.mjs";
 import { projectUsage } from "./runtime/project.mjs";
+import { importLegacyCache } from "./runtime/scheduler.mjs";
+import { join } from "path";
 import { freshnessOf } from "./runtime/report.mjs";
 import { ABSENT_CONTENT_TOKEN } from "./config/store.mjs";
 import { safeError } from "./defs.mjs";
@@ -76,6 +78,35 @@ async function main() {
   let configPath;
   try { configPath = resolveConfigPath({ configFlag: parsed.config, env: process.env }); }
   catch (e) { return exitWith(errEnvelope("invalid-config", "invalid-parameter", "none"), 2); }
+
+  // ---- import legacy（C18：用户显式触发；源只读；幂等）----
+  if (command === "import" && parsed.positional?.[1] === "legacy") {
+    const coordinator = new RefreshCoordinator({ configPath, env: process.env });
+    const dirs = resolveStateDirs({ env: process.env });
+    const runtime = coordinator.readRuntimeState();
+    const sourcePath = parsed.path ?? coordinator.loadConfigOrNull()?.config?.compatibility?.pi?.agentDir ?? join(process.env.HOME ?? "", ".pi", "agent", "subs-bar-cache.json");
+    const result = importLegacyCache({ sourcePath: expandTildePath(sourcePath), runtime, nowMs: Date.now() });
+    const runtimePrev = runtime.legacyImport ?? {};
+    if (!result.changed) {
+      return exitWith({ schemaVersion: 1, kind: "legacy-import", imported: false, importedProviderIds: [], diagnostics: result.envelope.diagnostics }, 0);
+    }
+    if (runtimePrev.sourceToken === result.sourceToken) {
+      return exitWith({ schemaVersion: 1, kind: "legacy-import", imported: false, importedProviderIds: result.importedProviderIds, note: "idempotent: source unchanged" }, 0);
+    }
+    // 记忆 token + 落历史条目（runtime state，不进活动 usage cache）
+    try {
+      mkdirSync(dirs.stateDir, { recursive: true, mode: 0o700 });
+      const stFile = dirs.runtimeStateFile;
+      const st = { ...runtime, legacyImport: { sourceToken: result.sourceToken, importedProviderIds: result.importedProviderIds, importedAtMs: Date.now(), providers: result.envelope.providers } };
+      const tmp = `${stFile}.${process.pid}.tmp`;
+      writeFileSync(tmp, JSON.stringify(st) + "\n", { mode: 0o600 });
+      renameSync(tmp, stFile);
+    } catch (e) {
+      process.stderr.write(`legacy-import persist failed: ${e?.code ?? ""}\n`);
+      return exitWith(errEnvelope("io-error", "io-error", "retry-later"), 4);
+    }
+    return exitWith({ schemaVersion: 1, kind: "legacy-import", imported: true, importedProviderIds: result.importedProviderIds, providers: result.envelope.providers }, 0);
+  }
 
   // ---- registry ----
   if (command === "registry") {
@@ -243,6 +274,11 @@ async function main() {
   }
 
   return exitWith(errEnvelope("invalid-config", "invalid-parameter", "none"), 2);
+}
+
+function expandTildePath(p) {
+  if (typeof p === "string" && p.startsWith("~/")) return join(process.env.HOME ?? "", p.slice(2));
+  return p;
 }
 
 function contextOf(config) {

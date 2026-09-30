@@ -1,0 +1,540 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/subsbar/subsbar/schemas/provider-manifest-v1.schema.json",
+  "title": "SubsBar provider manifest v1",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "id",
+    "name",
+    "product",
+    "releaseStatus",
+    "adapterVersion",
+    "platforms",
+    "docsPath",
+    "documentationUrls",
+    "credentialReaders",
+    "endpoints",
+    "dataSources",
+    "refresh",
+    "metricRules",
+    "primaryPreference",
+    "diagnosticCodes",
+    "reasonCodes",
+    "fixtureIds",
+    "provenance"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,47}$"
+    },
+    "name": {
+      "type": "string",
+      "maxLength": 80
+    },
+    "product": {
+      "type": "string",
+      "maxLength": 80
+    },
+    "releaseStatus": {
+      "enum": [
+        "planned",
+        "experimental",
+        "supported",
+        "blocked"
+      ]
+    },
+    "adapterVersion": {
+      "type": "string"
+    },
+    "platforms": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "darwin",
+          "linux"
+        ]
+      },
+      "minItems": 1
+    },
+    "docsPath": {
+      "type": "string"
+    },
+    "documentationUrls": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^https://"
+      },
+      "minItems": 1,
+      "maxItems": 16
+    },
+    "credentialReaders": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "credentialKinds",
+          "implementationId",
+          "configurable",
+          "requires",
+          "purposes",
+          "owner",
+          "renewMode"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,47}$"
+          },
+          "kind": {
+            "enum": [
+              "env",
+              "file",
+              "keychain",
+              "cli",
+              "pi",
+              "browser",
+              "local-api"
+            ]
+          },
+          "credentialKinds": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "api-key",
+                "oauth",
+                "cookie",
+                "cli-session",
+                "request-signer"
+              ]
+            }
+          },
+          "implementationId": {
+            "type": "string"
+          },
+          "configurable": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "envName",
+                "path",
+                "service",
+                "account",
+                "browserProfile",
+                "origin",
+                "executablePath"
+              ]
+            }
+          },
+          "requires": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "keychain",
+                "browser",
+                "local-api"
+              ]
+            }
+          },
+          "purposes": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "primary",
+                "management"
+              ]
+            }
+          },
+          "owner": {
+            "enum": [
+              "external",
+              "subsbar"
+            ]
+          },
+          "renewMode": {
+            "enum": [
+              "owner-cli",
+              "subsbar-store",
+              "none"
+            ]
+          }
+        }
+      }
+    },
+    "endpoints": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "transport",
+          "operation",
+          "readOnly",
+          "grade",
+          "maxResponseBytes",
+          "authPurpose",
+          "documentationUrl"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "transport": {
+            "enum": [
+              "https",
+              "cli",
+              "loopback",
+              "local-file"
+            ]
+          },
+          "operation": {
+            "enum": [
+              "usage",
+              "identity",
+              "renew"
+            ]
+          },
+          "readOnly": {
+            "type": "boolean"
+          },
+          "grade": {
+            "enum": [
+              "A",
+              "B",
+              "C",
+              "D"
+            ]
+          },
+          "origin": {
+            "type": "string",
+            "pattern": "^https://[^/?#]+$"
+          },
+          "regionOrigins": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "pattern": "^https://"
+            }
+          },
+          "method": {
+            "enum": [
+              "GET",
+              "POST"
+            ]
+          },
+          "pathTemplate": {
+            "type": "string"
+          },
+          "commandId": {
+            "type": "string"
+          },
+          "helperId": {
+            "type": "string"
+          },
+          "maxResponseBytes": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 1048576
+          },
+          "authPurpose": {
+            "enum": [
+              "primary",
+              "management",
+              "none"
+            ]
+          },
+          "documentationUrl": {
+            "type": "string",
+            "pattern": "^https://"
+          }
+        }
+      }
+    },
+    "dataSources": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "grade",
+          "admission",
+          "approvalNote",
+          "endpointIds",
+          "credentialChain",
+          "capabilities",
+          "coverageMetricRules",
+          "coverageMatch"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "official-api",
+              "official-cli",
+              "community-api",
+              "local-api",
+              "local-history"
+            ]
+          },
+          "grade": {
+            "enum": [
+              "A",
+              "B",
+              "C",
+              "D"
+            ]
+          },
+          "admission": {
+            "enum": [
+              "approved",
+              "pending",
+              "blocked"
+            ]
+          },
+          "approvalNote": {
+            "type": "string",
+            "maxLength": 512
+          },
+          "endpointIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "credentialChain": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "quota",
+                "balance",
+                "spend",
+                "local-history"
+              ]
+            }
+          },
+          "minimumIntervalSeconds": {
+            "type": "integer",
+            "minimum": 60
+          },
+          "minimumClientVersion": {
+            "type": "string"
+          },
+          "coverageMetricRules": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "coverageMatch": {
+            "enum": [
+              "any",
+              "all"
+            ]
+          }
+        }
+      }
+    },
+    "refresh": {
+      "type": "object",
+      "required": [
+        "minimumIntervalSeconds",
+        "defaultIntervalSeconds",
+        "taskTimeoutSeconds",
+        "requestTimeoutSeconds"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "minimumIntervalSeconds": {
+          "type": "integer",
+          "minimum": 60
+        },
+        "defaultIntervalSeconds": {
+          "type": "integer",
+          "minimum": 60
+        },
+        "taskTimeoutSeconds": {
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 90
+        },
+        "requestTimeoutSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 30
+        }
+      }
+    },
+    "metricRules": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "unit",
+          "scope",
+          "period",
+          "derivations",
+          "description",
+          "missingPolicy"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "metricId": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_.:-]{0,95}$"
+          },
+          "metricIdPrefix": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "quota",
+              "balance",
+              "spend",
+              "counter",
+              "status"
+            ]
+          },
+          "unit": {
+            "enum": [
+              "percent",
+              "count",
+              "tokens",
+              "requests",
+              "credits",
+              "currency",
+              "none"
+            ]
+          },
+          "currency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
+          },
+          "currencyFromPayload": {
+            "type": "boolean"
+          },
+          "scope": {
+            "enum": [
+              "subscription",
+              "account",
+              "organization",
+              "api-key",
+              "local"
+            ]
+          },
+          "period": {
+            "enum": [
+              "rolling",
+              "calendar",
+              "billing",
+              "lifetime",
+              "unknown"
+            ]
+          },
+          "derivations": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "used-from-limit-remaining",
+                "remaining-from-limit-used",
+                "limit-from-used-remaining"
+              ]
+            }
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 512
+          },
+          "missingPolicy": {
+            "enum": [
+              "unknown",
+              "omit-optional"
+            ]
+          }
+        }
+      }
+    },
+    "primaryPreference": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "diagnosticCodes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z0-9-]{1,64}$"
+      }
+    },
+    "reasonCodes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z0-9-]{1,64}$"
+      }
+    },
+    "fixtureIds": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "provenance": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "url",
+          "revision",
+          "license"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "url": {
+            "type": "string",
+            "pattern": "^https://"
+          },
+          "revision": {
+            "type": "string"
+          },
+          "license": {
+            "type": "string"
+          },
+          "noticePath": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

@@ -12,6 +12,8 @@ import { createCredentialStores } from "../credentials/stores.mjs";
 import { ProviderRegistry } from "../providers/registry.mjs";
 import { v0ReadAuth, v0ResolveCredential, v0Fetch, v0ReportToSnapshot, snapshotHasData } from "../providers/adapters.mjs";
 import { safeError, diagnostic, isAtMs } from "../defs.mjs";
+import { legacyWindowToMetric } from "./report.mjs";
+import { parseStrictJson } from "./json-strict.mjs";
 
 const BATCH_LIMIT_MS = 120_000;
 const LOSER_WAIT_MS = 2_000;
@@ -39,9 +41,9 @@ export class RefreshCoordinator {
     const { usageCacheFile } = this.dirs();
     if (!existsSync(usageCacheFile)) return null;
     try {
-      const parsed = JSON.parse(readFileSync(usageCacheFile, "utf8"));
+      const parsed = parseStrictJson(readFileSync(usageCacheFile, "utf8"));
       if (parsed?.schemaVersion !== 1 || parsed?.kind !== "usage") return null;
-      return parsed;
+      return tolerateUnknown(parsed);
     } catch { return null; }
   }
 
@@ -49,7 +51,7 @@ export class RefreshCoordinator {
   readRuntimeState() {
     const { runtimeStateFile } = this.dirs();
     try {
-      return JSON.parse(readFileSync(runtimeStateFile, "utf8"));
+      return parseStrictJson(readFileSync(runtimeStateFile, "utf8"));
     } catch { return {}; }
   }
 
@@ -142,11 +144,20 @@ export class RefreshCoordinator {
       completed.push(entry.providerId);
       applyResult(entry, r, { nowMs: Date.now(), trigger, configRevision: cfgLoaded?.config?.revision ?? 0 });
       // 退避状态持久化
-      runtimeByProvider[entry.providerId] = {
-        consecutiveFailures: r.kind === "failed" ? (runtimeByProvider[entry.providerId]?.consecutiveFailures ?? 0) + 1 : 0,
-        nextEligibleAtMs: r.nextEligibleAtMs,
-        lastAttemptAtMs: Date.now(),
-      };
+      const prev = runtimeByProvider[entry.providerId] ?? {};
+      let nextEligibleAtMs = r.nextEligibleAtMs;
+      if (r.kind === "failed") {
+        const failures = (prev.consecutiveFailures ?? 0) + 1;
+        const interval = Math.max(cfgLoaded?.config?.runtime?.refreshIntervalSeconds ?? 300, this.registry.get(entry.providerId)?.refresh?.minimumIntervalSeconds ?? 60);
+        const backoffAt = Date.now() + computeBackoffMs(failures, interval);
+        const serverAt = r.error?.retryAtMs;
+        nextEligibleAtMs = typeof serverAt === "number" ? Math.max(backoffAt, serverAt) : backoffAt;
+        runtimeByProvider[entry.providerId] = { ...prev, consecutiveFailures: failures, nextEligibleAtMs, lastAttemptAtMs: Date.now() };
+      } else if (r.kind === "success" || r.kind === "partial") {
+        runtimeByProvider[entry.providerId] = { ...prev, consecutiveFailures: 0, nextEligibleAtMs: undefined, lastAttemptAtMs: Date.now() };
+      } else {
+        runtimeByProvider[entry.providerId] = { ...prev, nextEligibleAtMs, lastAttemptAtMs: Date.now() };
+      }
     }
     envelope.request = {
       requestId,
@@ -365,10 +376,17 @@ function resolveErrorToSafe(resolved) {
 
 function fetchErrorToSafe(e) {
   const msg = String(e?.message ?? e);
+  const retryAfter = e?.retryAfterHeader;
   if (/returned 401/.test(msg)) return safeError("reauth-required", "http-401", "relogin-owner");
   if (/returned 403/.test(msg)) return safeError("permission-denied", "http-403", "check-plan-region");
-  if (/returned 429/.test(msg)) return safeError("rate-limited", "http-429", "retry-later");
-  if (/returned 5\d\d/.test(msg)) return safeError("network", "http-5xx", "retry-later");
+  if (/returned 429/.test(msg)) {
+    const retryAtMs = parseRetryAfter(retryAfter);
+    const err = safeError("rate-limited", "http-429", "retry-later", { httpStatus: 429 });
+    if (retryAtMs) err.retryAtMs = retryAtMs;
+    return err;
+  }
+  const m5 = msg.match(/returned (5\d\d)/);
+  if (m5) return safeError("network", "http-5xx", "retry-later", { httpStatus: parseInt(m5[1], 10) });
   if (/timed out|timeout/i.test(msg)) return safeError("timeout", "http-5xx", "retry-later");
   return safeError("network", "http-5xx", "retry-later");
 }
@@ -396,3 +414,137 @@ function defaultConfigPath(env) {
 }
 import { resolveConfigPath as _rcp } from "../config/paths.mjs";
 globalThis.__m1cfgPath = _rcp;
+
+
+// ---------------------------------------------------------------------------
+// C22 读侧宽容：未知 metric 枚举隔离为 unsupported，不当作 known；未知 status 标注协议未知
+// ---------------------------------------------------------------------------
+
+const KNOWN_METRIC_KINDS = new Set(["quota", "balance", "spend", "counter", "status"]);
+const KNOWN_UNITS = new Set(["percent", "count", "tokens", "requests", "credits", "currency", "none"]);
+const KNOWN_STATES = new Set(["known", "remaining-only", "used-only", "limit-only", "unknown"]);
+
+export function tolerateUnknown(envelope) {
+  for (const p of envelope.providers ?? []) {
+    const report = p.report;
+    if (!report) continue;
+    for (const arrName of ["windows", "metrics"]) {
+      const arr = report[arrName];
+      if (!Array.isArray(arr)) continue;
+      for (let i = 0; i < arr.length; i++) {
+        const m = arr[i];
+        if (!m || typeof m !== "object") continue;
+        const bad = !KNOWN_METRIC_KINDS.has(m.kind) || !KNOWN_UNITS.has(m.unit) ||
+          (m.state !== undefined && !KNOWN_STATES.has(m.state));
+        if (bad) {
+          arr[i] = {
+            id: m.id ?? `metric-${i}`, ruleId: m.ruleId ?? "unknown", label: m.label ?? "",
+            kind: "status", unit: "none", scope: m.scope ?? "local",
+            provenance: "reported", sourceEndpointIds: [],
+            state: "known", valueCode: "unavailable",
+            diagnostics: [{ code: "metric-unsupported", severity: "warning" }],
+          };
+        }
+      }
+    }
+    if (p.status && !["disabled", "not-configured", "ok", "partial", "stale", "reauth-required", "permission-denied", "rate-limited", "unsupported", "error"].includes(p.status)) {
+      p.status = "error";
+      p.error = safeError("schema-unsupported", "schema-unsupported", "contact-maintainer");
+      p.diagnostics = [...(p.diagnostics ?? []), { code: "metric-unsupported", severity: "warning" }];
+    }
+  }
+  return envelope;
+}
+
+// ---------------------------------------------------------------------------
+// C11 退避：max(effectiveInterval, min(3600, 300*2^(n-1)*(1+j))) 秒；Retry-After 解析
+// ---------------------------------------------------------------------------
+
+/** 指数退避（秒→ms）。n 从 1 开始；j 为 0..0.1 抖动；指数封顶 3600s，不缩短更长 effectiveInterval。 */
+export function computeBackoffMs(consecutiveFailures, effectiveIntervalSeconds, { jitter = Math.random() * 0.1, nowMs = Date.now() } = {}) {
+  const n = Math.max(1, Math.floor(consecutiveFailures));
+  const exp = Math.min(3600, 300 * Math.pow(2, n - 1) * (1 + jitter));
+  return (Math.max(effectiveIntervalSeconds, exp)) * 1000;
+}
+
+/** Retry-After 解析：秒数或 HTTP date；非法/缺失 → undefined（§5.3）。 */
+export function parseRetryAfter(value, nowMs = Date.now()) {
+  if (typeof value !== "string" && typeof value !== "number") return undefined;
+  const v = typeof value === "string" ? value.trim() : value;
+  if (/^\d+$/.test(String(v))) {
+    const sec = parseInt(v, 10);
+    return sec >= 0 ? nowMs + sec * 1000 : undefined;
+  }
+  const t = Date.parse(String(v));
+  return Number.isFinite(t) && t > 0 ? t : undefined;
+}
+
+
+// ---------------------------------------------------------------------------
+// C18 手动 legacy 导入编排（§7）：用户显式触发；源文件只读；幂等（源内容 token 记忆）
+// ---------------------------------------------------------------------------
+
+/**
+ * 导入 pi v0 缓存（{[provider]: {report, fetchedAt}}）为只读历史条目。
+ * 返回 {envelope, importedProviderIds, sourceToken, changed}；不写 usage cache，
+ * 落 runtime state 的 legacyImport 键（历史查看视图专用，不参与活动投影）。
+ */
+export function importLegacyCache({ sourcePath, runtime, nowMs = Date.now() }) {
+  const { existsSync, readFileSync } = fsPair2();
+  if (!existsSync(sourcePath)) {
+    return { changed: false, importedProviderIds: [], sourceToken: undefined, envelope: { schemaVersion: 1, kind: "usage", contextId: "context-legacy", generatedAtMs: nowMs, cacheRevision: 0, providers: [], diagnostics: [{ code: "legacy-error", severity: "warning" }] } };
+  }
+  const rawText = readFileSync(sourcePath, "utf8");
+  let legacy;
+  try { legacy = parseStrictJson(rawText); } catch { return legacyFailure(nowMs); }
+  if (!legacy || typeof legacy !== "object" || Array.isArray(legacy) || legacy.schemaVersion !== undefined) {
+    return legacyFailure(nowMs); // §7：非 v0 结构不猜
+  }
+  const { createHash } = cryptoMod();
+  const sourceToken = createHash("sha256").update(rawText, "utf8").digest("hex").slice(0, 32);
+  const importedProviderIds = [];
+  const providers = [];
+  for (const [providerId, entry] of Object.entries(legacy)) {
+    if (!entry || typeof entry !== "object" || !entry.report) continue;
+    const windows = [];
+    for (const w of Array.isArray(entry.report.windows) ? entry.report.windows : []) {
+      windows.push(legacyWindowToMetric(w, { nowMs }));
+    }
+    const metrics = [];
+    for (const m of Array.isArray(entry.report.metrics) ? entry.report.metrics : []) {
+      if (Number.isFinite(m?.value)) {
+        metrics.push({ id: `legacy-metric-${metrics.length}`, ruleId: "legacy-metric", label: String(m.label ?? "").slice(0, 160), kind: m.unit === "usd" ? "balance" : "counter", unit: m.unit === "usd" ? "currency" : "count", currency: m.unit === "usd" ? "USD" : undefined, scope: "subscription", provenance: "legacy-unverified", sourceEndpointIds: [], state: "known", value: m.value, diagnostics: [] });
+      }
+    }
+    const fetchedAtMs = Number.isFinite(entry.fetchedAt) ? entry.fetchedAt : undefined;
+    providers.push({
+      providerId,
+      profileId: "legacy",
+      status: "error",
+      error: safeError("unsupported", "legacy-import", "none"),
+      freshness: "expired",
+      dataDisposition: "legacy",
+      lastSuccessAtMs: fetchedAtMs,
+      attempt: { state: "never" },
+      source: { dataSourceId: "legacy-import", grade: "D", transport: "legacy", identityAssurance: "unverified-legacy" },
+      scopeKey: `legacy-${providerId}-${sourceToken.slice(0, 12)}`,
+      report: {
+        name: providerId, capturedAtMs: fetchedAtMs, observationBasis: "legacy-import",
+        windows, metrics, primaryMetricId: windows[0]?.id, diagnostics: [{ code: "legacy-unverified", severity: "warning" }],
+      },
+      diagnostics: [],
+    });
+    importedProviderIds.push(providerId);
+  }
+  return { changed: true, importedProviderIds, sourceToken, envelope: { schemaVersion: 1, kind: "usage", contextId: "context-legacy", generatedAtMs: nowMs, cacheRevision: 0, providers, diagnostics: [] } };
+}
+
+function legacyFailure(nowMs) {
+  return { changed: false, importedProviderIds: [], sourceToken: undefined, envelope: { schemaVersion: 1, kind: "usage", contextId: "context-legacy", generatedAtMs: nowMs, cacheRevision: 0, providers: [], diagnostics: [{ code: "legacy-error", severity: "warning" }] } };
+}
+
+function fsPair2() { return globalThis.__m1fsPair; }
+import { existsSync as _e2, readFileSync as _r2b } from "fs";
+import { createHash as _ch } from "crypto";
+globalThis.__m1fsPair = { existsSync: _e2, readFileSync: _r2b, createHash: _ch };
+function cryptoMod() { return { createHash: globalThis.__m1fsPair.createHash }; }

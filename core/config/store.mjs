@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSyn
 import { dirname, join } from "path";
 import { createHash } from "crypto";
 import { validateConfig, applyMergePatch, patchAllowedPath } from "./schema.mjs";
+import { parseStrictJson, StrictJsonError } from "../runtime/json-strict.mjs";
 
 export class ConfigError extends Error {
   constructor(code, message) { super(message); this.code = code; }
@@ -38,15 +39,12 @@ export class ConfigStore {
       if (e instanceof ConfigError) throw e;
       throw new ConfigError("io-error", `config 不可读: ${e.code ?? ""}`);
     }
-    // 重复键检测（JSON.parse 静默取最后值，契约要求拒绝）
-    const text = rawText;
-    if (/"[\w-]+"\s*:/.test(text)) {
-      const keys = text.match(/"([\w.-]+)"\s*:/g) ?? [];
-      // 粗检只在根层相邻重复；完整重复键检测由 JSON.parse reviver 不可行，依赖结构校验兜底
-      void keys;
-    }
     let parsed;
-    try { parsed = JSON.parse(text); } catch { throw new ConfigError("invalid-config", "config JSON 无法解析"); }
+    try { parsed = parseStrictJson(rawText); }
+    catch (e) {
+      throw new ConfigError(e instanceof StrictJsonError && e.reasonCode === "duplicate-key" ? "invalid-config" : "invalid-config",
+        e instanceof StrictJsonError ? `config JSON 严格解析失败: ${e.reasonCode}` : "config JSON 无法解析");
+    }
     const config = validateConfig(parsed);
     return { config, revision: config.revision, contentToken: contentToken(rawText), rawText };
   }

@@ -74,7 +74,8 @@ export function createCredentialStores({ env = process.env } = {}) {
       const v = env[name];
       if (v === undefined) throw new ReaderOutcome("missing", "not-configured");
       if (v === "") throw new ReaderOutcome("rejected", "file-malformed");
-      return { bytes: new TextEncoder().encode(v) };
+      // OAuth 形状 token 的 JWT exp 提取（保守拒绝已过期，§2.3）；API key 无到期元数据 → unknown
+      return { bytes: new TextEncoder().encode(v), expiry: expiryFromJwt(v) };
     },
   });
 
