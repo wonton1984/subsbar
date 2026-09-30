@@ -140,6 +140,18 @@ const EXEMPTIONS = [
   },
   {
     rule: "evidence-ref",
+    pathIncludes: "scripts/check-docs.mjs",
+    contentIncludes: "^(evidence|verification|dist|notes)\\/",
+    reason: "docs 检查器的禁止链接规则定义（模式文本），非泄漏引用",
+  },
+  {
+    rule: "evidence-ref",
+    pathIncludes: "docs/releasing.md",
+    contentIncludes: "no `notes/`, `evidence/`",
+    reason: "M4 发布清单提醒检查者确认这些目录不在公开树——刻意引用目录名，非泄漏",
+  },
+  {
+    rule: "evidence-ref",
     pathIncludes: "build-app.sh",
     contentIncludes: "dist/SubsBar.app",
     reason: "构建脚本的标准 SwiftPM 产物路径，非私有证据目录",
@@ -152,8 +164,19 @@ const EXEMPTIONS = [
   },
   {
     rule: "evidence-ref",
+    pathIncludes: "docs/installation.md",
+    contentIncludes: "dist/SubsBar.app",
+    reason: "安装文档引用本仓构建产物路径，非私有证据目录",
+  },
+  {
+    rule: "evidence-ref",
     pathIncludes: "macos-app/build.sh",
     reason: "构建入口脚本转发 build-app.sh，含标准产物路径",
+  },
+  {
+    rule: "evidence-ref",
+    pathIncludes: ".github/workflows/",
+    reason: "CI workflow 引用标准构建产物路径做 bundle 检查，非私有证据目录",
   },
   {
     rule: "cookie",

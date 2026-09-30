@@ -1,0 +1,37 @@
+name: swift-core
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: swift-core-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        # Plan §6.3: macos-15 (arm64) + macos-15-intel (x86_64). Verify label
+        # availability on GitHub-hosted runners before M4 (labels may change).
+        os: [macos-15, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      # actions/checkout@v4.2.2
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Swift build
+        run: swift build --package-path macos-app
+      - name: CoreChecks (contract suite, fails on assertion)
+        run: swift run --package-path macos-app CoreChecks
+      - name: XCTest (full Xcode toolchain)
+        if: env.SUBSBAR_XCTEST == '1'
+        run: swift test --package-path macos-app
+        env:
+          SUBSBAR_XCTEST: "1"

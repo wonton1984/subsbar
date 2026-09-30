@@ -1,50 +1,86 @@
-# 配置草案
+# Configuration
 
-> 状态：M0 草案。M1 引入 `~/.config/subsbar/config.json` 后以该文件为准；本文先行登记目标契约与现状。
+> 状态：v1 已实现（CAS/校验/原子写）。示例见
+> [`examples/config.example.json`](../examples/config.example.json)。
 
-## 现状（v0.1 候选）
+## Paths
 
-| 环境变量 | 作用 |
+Precedence: `--config <absolute-path>` → `SUBSBAR_CONFIG` →
+`${XDG_CONFIG_HOME}/subsbar/config.json` → `~/.config/subsbar/config.json`.
+Only a leading `~/` is expanded; no other variable interpolation. Cache and
+state live under `${XDG_CACHE_HOME:-~/.cache}/subsbar/` and
+`${XDG_STATE_HOME:-~/.local/state}/subsbar/`. Config/cache/state directories
+are 0700, files 0600.
+
+## First run
+
+There is no config file initially and nothing is auto-created. The native
+settings page (or CLI) reads the canonical default via `config read` and the
+first `config set` acts as the create-if-absent baseline
+(`baseRevision: 0`, `contentToken: "absent"`). All providers start disabled.
+
+## Fields
+
+Closed object; unknown fields are rejected. Full field list and defaults:
+[`schemas/config-v1.schema.json`](../schemas/config-v1.schema.json).
+Highlights:
+
+| Object | Notes |
 | --- | --- |
-| `PI_CODING_AGENT_DIR` | 缓存/状态目录覆盖（Node 与 Swift 必须一致；须为非空绝对路径） |
-| `FACTORY_API_KEY` | Droid 凭证（或 Factory 加密文件 + Keychain） |
-| `SUBS_BAR_PROJECT_DIR` | 开发裸进程运行原生 app 时定位 `scripts/subs.mjs` |
-| `SUBS_BAR_SCRIPT_PATH` | 直接指定脚本路径 |
+| `runtime` | `nodePath` ("auto" or absolute), `refreshIntervalSeconds` 60..86400 (default 300), `timeoutSeconds` 1..30, `maxConcurrency` 1..6 |
+| `privacy` | `allowBrowserDiscovery` (default false), `diagnostics` ("off"/"local-redacted") |
+| `ui` | overview mode, menu bar mode, `selectedProvider`, provider order, up to 2 pinned metrics, per-provider card preferences |
+| `providers.<id>` | `enabled`, `dataSource` (full source id or kind), `allowCommunityEndpoints`, `activeProfile`, `profiles[]` |
+| `profiles[]` | `id`, `discovery` ("auto"/"only"), permission flags (`allowKeychain/allowBrowser/allowLocalApi`), explicit `sources[]`, optional `region`/`organizationId` |
+| `compatibility` | `pi.enabled` (explicit opt-in), `legacyCache` import policy |
 
-原生 app 偏好（UserDefaults `com.subsbar.native`）：`nativeNodePath`（显式 Node 绝对路径）、`nativeSelectedProvider`（选中 provider，稳定 ID）。
+## Source specs
 
-## 规划（M1，目标契约）
+A source references a manifest reader: `{id, kind, reader, purpose, …}` with
+kind-specific fields only (`envName` for env, `path` for file, `service`/
+`account` for keychain, `executablePath` for cli, `path` for pi,
+`browserProfile`+`origin` for browser). Secrets are never part of a source —
+Keychain items written by the app use service
+`SubsBar credential <providerId>`.
 
-路径优先级：`--config <absolute-path>` → `SUBSBAR_CONFIG` → `${XDG_CONFIG_HOME}/subsbar/config.json` → 默认路径。仅展开 `~/` 前缀，不执行 shell 插值。
+Override semantics: a non-empty `sources` array replaces the default chain
+entirely; a missing candidate can advance to the next explicit source, but an
+invalid one (exists but malformed, or explicitly empty env) stops the chain.
+`discovery: "only"` with empty sources is a config error.
 
-```jsonc
-{
-  "schemaVersion": 1,
-  "runtime": { "nodePath": "auto", "refreshIntervalSeconds": 300, "timeoutSeconds": 15, "maxConcurrency": 3 },
-  "privacy": { "allowBrowserDiscovery": false, "diagnostics": "local-redacted" },
-  "ui": { "overviewMode": "cards", "menuBarMode": "single-pie", "pinnedMetrics": [], "selectedProvider": "codex" },
-  "providers": {
-    "codex": {
-      "enabled": true,
-      "activeProfile": "personal",
-      "profiles": [{ "id": "personal", "discovery": "only", "allowKeychain": false, "allowBrowser": false,
-        "sources": [{ "id": "codex-session", "kind": "cli", "reader": "codex-official" }] }]
-    }
-  }
-}
+## Write path (CAS)
+
+All writes go through `config set --stdin`:
+
+```sh
+node core/cli.mjs config read --json
+# -> {schemaVersion:1, kind:"config", config, revision, contentToken}
+echo '{"baseRevision":0,"contentToken":"absent","patch":{"ui":{"density":"comfortable"}}}' \
+  | node core/cli.mjs config set --stdin
+# -> {schemaVersion:1, kind:"config-write", revision, contentToken, invalidatedProviderIds}
 ```
 
-规则：
+- `patch` is a JSON Merge Patch restricted to `runtime/privacy/ui/providers/
+  compatibility`; `null` deletes optional fields; `schemaVersion`/`revision`
+  cannot be patched.
+- Conflicts (older revision, or content token mismatch from external edits)
+  return exit 2 `config-conflict`; re-read and retry — never merge locally.
+- Identity-relevant changes return `invalidatedProviderIds`; the coordinator
+  cancels in-flight work for those providers and old-scope cache entries stop
+  being projected.
 
-- 配置里只放 secret 的**引用**（Keychain 服务/账户、env 名、文件路径），schema 拒绝 `token/apiKey/cookie` 明文字段。
-- 未列 provider 一律 disabled；首次设置由用户显式启用。
-- `discovery: "only"` 时只按列出来源顺序使用，显式来源无效即停止，不静默换账户。
-- 浏览器来源不在默认链；如需（Devin 网页会话、Ollama 新账单），为手动导入到 SubsBar Keychain 的显式来源，单独开关。
-- 刷新默认 300 秒，允许 provider 覆盖但不低于 adapter 公布的最小间隔；±10% jitter、单账户 single-flight、全局并发 3；尊重 Retry-After。
-- 配置目录 0700 / 文件 0600；原子替换保存；Node 是配置校验真源（`config validate` / `config effective --json`）。
+## CLI
 
-## 缓存与状态
+| Command | Purpose |
+| --- | --- |
+| `usage --json` | read the current (projected) envelope |
+| `refresh --json [--provider <id>]… [--reason <r>] [--interaction <i>]` | trigger a refresh batch |
+| `config validate/read/effective --json` | validate / private read / redacted projection |
+| `config set --stdin` | CAS write |
+| `registry --json` | manifest + discovery metadata for settings UI |
+| `import legacy --json` | explicit, idempotent v0 cache import |
+| `golden` | regenerate shared golden vectors (test support) |
 
-- 缓存：`${agentDir}/subs-bar-cache.json`（现状；M1 起新安装默认 `${XDG_CACHE_HOME:-~/.cache}/subsbar/usage-v1.json`，迁移期双读）。
-- 状态：`${agentDir}/subs-bar-state.json`（选中 provider，只存 id 字符串）。
-- 缓存无 secrets，仍按私有文件处理（0600 语义）。
+Exit codes: 0 success, 2 parameter/config error (`config-conflict` included),
+3 refresh partial/failed/deferred/cancelled, 4 local I/O. SIGTERM cancels the
+batch and yields a `cancelled` envelope within 500 ms.

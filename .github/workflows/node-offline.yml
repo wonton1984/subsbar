@@ -1,0 +1,41 @@
+name: node-offline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: node-offline-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+        node: [22, 24]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      # actions/checkout@v4.2.2 — TODO(M4): re-verify pinned SHA before first public run
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      # actions/setup-node@v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: ${{ matrix.node }}
+      - name: offline contract tests (no network, no credentials)
+        run: |
+          node test/edge.test.mjs
+          node test/droid-cursor.test.mjs
+          node test/m1-quota.test.mjs
+          node test/m1-projection.test.mjs
+          node test/m1-scenarios.test.mjs
+          node test/m2-providers.test.mjs
+        env:
+          CI: "true"

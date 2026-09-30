@@ -1,0 +1,46 @@
+name: package-smoke
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: package-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bundle:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      # actions/checkout@v4.2.2
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: build app bundle
+        run: ./macos-app/build-app.sh
+      - name: bundle content checks (hashes, plist, no stray resources)
+        run: |
+          test -f macos-app/dist/SubsBar.app/Contents/Info.plist
+          test -f macos-app/dist/SubsBar.app/Contents/Resources/scripts.sha256
+          grep -q LSUIElement macos-app/dist/SubsBar.app/Contents/Info.plist
+          (cd macos-app/dist/SubsBar.app/Contents/Resources/scripts && shasum -a 256 -c scripts.sha256)
+          ! find macos-app/dist/SubsBar.app -name "*.png" | grep -q . || { echo "unexpected png in bundle"; exit 1; }
+      - name: bundled CLI smoke in temp HOME (with spaces in path)
+        run: |
+          SMOKE="$HOME/SubsBar Smoke Test"
+          mkdir -p "$SMOKE"
+          cp -R macos-app/dist/SubsBar.app "$SMOKE/"
+          export HOME="$SMOKE"
+          mkdir -p "$HOME/.cache/subsbar"
+          node "$SMOKE/SubsBar.app/Contents/Resources/scripts/subs.mjs" --render > /dev/null
+          echo "bundled CLI smoke ok (path with spaces)"
+      - name: verify strict codesign
+        run: codesign --verify --strict macos-app/dist/SubsBar.app

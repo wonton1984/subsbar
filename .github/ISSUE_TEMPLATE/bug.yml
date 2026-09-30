@@ -1,0 +1,56 @@
+name: Bug report
+description: Report a defect in SubsBar (data layer, CLI, or native app).
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Credentials policy — read before submitting.**
+        Never paste API keys, OAuth tokens, cookies, session tokens, or full raw
+        API responses into this issue. Redact anything that looks like a
+        credential (including prefixes). SubsBar maintainers will never ask for
+        your auth files. Diagnostics must come from `config effective --json` or
+        similar redacted surfaces — not from raw HTTP captures.
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - data layer / CLI (core)
+        - native macOS app
+        - provider parsing (specify in body)
+        - docs
+        - other
+    validations:
+      required: true
+  - type: input
+    id: provider
+    attributes:
+      label: Provider (if applicable)
+      description: Provider ID, e.g. codex, kimi, commandcode. Leave empty if not provider-specific.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Steps to reproduce, expected vs actual. Attach redacted diagnostics only.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version / commit
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: macOS version, Node version, architecture.
+  - type: checkboxes
+    id: no-credentials
+    attributes:
+      label: Credentials confirmation
+      options:
+        - label: I confirm no credentials, tokens, cookies, or raw API responses are included in this issue.
+      validations:
+        required: true

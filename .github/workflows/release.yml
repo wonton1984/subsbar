@@ -1,0 +1,47 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  source-archive:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      # actions/checkout@v4.2.2
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      # actions/setup-node@v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+      - name: hygiene gate (block release on scan failure)
+        run: node scripts/check-public.mjs
+      - name: offline tests
+        run: |
+          node test/edge.test.mjs
+          node test/droid-cursor.test.mjs
+          node test/m1-quota.test.mjs
+          node test/m1-projection.test.mjs
+          node test/m1-scenarios.test.mjs
+          node test/m2-providers.test.mjs
+      - name: source archive + checksums
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          git archive --format=tar.gz --prefix="subsbar-${VERSION}/" -o "subsbar-${VERSION}.tar.gz" HEAD
+          shasum -a 256 "subsbar-${VERSION}.tar.gz" > "subsbar-${VERSION}.tar.gz.sha256"
+      # actions/upload-artifact@v4.6.2
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: source-archive
+          path: |
+            subsbar-*.tar.gz
+            subsbar-*.tar.gz.sha256

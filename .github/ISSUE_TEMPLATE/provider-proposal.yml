@@ -1,0 +1,65 @@
+name: Provider proposal
+description: Propose a new subscription provider for SubsBar.
+labels: ["provider-proposal"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Read `docs/contributing-provider.md` first. SubsBar requires: a real
+        product/subscription (not API billing alone), documented credential
+        sources, and honest degradation when fields are missing. Response
+        samples must be redacted — no tokens, cookies, or account identifiers.
+  - type: input
+    id: provider-name
+    attributes:
+      label: Provider / product name
+    validations:
+      required: true
+  - type: textarea
+    id: product-scope
+    attributes:
+      label: Product / subscription scope
+      description: Which subscription exposes the data? Region/plan limits?
+    validations:
+      required: true
+  - type: dropdown
+    id: source-grade
+    attributes:
+      label: Source grade
+      description: "A = documented API; B = official client visible implementation; C = community internal interface/storage; D = insufficient evidence"
+      options:
+        - "A"
+        - "B"
+        - "C"
+        - "D"
+    validations:
+      required: true
+  - type: textarea
+    id: endpoints
+    attributes:
+      label: Endpoints / data sources
+      description: HTTPS origin + path, or local file/CLI surface. Include which fields carry quota/limit/reset info (names only, redacted values).
+    validations:
+      required: true
+  - type: textarea
+    id: credentials
+    attributes:
+      label: Credential sources
+      description: env / named file / keychain / CLI session / pi — with ownership (external vs SubsBar store) and renewal semantics.
+    validations:
+      required: true
+  - type: textarea
+    id: degradation
+    attributes:
+      label: Missing-field behavior
+      description: What is honestly unknown when a window/reset/balance is absent?
+    validations:
+      required: true
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Confirmation
+      options:
+        - label: Samples are redacted; no credentials included; I understand admission review may reject community internal interfaces.
+      validations:
+        required: true

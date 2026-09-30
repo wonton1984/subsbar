@@ -1,0 +1,37 @@
+name: public-hygiene
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: public-hygiene-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  hygiene:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      # actions/checkout@v4.2.2
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      # actions/setup-node@v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+      - name: secret/PII/path scan (worktree + git history)
+        run: node scripts/check-public.mjs
+      - name: docs cross-reference check
+        run: node scripts/check-docs.mjs
+      - name: license inventory
+        run: |
+          test -f LICENSE
+          test -f THIRD_PARTY_NOTICES.md
+          grep -q "MIT" LICENSE
+          grep -q "narumiruna/pi-extensions" THIRD_PARTY_NOTICES.md
+          echo "license inventory ok"
