@@ -134,7 +134,8 @@
                 "account",
                 "browserProfile",
                 "origin",
-                "executablePath"
+                "executablePath",
+                "keychainPath"
               ]
             }
           },

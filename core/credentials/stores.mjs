@@ -42,6 +42,73 @@ function expand(p) {
   return p;
 }
 
+const USER_RE = /^[A-Za-z0-9_.-]+$/;
+
+/** 控制台用户名：`stat -f '%Su' /dev/console`，不读 $HOME。 */
+export function consoleUserName() {
+  if (process.platform !== "darwin") return undefined;
+  try {
+    const user = execFileSync("/usr/bin/stat", ["-f", "%Su", "/dev/console"], {
+      encoding: "utf8", timeout: 2000, stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    return USER_RE.test(user) ? user : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** 控制台用户家目录：dscl NFSHomeDirectory，不读 $HOME。 */
+export function consoleUserHome() {
+  const user = consoleUserName();
+  if (!user) return undefined;
+  try {
+    const out = execFileSync("/usr/bin/dscl", [".", "-read", `/Users/${user}`, "NFSHomeDirectory"], {
+      encoding: "utf8", timeout: 2000, stdio: ["ignore", "pipe", "ignore"],
+    });
+    const m = String(out).match(/NFSHomeDirectory:\s*(\/\S+)/);
+    return m?.[1];
+  } catch {
+    return undefined;
+  }
+}
+
+/** 真实 login keychain 路径（console user，不依赖进程 HOME）。 */
+export function defaultLoginKeychainPath() {
+  const home = consoleUserHome();
+  if (!home) return undefined;
+  for (const name of ["login.keychain-db", "login.keychain"]) {
+    const p = join(home, "Library", "Keychains", name);
+    if (existsSync(p)) return p;
+  }
+  return undefined;
+}
+
+/** 解析 spec.keychainPath；~/ 相对 console user home。相对路径拒绝。 */
+export function resolveKeychainPath(explicit) {
+  if (typeof explicit === "string" && explicit) {
+    if (explicit.startsWith("~/")) {
+      const home = consoleUserHome();
+      return home ? join(home, explicit.slice(2)) : undefined;
+    }
+    if (!explicit.startsWith("/")) return undefined;
+    return explicit;
+  }
+  return defaultLoginKeychainPath();
+}
+
+/**
+ * security find-generic-password 参数。discover 不得带 -w（无弹框）；
+ * resolve 才带 -w。keychain 路径放末尾，不进 search-list 改写。
+ */
+export function securityFindArgs({ service, account, keychainPath, readSecret = false }) {
+  const args = ["find-generic-password", "-s", service];
+  if (account) args.push("-a", account);
+  if (readSecret) args.push("-w");
+  const kc = resolveKeychainPath(keychainPath);
+  if (kc) args.push(kc);
+  return args;
+}
+
 /** 静默检查文件存在且是常规文件（目录/FIFO/设备拒绝）。 */
 export function fileExistsQuiet(path) {
   try {
@@ -125,12 +192,11 @@ export function createCredentialStores({ env = process.env } = {}) {
   register("keychain-generic", {
     discover(spec) {
       if (!IS_DARWIN) return { status: "unsupported", reasonCode: "reader-unavailable" };
-      const { service, account } = spec;
+      const { service, account, keychainPath } = spec;
       if (typeof service !== "string" || !service) return { status: "unsupported", reasonCode: "reader-unavailable" };
       // find-generic-password 无 -w 不读密码，可静默判定存在性；非零+itemNotFound → missing
       try {
-        const args = ["find-generic-password", "-s", service];
-        if (account) args.push("-a", account);
+        const args = securityFindArgs({ service, account, keychainPath, readSecret: false });
         execFileSync("/usr/bin/security", args, { stdio: "ignore", timeout: 5000 });
         return { status: "resolved", reasonCode: undefined };
       } catch (e) {
@@ -140,14 +206,12 @@ export function createCredentialStores({ env = process.env } = {}) {
     },
     resolve(spec, ctx) {
       if (!IS_DARWIN) throw new ReaderOutcome("unsupported", "reader-unavailable");
-      const { service, account } = spec;
+      const { service, account, keychainPath } = spec;
       if (ctx.interaction !== "user-connect" && spec.reader?.endsWith("owner-keychain") === false) {
         // 后台：仅允许无提示读取（owner 存储的项一般可无提示读）；拒绝即 permission-denied，不弹框
       }
       try {
-        const args = ["find-generic-password", "-s", service];
-        if (account) args.push("-a", account);
-        args.push("-w");
+        const args = securityFindArgs({ service, account, keychainPath, readSecret: true });
         const out = execFileSync("/usr/bin/security", args, { stdio: ["ignore", "pipe", "ignore"], timeout: 5000, maxBuffer: 65536 });
         const secret = out.toString("utf8").replace(/\n$/, "");
         if (!secret) throw new ReaderOutcome("rejected", "file-malformed");
@@ -236,6 +300,7 @@ export function createCredentialStores({ env = process.env } = {}) {
       const kc = impls.get("keychain-generic").discover({
         service: spec.service ?? FACTORY_KEYCHAIN_SERVICE,
         account: spec.account ?? FACTORY_KEYCHAIN_ACCOUNT,
+        keychainPath: spec.keychainPath,
       });
       if (kc.status === "unsupported") return { status: "unsupported", reasonCode: "reader-unavailable" };
       if (kc.status === "missing") return { status: "missing", reasonCode: "not-configured" };
@@ -253,6 +318,7 @@ export function createCredentialStores({ env = process.env } = {}) {
           service: spec.service ?? FACTORY_KEYCHAIN_SERVICE,
           account: spec.account ?? FACTORY_KEYCHAIN_ACCOUNT,
           reader: spec.reader,
+          keychainPath: spec.keychainPath,
         }, ctx);
         keyB64 = new TextDecoder().decode(kc.bytes);
       }

@@ -17,7 +17,9 @@ export class SecretBroker {
     return makeRef(ref);
   }
 
-  /** 受限取值：仅 targetId 在允许清单内的操作可拿到字节。操作完成后引用由 lease.release 清理。 */
+  /** 受限取值：仅 targetId 在允许清单内的操作可拿到字节。操作完成后引用由 lease.release 清理。
+   *  回调必须在返回前完成消费（解码/拷贝）；finally 会 fill(0) 原始缓冲。
+   *  把原始引用传出回调（`async b => b`）后读到的是全零——见 m1-scenarios 生命周期回归。 */
   async withSecret(ref, targetId, operation) {
     const entry = this.#secrets.get(ref?._id);
     if (!entry) throw new Error("broker: 未知引用");

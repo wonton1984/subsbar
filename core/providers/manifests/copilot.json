@@ -56,7 +56,8 @@
       "implementationId": "keychain-generic",
       "configurable": [
         "service",
-        "account"
+        "account",
+        "keychainPath"
       ],
       "requires": [
         "keychain"

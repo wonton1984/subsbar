@@ -39,7 +39,8 @@
       "implementationId": "opencode-subsbar-key",
       "configurable": [
         "service",
-        "account"
+        "account",
+        "keychainPath"
       ],
       "requires": [
         "keychain"

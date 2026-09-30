@@ -209,8 +209,7 @@ export class RefreshCoordinator {
     // v0 桥接 fetch：lease token → v0 fetcher → v0 report → SnapshotReport
     let report;
     try {
-      const bytes = await broker.withSecret(resolved.lease.access, providerId, async (b) => b);
-      const token = new TextDecoder().decode(bytes);
+      const token = await broker.withSecret(resolved.lease.access, providerId, async (b) => new TextDecoder().decode(b));
       const extra = { region: profile.region, organizationId: profile.organizationId ?? provCfg?.profiles?.find((p) => p.id === profile.id)?.organizationId };
       report = await withTimeout(fetchProviderSnapshot(providerId, token, extra, { signal }), manifest.refresh.taskTimeoutSeconds * 1000, signal);
     } catch (e) {

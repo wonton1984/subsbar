@@ -39,7 +39,8 @@
       "implementationId": "devin-subsbar-session",
       "configurable": [
         "service",
-        "account"
+        "account",
+        "keychainPath"
       ],
       "requires": [
         "keychain",

@@ -24,7 +24,9 @@
    tokens, cookie values, secret prefixes, raw HTTP bodies, or absolute user
    paths. A second-line scrubber runs over all error text.
 6. **Background never prompts.** Keychain authorization UI only in
-   explicit user-connect flows.
+   explicit user-connect flows. Existence checks never pass `-w`. Isolated
+   `$HOME` still reads the console user's login keychain (`keychainPath`, or
+   auto-resolved via `stat -f '%Su' /dev/console`).
 
 ## Identity and scope
 

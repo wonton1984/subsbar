@@ -178,6 +178,18 @@ console.log("\n== R5. Keychain 命名约定（IPC freeze rev5）==");
   check("渲染值与 helper 一致", proj.providers.find((p) => p.providerId === "commandcode").credentialReaders.find((r) => r.id === "commandcode-subsbar-key").credentialService === subsbarCredentialService("commandcode"));
 }
 
+console.log("\n== S0. broker 生命周期（09 returnedBytesAllZero 回归）==");
+{
+  const payload = "synthetic-broker-token-0123456789";
+  const refLeak = broker.put(new TextEncoder().encode(payload), ["t"]);
+  const leaked = await broker.withSecret(refLeak, "t", async (b) => b);
+  const returnedBytesAllZero = leaked.length > 0 && [...leaked].every((x) => x === 0);
+  check("传出原始引用 → returnedBytesAllZero", returnedBytesAllZero);
+  const refOk = broker.put(new TextEncoder().encode(payload), ["t"]);
+  const token = await broker.withSecret(refOk, "t", async (b) => new TextDecoder().decode(b));
+  check("回调内解码得到原文", token === payload);
+}
+
 console.log("\n== S1. 显式 sources 按 reader id/kind 绑定 implementationId ==");
 {
   const { bindSourceToManifest } = await import("../core/credentials/resolver.mjs");
@@ -271,7 +283,7 @@ console.log("\n== S1. 显式 sources 按 reader id/kind 绑定 implementationId 
     credentialReaders: droid.credentialReaders, testAesKeyB64: keyB64,
   });
   const factoryToken = rFactory.status === "resolved"
-    ? await broker.withSecret(rFactory.lease.access, "droid", async (b) => new TextDecoder().decode(Buffer.from(b)))
+    ? await broker.withSecret(rFactory.lease.access, "droid", async (b) => new TextDecoder().decode(b))
     : undefined;
   check("显式 factory reader 解密 resolved（不读真实凭证）", rFactory.status === "resolved" && rFactory.lease.source.reader === "factory-login-keychain" && factoryToken === token);
 
@@ -300,6 +312,58 @@ console.log("\n== S1. 显式 sources 按 reader id/kind 绑定 implementationId 
   })());
   check("droid launchMode=tty", proj.providers.find((p) => p.providerId === "droid").login.launchMode === "tty");
   check("cursor launchMode=web-guide", proj.providers.find((p) => p.providerId === "cursor").login.launchMode === "web-guide");
+}
+
+console.log("\n== S2. Keychain 定位：keychainPath + console user（不依赖 $HOME）==");
+{
+  const {
+    securityFindArgs, defaultLoginKeychainPath, resolveKeychainPath, consoleUserHome,
+  } = await import("../core/credentials/stores.mjs");
+  const { validateConfig } = await import("../core/config/schema.mjs");
+  const disc = securityFindArgs({ service: "SubsBar credential synthetic", account: "synthetic:p", readSecret: false });
+  const reso = securityFindArgs({ service: "SubsBar credential synthetic", account: "synthetic:p", readSecret: true });
+  check("discover 参数不含 -w（无弹框）", !disc.includes("-w"));
+  check("resolve 参数含 -w", reso.includes("-w"));
+  const explicit = "/tmp/synthetic-login.keychain-db";
+  const withPath = securityFindArgs({ service: "s", account: "a", keychainPath: explicit, readSecret: false });
+  check("显式 keychainPath 在末尾", withPath.at(-1) === explicit && !withPath.includes("-w"));
+  check("相对 keychainPath 拒绝", resolveKeychainPath("relative.keychain-db") === undefined);
+  const fakeHome = join(base, "isolated-home");
+  const prevHome = process.env.HOME;
+  process.env.HOME = fakeHome;
+  try {
+    const p = defaultLoginKeychainPath();
+    check("隔离 HOME 时默认路径不落在进程 HOME", !p || !p.startsWith(fakeHome));
+    if (process.platform === "darwin") {
+      const home = consoleUserHome();
+      check("console user home 不来自 $HOME", !!home && home !== fakeHome);
+      check("默认 login keychain 在 console user 下", !p || (home && p.startsWith(join(home, "Library", "Keychains"))));
+    } else {
+      check("非 darwin 无 login keychain 默认", p === undefined);
+    }
+  } finally {
+    process.env.HOME = prevHome;
+  }
+  const cfgKc = validateConfig({
+    schemaVersion: 1,
+    providers: {
+      droid: {
+        enabled: true, activeProfile: "personal",
+        profiles: [{
+          id: "personal", allowKeychain: true, discovery: "only",
+          sources: [{
+            id: "factory", kind: "file", reader: "factory-login-keychain",
+            path: "/tmp/synthetic.loginkeychain",
+            keychainPath: "/tmp/synthetic-login.keychain-db",
+          }],
+        }],
+      },
+    },
+  });
+  check("file 类允许 keychainPath", cfgKc.providers.droid.profiles[0].sources[0].keychainPath === "/tmp/synthetic-login.keychain-db");
+  const { ProviderRegistry } = await import("../core/providers/registry.mjs");
+  const factoryCfg = new ProviderRegistry().get("droid").credentialReaders.find((r) => r.id === "factory-login-keychain");
+  check("manifest factory configurable 含 keychainPath", factoryCfg.configurable.includes("keychainPath"));
 }
 
 console.log("\n== C19. 严格 JSON ==");

@@ -47,11 +47,11 @@ function validateSourceSpec(raw, where) {
   }
   if (!ID_RE.test(raw.id)) reject(`${where}: 非法 id`);
   if (!SOURCE_KINDS.includes(raw.kind)) reject(`${where}: 非法 kind`);
-  const common = ["id", "kind", "reader", "purpose", "envName", "path", "service", "account", "browserProfile", "origin", "executablePath"];
+  const common = ["id", "kind", "reader", "purpose", "envName", "path", "service", "account", "browserProfile", "origin", "executablePath", "keychainPath"];
   checkUnknown(raw, common, where);
   if (raw.purpose !== undefined && !["primary", "management"].includes(raw.purpose)) reject(`${where}: 非法 purpose`);
   const kindAllowed = {
-    env: ["envName"], file: ["path", "account"], keychain: ["service", "account"], cli: ["executablePath"],
+    env: ["envName"], file: ["path", "account", "keychainPath"], keychain: ["service", "account", "keychainPath"], cli: ["executablePath"],
     pi: ["path"], browser: ["browserProfile", "origin"], "local-api": [],
   }[raw.kind];
   for (const k of Object.keys(raw)) {
@@ -61,6 +61,11 @@ function validateSourceSpec(raw, where) {
   }
   if (raw.kind === "browser" && (typeof raw.browserProfile !== "string" || typeof raw.origin !== "string")) {
     reject(`${where}: browser 来源必须带 browserProfile 与 origin`);
+  }
+  if (raw.keychainPath !== undefined) {
+    if (typeof raw.keychainPath !== "string" || !(raw.keychainPath.startsWith("/") || raw.keychainPath.startsWith("~/"))) {
+      reject(`${where}: keychainPath 必须是绝对路径或 ~/`);
+    }
   }
   return raw;
 }

@@ -39,7 +39,8 @@
       "implementationId": "factory-login-composite",
       "configurable": [
         "path",
-        "account"
+        "account",
+        "keychainPath"
       ],
       "requires": [
         "keychain"
@@ -59,7 +60,8 @@
       "implementationId": "droid-subsbar-key",
       "configurable": [
         "service",
-        "account"
+        "account",
+        "keychainPath"
       ],
       "requires": [
         "keychain"

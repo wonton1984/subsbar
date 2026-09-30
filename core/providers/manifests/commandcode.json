@@ -39,7 +39,8 @@
       "implementationId": "commandcode-subsbar-key",
       "configurable": [
         "service",
-        "account"
+        "account",
+        "keychainPath"
       ],
       "requires": [
         "keychain"
