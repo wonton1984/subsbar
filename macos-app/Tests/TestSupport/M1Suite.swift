@@ -157,6 +157,37 @@ public enum M1Suite {
         try check("empty HOME usage disables all providers", usage.providers.count == 14 && usage.providers.allSatisfy { $0.status == "disabled" && !$0.report.isObject })
         let unknown = try emptyBridge.call(["registry", "--json", "--provider", "synthetic-unknown"])
         try check("unregistered provider rejected", unknown.exitCode == 2 && unknown.errorCode != nil)
+        let absent = try ConfigDocument(emptyBridge.call(["config", "read", "--json"]).value)
+        try check("absent file has Node default revision and token", absent.revision == 0 && absent.contentToken == "absent" && !FileManager.default.fileExists(atPath: emptyPath.path))
+        let firstInput = absent.submission(patch: .object(["ui": .object(["density": .string("comfortable")])]))
+        let firstWrite = try emptyBridge.call(["config", "set", "--stdin"], input: firstInput)
+        try check("absent CAS initializes config", firstWrite.exitCode == 0 && firstWrite.value["revision"].number == 1)
+        let raced = try emptyBridge.call(["config", "set", "--stdin"], input: firstInput)
+        try check("second absent CAS conflicts", raced.exitCode == 2 && raced.errorCode == "config-conflict")
+        let noOp = try emptyBridge.call(["refresh", "--json", "--reason", "manual", "--interaction", "background"])
+        try check("all disabled refresh is no-op", noOp.exitCode == 0 && noOp.value["request"]["outcome"].text == "no-op")
+
+        // Synthetic cache input only; projection is performed exclusively by the real Node CLI.
+        let cacheURL = temporary.appendingPathComponent("cache/subsbar/usage-v1.json")
+        try FileManager.default.createDirectory(at: cacheURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let row = try Wire.parse(Data(#"{"providerId":"commandcode","profileId":"personal","configRevision":4,"scopeKey":"scope-synthetic","accountKey":"account-synthetic","status":"ok","freshness":"fresh","dataDisposition":"current","source":{"dataSourceId":"commandcode-alpha"},"report":{"windows":[],"metrics":[]},"diagnostics":[]}"#.utf8))
+        let cached = Wire.object(["schemaVersion": .number(1), "kind": .string("usage"), "contextId": .string("synthetic"), "cacheRevision": .number(1), "providers": .array([row])])
+        try cached.encoded().write(to: cacheURL)
+        let matched = try bridge.call(["usage", "--json"]).value["providers"].array[0]
+        try check("matching profile retains report", matched["report"].isObject && matched["scopeKey"].text == "scope-synthetic")
+        let disable = after.submission(patch: .object(["providers": .object(["commandcode": .object(["enabled": .bool(false)])])]))
+        let disabledWrite = try bridge.call(["config", "set", "--stdin"], input: disable)
+        try check("disable invalidates provider", disabledWrite.exitCode == 0 && disabledWrite.value["invalidatedProviderIds"].array.contains(.string("commandcode")))
+        let disabled = try bridge.call(["usage", "--json"]).value["providers"].array[0]
+        try check("disabled projection removes account data", disabled["status"].text == "disabled" && !disabled["report"].isObject && disabled["scopeKey"].string == nil && disabled["source"].isObject == false && disabled["accountKey"].string == nil)
+        let disabledConfig = try ConfigDocument(bridge.call(["config", "read", "--json"]).value)
+        let reenabled = try bridge.call(["config", "set", "--stdin"], input: disabledConfig.submission(patch: .object(["providers": .object(["commandcode": .object(["enabled": .bool(true)])])])) )
+        try check("reenable CAS succeeds", reenabled.exitCode == 0)
+        let invalidated = try bridge.call(["usage", "--json"]).value["providers"].array[0]
+        try check("invalidated report stays hidden after reenable", invalidated["status"].text == "not-configured" && !invalidated["report"].isObject && invalidated["diagnostics"].array.contains { $0["code"].text == "stale-foreign" })
+        try cached.setting("providers", .array([row.setting("profileId", .string("other")).setting("configRevision", .number(999))])).encoded().write(to: cacheURL)
+        let foreign = try bridge.call(["usage", "--json"]).value["providers"].array[0]
+        try check("foreign profile strips report even at newer revision", foreign["profileId"].text == "personal" && foreign["status"].text == "not-configured" && !foreign["report"].isObject && foreign["scopeKey"].string == nil)
         return count
     }
 
