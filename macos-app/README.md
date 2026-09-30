@@ -45,6 +45,8 @@ Only child processes created by this app can be cancelled. SIGTERM permits a can
 
 CoreChecks retains the original 91 legacy regression checks and adds M1 wire/config/CAS/process/presentation checks. It consumes the shared `test/fixtures/ipc/` files, including the Node-generated `usage-golden-normalized.json`; Swift does not implement a duplicate raw-provider normalizer. CLT installations without XCTest use CoreChecks. With full Xcode, `SUBSBAR_XCTEST=1 swift test` runs the shared suites.
 
+The live CLI checks use a temporary synthetic configuration and isolated HOME/XDG directories. They exercise CAS writes, revision and external-edit conflicts, and empty-home discovery without refreshing real accounts. Packaging also runs the bundled registry in an empty environment before signing, so a missing engine dependency fails the build.
+
 Synthetic SwiftUI captures can be generated without credentials, config writes or refresh:
 
 ```sh

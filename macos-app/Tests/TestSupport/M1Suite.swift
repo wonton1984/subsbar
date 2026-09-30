@@ -112,6 +112,51 @@ public enum M1Suite {
             }
         }
         count += try bridgeChecks(fixtures: fixtures, config: config)
+        count += try liveCLIChecks(root: root, fixture: read)
+        return count
+    }
+
+    private static func liveCLIChecks(root: URL, fixture: Wire) throws -> Int {
+        let temporary = FileManager.default.temporaryDirectory.appendingPathComponent("subsbar-live-ipc-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let configPath = temporary.appendingPathComponent("config.json")
+        try fixture["config"].encoded().write(to: configPath)
+        let environment = ["HOME": temporary.path, "XDG_CONFIG_HOME": temporary.appendingPathComponent("config").path,
+                           "XDG_CACHE_HOME": temporary.appendingPathComponent("cache").path, "XDG_STATE_HOME": temporary.appendingPathComponent("state").path,
+                           "PATH": "/usr/bin:/bin"]
+        let node = try NodeLocator.locate(explicit: nil, cancellation: Cancellation())
+        let bridge = NodeBridge(node: node, root: root, configPath: configPath.path, environment: environment)
+        var count = 0
+        func check(_ name: String, _ value: Bool) throws {
+            guard value else { throw LocalFailure("FAIL M1 live CLI: \(name)") }
+            count += 1; print("PASS M1 live CLI \(name)")
+        }
+        let read = try bridge.call(["config", "read", "--json"])
+        let document = try ConfigDocument(read.value)
+        try check("shared config parsed from real Node", read.exitCode == 0 && document.revision == fixture["revision"].number)
+        let patch = Wire.object(["ui": .object(["density": .string("comfortable"), "selectedProvider": .null])])
+        let submission = document.submission(patch: patch)
+        let written = try bridge.call(["config", "set", "--stdin"], input: submission)
+        try check("CAS write and null clear accepted", written.exitCode == 0 && written.value["kind"].text == "config-write" && written.value["revision"].number == document.revision + 1)
+        let conflict = try bridge.call(["config", "set", "--stdin"], input: submission)
+        try check("old revision conflicts", conflict.exitCode == 2 && conflict.errorCode == "config-conflict")
+        let fresh = try ConfigDocument(bridge.call(["config", "read", "--json"]).value)
+        try check("null selection persisted", fresh.config["ui"]["selectedProvider"] == .null)
+        let external = fresh.config.setting("ui", fresh.config["ui"].setting("density", .string("compact")))
+        try external.encoded().write(to: configPath)
+        let changed = try bridge.call(["config", "set", "--stdin"], input: fresh.submission(patch: .object(["ui": .object(["appearance": .string("dark")])])))
+        try check("same revision external edit conflicts", changed.exitCode == 2 && changed.errorCode == "config-conflict")
+        let after = try ConfigDocument(bridge.call(["config", "read", "--json"]).value)
+        try check("conflict preserves external config", after.config["ui"]["density"].text == "compact" && after.revision == fresh.revision)
+        let emptyPath = temporary.appendingPathComponent("absent.json")
+        let emptyBridge = NodeBridge(node: node, root: root, configPath: emptyPath.path, environment: environment)
+        let registry = try emptyBridge.call(["registry", "--json"])
+        try check("empty HOME registry contains 14 provider declarations", registry.exitCode == 0 && registry.value["providers"].array.count == 14 && registry.value["providers"].array.allSatisfy { $0["credentialReaders"].isArray && $0["profiles"].array.isEmpty && !$0["enabled"].bool })
+        let usage = try UsageV1(emptyBridge.call(["usage", "--json"]).value)
+        try check("empty HOME usage disables all providers", usage.providers.count == 14 && usage.providers.allSatisfy { $0.status == "disabled" && !$0.report.isObject })
+        let unknown = try emptyBridge.call(["registry", "--json", "--provider", "synthetic-unknown"])
+        try check("unregistered provider rejected", unknown.exitCode == 2 && unknown.errorCode != nil)
         return count
     }
 
