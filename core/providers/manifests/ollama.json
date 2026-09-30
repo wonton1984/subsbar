@@ -101,11 +101,13 @@
   "provenance": [],
   "login": {
     "mode": "command",
-    "note": "Sign in to ollama.com（--help 核实）",
+    "note": "Sign in to ollama.com（--help 核实；需本机 daemon）",
     "verified": true,
     "command": "ollama",
     "args": [
       "signin"
-    ]
+    ],
+    "launchMode": "headless-url",
+    "url": "https://ollama.com"
   }
 }

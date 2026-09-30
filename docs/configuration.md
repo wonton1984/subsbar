@@ -37,11 +37,13 @@ Highlights:
 ## Source specs
 
 A source references a manifest reader: `{id, kind, reader, purpose, …}` with
-kind-specific fields only (`envName` for env, `path` for file, `service`/
-`account` for keychain, `executablePath` for cli, `path` for pi,
-`browserProfile`+`origin` for browser). Secrets are never part of a source —
-Keychain items written by the app use service
-`SubsBar credential <providerId>`.
+kind-specific fields only (`envName` for env, `path` and optional `account`
+for file — `account` is for composite file+keychain readers such as
+`factory-login-keychain`; `service`/`account` for keychain, `executablePath`
+for cli, `path` for pi, `browserProfile`+`origin` for browser). Config
+`reader` must equal the manifest `credentialReaders[].id` (not
+`implementationId`). Secrets are never part of a source — Keychain items
+written by the app use service `SubsBar credential <providerId>`.
 
 Override semantics: a non-empty `sources` array replaces the default chain
 entirely; a missing candidate can advance to the next explicit source, but an

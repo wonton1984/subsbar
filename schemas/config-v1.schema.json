@@ -398,7 +398,7 @@
           "pattern": "^/"
         }
       },
-      "note": "kind 专属字段约束（env→envName、file→path、keychain→service/account、cli→executablePath、pi→path、browser→browserProfile+origin、local-api 无）由语义校验器执行"
+      "note": "kind 专属字段约束（env→envName、file→path/account、keychain→service/account、cli→executablePath、pi→path、browser→browserProfile+origin、local-api 无）由语义校验器执行"
     }
   }
 }

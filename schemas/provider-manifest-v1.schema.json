@@ -546,7 +546,8 @@
       "required": [
         "mode",
         "note",
-        "verified"
+        "verified",
+        "launchMode"
       ],
       "additionalProperties": false,
       "properties": {
@@ -576,6 +577,19 @@
         "url": {
           "type": "string",
           "pattern": "^https://"
+        },
+        "launchMode": {
+          "enum": [
+            "headless-url",
+            "tty",
+            "web-guide"
+          ],
+          "description": "spawn+timeout 捕获的登录 stdout 形态：打印 URL / 交互 TTY / 仅网页指引"
+        },
+        "urlPattern": {
+          "type": "string",
+          "maxLength": 256,
+          "description": "headless-url 时匹配 CLI stdout/stderr 登录 URL 的正则（不含 query/secret）"
         }
       }
     }

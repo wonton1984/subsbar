@@ -133,6 +133,8 @@
   "login": {
     "mode": "guide",
     "note": "无 CLI login 子命令；在 Cursor IDE 内登录（--help 核实无 login）",
-    "verified": true
+    "verified": true,
+    "launchMode": "web-guide",
+    "url": "https://cursor.com"
   }
 }

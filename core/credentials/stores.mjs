@@ -3,9 +3,14 @@
 // resolve 才读取内容。所有错误折为固定 reasonCode，不携带路径/原文。
 import { existsSync, statSync, readFileSync } from "fs";
 import { execFileSync } from "child_process";
+import { createDecipheriv } from "crypto";
 import { homedir } from "os";
 import { join } from "path";
 import { safeText } from "../defs.mjs";
+
+/** Factory CLI Keychain 项（本机核实：account=auth-encryption-key-security-cli，不是 auth-encryption-key）。 */
+export const FACTORY_KEYCHAIN_SERVICE = "Factory CLI";
+export const FACTORY_KEYCHAIN_ACCOUNT = "auth-encryption-key-security-cli";
 
 const FILE_LIMIT = 1024 * 1024; // 具名文件默认上限 1MiB
 
@@ -219,23 +224,39 @@ export function createCredentialStores({ env = process.env } = {}) {
     },
   });
 
-  // ---- 复合加密文件（Factory）：文件+指定 Keychain 项成对；resolve 才解密 ----
+  // ---- 复合加密文件（Factory）：文件+指定 Keychain 项成对；discover 只做存在性，resolve 才解密 ----
   register("factory-login-composite", {
-    discover(spec) {
+    discover(spec, ctx) {
       const file = spec.path ?? "~/.factory/auth.v2.loginkeychain";
       if (!fileExistsQuiet(file)) return { status: "missing", reasonCode: "not-configured" };
-      // Keychain 项可用性（无提示）
-      const kc = impls.get("keychain-generic").discover({ service: "Factory CLI", account: spec.account ?? "auth-encryption-key" });
+      // 合成测试可跳过真实 Keychain；生产路径仍检查指定项（无提示、不读 secret）
+      if (typeof ctx?.testAesKeyB64 === "string" && ctx.testAesKeyB64) {
+        return { status: "resolved", reasonCode: undefined };
+      }
+      const kc = impls.get("keychain-generic").discover({
+        service: spec.service ?? FACTORY_KEYCHAIN_SERVICE,
+        account: spec.account ?? FACTORY_KEYCHAIN_ACCOUNT,
+      });
       if (kc.status === "unsupported") return { status: "unsupported", reasonCode: "reader-unavailable" };
       if (kc.status === "missing") return { status: "missing", reasonCode: "not-configured" };
       if (kc.status === "locked") return { status: "locked", reasonCode: "keychain-denied" };
       return { status: "resolved", reasonCode: undefined };
     },
     resolve(spec, ctx) {
-      void ctx;
-      // v1 冻结（contracts §2.5 备注）：解密实现待 Factory 格式核实后接入；
-      // 不猜旧格式、不 dump Keychain。
-      throw new ReaderOutcome("unsupported", "not-implemented");
+      const file = spec.path ?? "~/.factory/auth.v2.loginkeychain";
+      const { text } = readFileBounded(file);
+      let keyB64;
+      if (typeof ctx?.testAesKeyB64 === "string" && ctx.testAesKeyB64) {
+        keyB64 = ctx.testAesKeyB64;
+      } else {
+        const kc = impls.get("keychain-generic").resolve({
+          service: spec.service ?? FACTORY_KEYCHAIN_SERVICE,
+          account: spec.account ?? FACTORY_KEYCHAIN_ACCOUNT,
+          reader: spec.reader,
+        }, ctx);
+        keyB64 = new TextDecoder().decode(kc.bytes);
+      }
+      return decryptFactoryLogin(text, keyB64);
     },
   });
 
@@ -338,6 +359,41 @@ function grokAuthExtract(json) {
     return { bytes: new TextEncoder().encode(token), expiry: expiryFromJwt(token) };
   }
   throw new ReaderOutcome("rejected", "file-malformed");
+}
+
+/**
+ * 合成/生产共用：AES-256-GCM 解密 auth.v2.loginkeychain（iv:tag:data，key 为 32 字节的 base64）。
+ * AEAD 失败 → file-malformed；不在此读真实 Keychain。
+ */
+export function decryptFactoryLogin(rawText, keyB64) {
+  if (typeof rawText !== "string" || !rawText.includes(":")) {
+    throw new ReaderOutcome("rejected", "file-malformed");
+  }
+  const parts = rawText.trim().split(":");
+  if (parts.length !== 3) throw new ReaderOutcome("rejected", "file-malformed");
+  const [ivB64, tagB64, dataB64] = parts;
+  let key;
+  try {
+    key = Buffer.from(String(keyB64 ?? ""), "base64");
+  } catch {
+    throw new ReaderOutcome("rejected", "file-malformed");
+  }
+  if (key.length !== 32) throw new ReaderOutcome("rejected", "file-malformed");
+  try {
+    const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(ivB64, "base64"));
+    decipher.setAuthTag(Buffer.from(tagB64, "base64"));
+    const out = Buffer.concat([
+      decipher.update(Buffer.from(dataB64, "base64")),
+      decipher.final(),
+    ]).toString("utf8");
+    const creds = JSON.parse(out);
+    const token = creds?.access_token;
+    if (typeof token !== "string" || !token) throw new ReaderOutcome("rejected", "file-malformed");
+    return { bytes: new TextEncoder().encode(token), expiry: expiryFromJwt(token) };
+  } catch (e) {
+    if (e instanceof ReaderOutcome) throw e;
+    throw new ReaderOutcome("rejected", "file-malformed");
+  }
 }
 
 /** 未验签 JWT 的 exp 仅用于保守拒绝已过期（§2.3）；sub/org 不作 verified 身份。 */

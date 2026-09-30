@@ -178,6 +178,130 @@ console.log("\n== R5. Keychain 命名约定（IPC freeze rev5）==");
   check("渲染值与 helper 一致", proj.providers.find((p) => p.providerId === "commandcode").credentialReaders.find((r) => r.id === "commandcode-subsbar-key").credentialService === subsbarCredentialService("commandcode"));
 }
 
+console.log("\n== S1. 显式 sources 按 reader id/kind 绑定 implementationId ==");
+{
+  const { bindSourceToManifest } = await import("../core/credentials/resolver.mjs");
+  const { ProviderRegistry } = await import("../core/providers/registry.mjs");
+  const { validateConfig } = await import("../core/config/schema.mjs");
+  const {
+    decryptFactoryLogin, FACTORY_KEYCHAIN_ACCOUNT, FACTORY_KEYCHAIN_SERVICE,
+  } = await import("../core/credentials/stores.mjs");
+  const { createCipheriv, randomBytes } = await import("crypto");
+  const { CORE_REASON_CODES } = await import("../core/defs.mjs");
+
+  const reg = new ProviderRegistry();
+  const droid = reg.get("droid");
+  const stores = createCredentialStores({ env: process.env });
+
+  check("config.reader 与 registry credentialReaders[].id 同名", (() => {
+    for (const p of reg.projectRegistry(null, stores, { pi: { enabled: false } }).providers) {
+      for (const r of p.credentialReaders ?? []) {
+        if (typeof r.id !== "string" || r.id !== r.id.toLowerCase()) return false;
+        const m = reg.get(p.providerId);
+        const decl = (m.credentialReaders ?? []).find((d) => d.id === r.id);
+        if (!decl || decl.kind !== r.kind) return false;
+      }
+    }
+    return true;
+  })());
+  const factoryDecl = droid.credentialReaders.find((r) => r.id === "factory-login-keychain");
+  check("factory config 引用 id 而不是 implementationId", factoryDecl.id === "factory-login-keychain" && factoryDecl.implementationId === "factory-login-composite");
+
+  const bound = bindSourceToManifest(
+    { id: "f", kind: "file", reader: "factory-login-keychain", path: join(base, "synthetic.loginkeychain") },
+    droid.credentialReaders,
+  );
+  check("显式 source 无 implementationId → 绑到 factory-login-composite", bound.ok && bound.source.implementationId === "factory-login-composite");
+  const miss = bindSourceToManifest({ id: "x", kind: "file", reader: "no-such-reader" }, droid.credentialReaders);
+  check("未知 reader → unknown-reader", !miss.ok && miss.reasonCode === "unknown-reader");
+  const kindMismatch = bindSourceToManifest({ id: "x", kind: "env", reader: "factory-login-keychain" }, droid.credentialReaders);
+  check("id 命中但 kind 不符 → unknown-reader", !kindMismatch.ok);
+  check("unknown-reader 已注册", CORE_REASON_CODES.includes("unknown-reader"));
+
+  const rUnknown = await resolveChain("droid", {
+    id: "p", discovery: "only",
+    sources: [{ id: "x", kind: "file", reader: "not-a-reader" }],
+  }, [], { nowMs: 1800000000000, interaction: "background", stores, broker, compatibility: { pi: { enabled: false } }, stateDir: join(base, "state"), credentialReaders: droid.credentialReaders });
+  check("resolveChain 未知 reader → invalid-config/unknown-reader", rUnknown.code === "invalid-config" && rUnknown.reasonCode === "unknown-reader");
+
+  const cfgOk = validateConfig({
+    schemaVersion: 1,
+    providers: {
+      droid: {
+        enabled: true, activeProfile: "personal",
+        profiles: [{
+          id: "personal", allowKeychain: true, discovery: "only",
+          sources: [{ id: "factory", kind: "file", reader: "factory-login-keychain", path: "/tmp/synthetic.loginkeychain", account: FACTORY_KEYCHAIN_ACCOUNT }],
+        }],
+      },
+    },
+  });
+  check("file 类允许 account（与 manifest configurable 对齐）", cfgOk.providers.droid.profiles[0].sources[0].account === FACTORY_KEYCHAIN_ACCOUNT);
+  let fileAccountRejected = false;
+  try {
+    validateConfig({
+      schemaVersion: 1,
+      providers: { kimi: { enabled: true, activeProfile: "p", profiles: [{ id: "p", sources: [{ id: "e", kind: "env", reader: "droid-env-key", account: "nope" }] }] } },
+    });
+  } catch (e) { fileAccountRejected = /不允许字段 account/.test(e.message); }
+  check("env 仍拒绝 account", fileAccountRejected);
+  check("Factory 默认 account 对齐 security-cli", FACTORY_KEYCHAIN_ACCOUNT === "auth-encryption-key-security-cli" && FACTORY_KEYCHAIN_SERVICE === "Factory CLI");
+
+  const key = randomBytes(32);
+  const iv = randomBytes(12);
+  const token = "synthetic-factory-access-token-0123456789";
+  const cipher = createCipheriv("aes-256-gcm", key, iv);
+  const enc = Buffer.concat([cipher.update(JSON.stringify({ access_token: token }), "utf8"), cipher.final()]);
+  const raw = `${iv.toString("base64")}:${cipher.getAuthTag().toString("base64")}:${enc.toString("base64")}`;
+  const keyB64 = key.toString("base64");
+  const dec = decryptFactoryLogin(raw, keyB64);
+  check("合成 fixture 解密得到 token", new TextDecoder().decode(dec.bytes) === token);
+  let aeadFail = false;
+  try { decryptFactoryLogin(raw, randomBytes(32).toString("base64")); } catch (e) { aeadFail = e.reasonCode === "file-malformed"; }
+  check("错误 key → AEAD 失败 file-malformed", aeadFail);
+
+  const fixturePath = join(base, "synthetic.loginkeychain");
+  writeFileSync(fixturePath, raw, { mode: 0o600 });
+  const rFactory = await resolveChain("droid", {
+    id: "p", discovery: "only",
+    sources: [{ id: "factory", kind: "file", reader: "factory-login-keychain", path: fixturePath }],
+  }, [], {
+    nowMs: 1800000000000, interaction: "user-connect", stores, broker,
+    compatibility: { pi: { enabled: false } }, stateDir: join(base, "state"),
+    credentialReaders: droid.credentialReaders, testAesKeyB64: keyB64,
+  });
+  const factoryToken = rFactory.status === "resolved"
+    ? await broker.withSecret(rFactory.lease.access, "droid", async (b) => new TextDecoder().decode(Buffer.from(b)))
+    : undefined;
+  check("显式 factory reader 解密 resolved（不读真实凭证）", rFactory.status === "resolved" && rFactory.lease.source.reader === "factory-login-keychain" && factoryToken === token);
+
+  const b64url = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
+  const expiredJwt = `h.${b64url({ sub: "synthetic", exp: 1_000_000_000 })}.s`;
+  const cipher2 = createCipheriv("aes-256-gcm", key, iv);
+  const enc2 = Buffer.concat([cipher2.update(JSON.stringify({ access_token: expiredJwt }), "utf8"), cipher2.final()]);
+  const rawExp = `${iv.toString("base64")}:${cipher2.getAuthTag().toString("base64")}:${enc2.toString("base64")}`;
+  writeFileSync(fixturePath, rawExp, { mode: 0o600 });
+  const rExp = await resolveChain("droid", {
+    id: "p", discovery: "only",
+    sources: [{ id: "factory", kind: "file", reader: "factory-login-keychain", path: fixturePath }],
+  }, [], {
+    nowMs: 1_800_000_000_000, interaction: "user-connect", stores, broker,
+    compatibility: { pi: { enabled: false } }, stateDir: join(base, "state"),
+    credentialReaders: droid.credentialReaders, testAesKeyB64: keyB64,
+  });
+  check("过期 JWT → expired/credential-expired（映射 reauth-required）", rExp.code === "expired" && rExp.reasonCode === "credential-expired" && rExp.action === "relogin-owner");
+
+  const proj = reg.projectRegistry(null, stores, { pi: { enabled: false } });
+  const modes = new Set(["headless-url", "tty", "web-guide"]);
+  check("14 家 login.launchMode 三分类齐全", proj.providers.length === 14 && proj.providers.every((p) => modes.has(p.login?.launchMode)));
+  check("claude urlPattern 匹配 authorize URL", (() => {
+    const pat = proj.providers.find((p) => p.providerId === "claude").login.urlPattern;
+    return typeof pat === "string" && new RegExp(pat).test("https://claude.com/cai/oauth/authorize");
+  })());
+  check("droid launchMode=tty", proj.providers.find((p) => p.providerId === "droid").login.launchMode === "tty");
+  check("cursor launchMode=web-guide", proj.providers.find((p) => p.providerId === "cursor").login.launchMode === "web-guide");
+}
+
 console.log("\n== C19. 严格 JSON ==");
 {
   check("重复键拒绝", (() => { try { parseStrictJson('{"a":1,"a":2}'); return false; } catch (e) { return e.reasonCode === "duplicate-key"; } })());

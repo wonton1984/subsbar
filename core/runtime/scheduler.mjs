@@ -194,6 +194,7 @@ export class RefreshCoordinator {
     const ctx = {
       nowMs, signal, interaction: trigger.interaction ?? "background",
       stores, broker, compatibility: cfgLoaded?.config?.compatibility, stateDir: this.dirs().stateDir,
+      credentialReaders: manifest.credentialReaders,
     };
     let resolved;
     try {

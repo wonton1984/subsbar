@@ -25,7 +25,9 @@ Add `core/providers/manifests/<id>.json` conforming to
   `coverageMatch`.
 - `metricRules` — one per emitted metric id, with `derivations` explicitly
   whitelisted and a `description` that states unit and denominator.
-- `login` — the real login command (`--help`-verified) or a guide link.
+- `login` — the real login command (`--help`-verified) or a guide link, plus
+  `launchMode` (`headless-url` / `tty` / `web-guide`) and optional
+  `urlPattern` for URLs the CLI prints.
 
 ## 2. Credential readers
 

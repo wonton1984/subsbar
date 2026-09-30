@@ -4,6 +4,7 @@ import { existsSync, readdirSync, readFileSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { diagnostic } from "../defs.mjs";
+import { bindSourceToManifest } from "../credentials/resolver.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const MANIFEST_DIR = join(here, "manifests");
@@ -180,8 +181,17 @@ export class ProviderRegistry {
           allowBrowser: !!p.allowBrowser,
           allowLocalApi: !!p.allowLocalApi,
           sources: (p.sources ?? []).map((s) => {
-            const decl = (m.credentialReaders ?? []).find((r) => r.id === s.reader);
-            const d = stores.discover(decl?.implementationId ?? s.reader, s, { compatibility });
+            const bound = bindSourceToManifest(s, m.credentialReaders);
+            if (!bound.ok) {
+              return {
+                id: s.id, kind: s.kind, reader: s.reader, purpose: s.purpose ?? "primary",
+                originOfChoice: "explicit",
+                availability: "unsupported",
+                credentialExpiry: keychainMetaExpiry(s),
+                unsupportedReason: "unknown-reader",
+              };
+            }
+            const d = stores.discover(bound.source.implementationId, bound.source, { compatibility });
             const out = {
               id: s.id, kind: s.kind, reader: s.reader, purpose: s.purpose ?? "primary",
               originOfChoice: "explicit",
@@ -204,7 +214,7 @@ function expiryCapabilityOf(r) {
   // 冻结表（IPC freeze §3）：discover 恒 unknown（subsbar 元数据除外）
   const discover = r.owner === "subsbar" && r.kind === "keychain" ? "unknown-or-owner-metadata" : "unknown";
   let resolve = "unknown";
-  if (["codex-auth-file", "openai-codex", "cursor-state-db", "grok-auth-file"].includes(r.implementationId)) {
+  if (["codex-auth-file", "openai-codex", "cursor-state-db", "grok-auth-file", "factory-login-composite"].includes(r.implementationId)) {
     resolve = "jwt-claim-if-decodable";
   } else if (r.owner === "subsbar" && r.kind === "keychain") {
     resolve = "unknown-or-owner-metadata";

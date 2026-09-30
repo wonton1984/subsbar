@@ -216,6 +216,7 @@
     "mode": "guide",
     "note": "openrouter.ai Keys 页创建 key",
     "verified": false,
-    "url": "https://openrouter.ai/keys"
+    "url": "https://openrouter.ai/keys",
+    "launchMode": "web-guide"
   }
 }

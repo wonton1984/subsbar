@@ -126,6 +126,7 @@
     "mode": "guide",
     "note": "grok CLI 未安装；文档为 `grok login`（UNVERIFIED）",
     "verified": false,
-    "url": "https://x.ai"
+    "url": "https://x.ai",
+    "launchMode": "web-guide"
   }
 }

@@ -159,6 +159,7 @@
     "mode": "guide",
     "note": "纯网页登录 app.devin.ai（无 CLI）；会话导入见 docs/providers/devin.md",
     "verified": false,
-    "url": "https://app.devin.ai"
+    "url": "https://app.devin.ai",
+    "launchMode": "web-guide"
   }
 }

@@ -51,7 +51,7 @@ function validateSourceSpec(raw, where) {
   checkUnknown(raw, common, where);
   if (raw.purpose !== undefined && !["primary", "management"].includes(raw.purpose)) reject(`${where}: 非法 purpose`);
   const kindAllowed = {
-    env: ["envName"], file: ["path"], keychain: ["service", "account"], cli: ["executablePath"],
+    env: ["envName"], file: ["path", "account"], keychain: ["service", "account"], cli: ["executablePath"],
     pi: ["path"], browser: ["browserProfile", "origin"], "local-api": [],
   }[raw.kind];
   for (const k of Object.keys(raw)) {

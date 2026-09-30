@@ -216,6 +216,7 @@
     "mode": "guide",
     "note": "Z.AI 控制台获取 API key；无官方 CLI login（UNVERIFIED）",
     "verified": false,
-    "url": "https://z.ai"
+    "url": "https://z.ai",
+    "launchMode": "web-guide"
   }
 }

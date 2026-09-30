@@ -178,6 +178,7 @@
     "command": "kimi",
     "args": [
       "login"
-    ]
+    ],
+    "launchMode": "headless-url"
   }
 }

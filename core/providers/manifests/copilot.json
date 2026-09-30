@@ -274,12 +274,14 @@
   "provenance": [],
   "login": {
     "mode": "command",
-    "note": "Authenticate with a GitHub host（--help 核实；token 存系统 credential store）",
+    "note": "Authenticate with a GitHub host（--help 核实；无 token 环境打印 device URL）",
     "verified": true,
     "command": "gh",
     "args": [
       "auth",
       "login"
-    ]
+    ],
+    "launchMode": "headless-url",
+    "urlPattern": "^https://github\\.com/login/device"
   }
 }

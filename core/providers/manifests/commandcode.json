@@ -188,6 +188,7 @@
   "login": {
     "mode": "guide",
     "note": "CLI 未安装；登录方式待官方文档核实（UNVERIFIED）",
-    "verified": false
+    "verified": false,
+    "launchMode": "web-guide"
   }
 }

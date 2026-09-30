@@ -173,6 +173,7 @@
     "mode": "guide",
     "note": "CLI 未安装；官方文档为 `opencode auth login`（UNVERIFIED）",
     "verified": false,
-    "url": "https://opencode.ai/docs"
+    "url": "https://opencode.ai/docs",
+    "launchMode": "web-guide"
   }
 }

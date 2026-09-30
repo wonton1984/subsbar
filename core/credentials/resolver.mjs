@@ -29,17 +29,55 @@ import { randomBytes as _rb } from "crypto";
 _injectFsCrypto({ existsSync: _e, mkdirSync: _m, readFileSync: _r, writeFileSync: _w }, { randomBytes: _rb });
 
 /**
+ * 显式 SourceSpec 不含 implementationId（config schema 不允许该字段）。
+ * 按 reader id + kind 匹配 manifest.credentialReaders，取 implementationId。
+ * 匹配不到 → unknown-reader。测试/发现链已带 implementationId 且未给 readers 时原样通过。
+ */
+export function bindSourceToManifest(source, credentialReaders) {
+  if (!source || typeof source !== "object" || typeof source.reader !== "string" || !source.reader) {
+    return { ok: false, reasonCode: "unknown-reader" };
+  }
+  const readers = Array.isArray(credentialReaders) ? credentialReaders : [];
+  if (readers.length > 0) {
+    const decl = readers.find((r) => r.id === source.reader && r.kind === source.kind);
+    if (!decl) return { ok: false, reasonCode: "unknown-reader", source };
+    return {
+      ok: true,
+      source: {
+        ...source,
+        implementationId: decl.implementationId,
+        owner: source.owner ?? decl.owner,
+        renewMode: source.renewMode ?? decl.renewMode,
+        credentialKind: source.credentialKind ?? decl.credentialKinds?.[0],
+      },
+    };
+  }
+  if (typeof source.implementationId === "string" && source.implementationId) {
+    return { ok: true, source };
+  }
+  return { ok: false, reasonCode: "unknown-reader", source };
+}
+
+function unknownReaderResult(source) {
+  const trace = [{ sourceId: source?.id, reader: source?.reader, outcome: "rejected", reasonCode: "unknown-reader" }];
+  return { status: "failed", code: "invalid-config", reasonCode: "unknown-reader", action: actionFor("invalid-config"), trace };
+}
+
+/**
  * 解析一条来源 spec。返回 ResolveResult（contracts §2.2 形状）。
  * @param providerId manifest id
  * @param profile EffectiveProfile（已校验合并）
- * @param source {id, kind, reader, purpose, ...kindFields, implementationId}
- * @param ctx {nowMs, signal, interaction, stores, broker, compatibility, stateDir}
+ * @param source {id, kind, reader, purpose, ...kindFields, implementationId?}
+ * @param ctx {nowMs, signal, interaction, stores, broker, compatibility, stateDir, credentialReaders?}
  */
 export async function resolveSource(providerId, profile, source, ctx) {
+  const bound = bindSourceToManifest(source, ctx.credentialReaders);
+  if (!bound.ok) return unknownReaderResult(source);
+  source = bound.source;
   const trace = [];
   const store = ctx.stores;
   // discover：安全元信息（不读正文）
-  const d = store.discover(source.implementationId, source, { compatibility: ctx.compatibility });
+  const d = store.discover(source.implementationId, source, { compatibility: ctx.compatibility, interaction: ctx.interaction, testAesKeyB64: ctx.testAesKeyB64 });
   trace.push({ sourceId: source.id, reader: source.reader, outcome: d.status, reasonCode: d.reasonCode });
   if (d.status === "missing" || d.status === "skipped") {
     return { status: "failed", code: "not-configured", reasonCode: d.reasonCode ?? "not-configured", action: actionFor("not-configured"), trace };
@@ -55,7 +93,7 @@ export async function resolveSource(providerId, profile, source, ctx) {
   // resolve：执行读取（仍不输出正文）
   let resolved;
   try {
-    resolved = store.resolve(source.implementationId, source, { compatibility: ctx.compatibility, interaction: ctx.interaction });
+    resolved = store.resolve(source.implementationId, source, { compatibility: ctx.compatibility, interaction: ctx.interaction, testAesKeyB64: ctx.testAesKeyB64 });
   } catch (e) {
     if (e instanceof ReaderOutcome) {
       const code = outcomeToCode(e);

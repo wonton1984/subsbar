@@ -188,6 +188,8 @@
     "args": [
       "auth",
       "login"
-    ]
+    ],
+    "launchMode": "headless-url",
+    "urlPattern": "^https://claude\\.com/cai/oauth/authorize"
   }
 }

@@ -235,6 +235,8 @@
     "command": "codex",
     "args": [
       "login"
-    ]
+    ],
+    "launchMode": "headless-url",
+    "urlPattern": "^https://auth\\.openai\\.com/oauth/authorize"
   }
 }
