@@ -166,6 +166,15 @@ public enum M1Suite {
         try check("second absent CAS conflicts", raced.exitCode == 2 && raced.errorCode == "config-conflict")
         let noOp = try emptyBridge.call(["refresh", "--json", "--reason", "manual", "--interaction", "background"])
         try check("all disabled refresh is no-op", noOp.exitCode == 0 && noOp.value["request"]["outcome"].text == "no-op")
+        let keyManifest = registry.value["providers"].array.first { $0["providerId"].text == "kimi" } ?? .null
+        let keyGuide = ConnectionGuide(manifest: keyManifest, name: "Kimi")
+        try check("registry supplies final keychain destination", keyGuide.credentialService == "SubsBar credential kimi" && keyGuide.canPasteKey)
+        let keyDraft = try CredentialWriter.connectionDraft(.object(["dataSource": .string("auto"), "allowCommunityEndpoints": .bool(false), "profiles": .array([])]), guide: keyGuide, profileID: "synthetic-connection")
+        let keyBase = try ConfigDocument(emptyBridge.call(["config", "read", "--json"]).value)
+        let keyConfig = try emptyBridge.call(["config", "set", "--stdin"], input: keyBase.submission(patch: .object(["providers": .object(["kimi": keyDraft])])) )
+        try check("GUI key reference passes Node schema and CAS", keyConfig.exitCode == 0 && keyConfig.value["kind"].text == "config-write")
+        let keyRead = try ConfigDocument(emptyBridge.call(["config", "read", "--json"]).value)
+        try check("GUI profile reference persisted without secret", keyRead.config["providers"]["kimi"]["profiles"].array[0]["sources"].array[0]["account"].text == "kimi:synthetic-connection")
 
         // Synthetic cache input only; projection is performed exclusively by the real Node CLI.
         let cacheURL = temporary.appendingPathComponent("cache/subsbar/usage-v1.json")

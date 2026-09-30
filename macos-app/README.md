@@ -45,6 +45,8 @@ Only child processes created by this app can be cancelled. SIGTERM permits a can
 
 ## Verification
 
+Connection guidance and verified login commands come from the Node registry. Unverified instructions are labelled accordingly. API keys entered in the secure field are written with Security.framework to a local, non-synchronizing Keychain item using the registry's final service name and the selected profile's account reference. Only that reference is saved through config CAS, then the selected provider is checked. A config conflict can leave the key saved in Keychain while the config remains unchanged; the UI reports this and asks the user to reload before retrying. Keychain errors use fixed messages. Automated store tests use an injected mock and do not establish real Keychain authorization or provider-login success.
+
 CoreChecks retains the original 91 legacy regression checks and adds M1 wire/config/CAS/process/presentation checks. M2 checks build a 14-provider scene from `usage-golden-normalized.json` and assert that the card overview and the compact view show identical values and states, matching the Node output. It consumes the shared `test/fixtures/ipc/` files, including the Node-generated `usage-golden-normalized.json`; Swift does not implement a duplicate raw-provider normalizer. CLT installations without XCTest use CoreChecks. With full Xcode, `SUBSBAR_XCTEST=1 swift test` runs the shared suites.
 
 The live CLI checks use a temporary synthetic configuration and isolated HOME/XDG directories. They exercise CAS writes, revision and external-edit conflicts, and empty-home discovery without refreshing real accounts. Packaging also runs the bundled registry in an empty environment before signing, so a missing engine dependency fails the build.

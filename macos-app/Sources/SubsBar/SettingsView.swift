@@ -60,10 +60,12 @@ struct ConnectionEditor: View {
     @State private var readerID = ""
     @State private var saved = false
     @State private var copied = false
+    @State private var keyText = ""
     @State private var advancedOpen = false
     init(model: AppModel, base: ConfigDocument, manifest: Wire) {
         self.model = model; self.base = base; self.manifest = manifest
         let existing = base.config["providers"][manifest["providerId"].text]
+        _profileIndex = State(initialValue: existing["profiles"].array.firstIndex { $0["id"].text == existing["activeProfile"].text } ?? 0)
         _draft = State(initialValue: existing.isObject ? existing : .object(["enabled": .bool(false), "dataSource": .string("auto"), "allowCommunityEndpoints": .bool(false), "profiles": .array([])]))
     }
     var providerID: String { manifest["providerId"].text }
@@ -113,6 +115,10 @@ struct ConnectionEditor: View {
                 }
             }.padding(12)
         }
+        .onAppear { model.keyError = nil }
+        .onDisappear { keyText = "" }
+        .onChange(of: profileIndex) { _ in keyText = ""; model.keyError = nil }
+        .onChange(of: guideOpen) { open in if !open { keyText = "" }; model.keyError = nil }
     }
     @ViewBuilder var primaryAction: some View {
         if guide.kind == .unsupported {
@@ -132,6 +138,20 @@ struct ConnectionEditor: View {
             if guideOpen {
                 VStack(alignment: .leading, spacing: 10) {
                     Text(guide.instruction).fixedSize(horizontal: false, vertical: true)
+                    if guide.unverified { Label("未验证", systemImage: "questionmark.circle").font(.caption).foregroundStyle(.secondary) }
+                    if let link = guide.url.flatMap(URL.init(string:)) { Link("打开官方页面", destination: link) }
+                    if guide.canPasteKey {
+                        HStack {
+                            SecureField("API Key", text: $keyText).textFieldStyle(.roundedBorder).frame(maxWidth: 320)
+                            Button("保存并检测连接") {
+                                let pasted = keyText; keyText = ""
+                                let selected = profile["id"].string ?? "profile-" + String(UUID().uuidString.lowercased().prefix(8))
+                                model.saveKey(guide: guide, base: base, draft: draft, profileID: selected, key: pasted)
+                            }.disabled(keyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.saving || model.refreshing || model.keySaving)
+                        }
+                        Text("保存后，此账户将仅使用新密钥检测连接。").font(.caption).foregroundStyle(.secondary)
+                        if let error = model.keyError { Text(error).font(.caption).foregroundStyle(Palette.band(.orange)) }
+                    }
                     if let command = guide.command {
                         HStack {
                             Text(command).font(.system(.body, design: .monospaced)).padding(.horizontal, 8).padding(.vertical, 4)
@@ -142,8 +162,8 @@ struct ConnectionEditor: View {
                         }
                     }
                     HStack {
-                        Button("我已完成，检测连接") { detect() }.disabled(model.saving || model.refreshing)
-                        if model.saving || model.refreshing { ProgressView().controlSize(.small) }
+                        if !guide.canPasteKey || guide.command != nil { Button(guide.canPasteKey ? "我已登录，检测连接" : "我已完成，检测连接") { detect() }.disabled(model.saving || model.refreshing) }
+                        if model.saving || model.refreshing || model.keySaving { ProgressView().controlSize(.small) }
                     }
                 }.padding(10).background(Color.secondary.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
             }

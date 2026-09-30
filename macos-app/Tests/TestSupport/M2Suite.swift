@@ -95,20 +95,76 @@ public enum M2Suite {
         try check("pin limit is two", PinnedMetric.limit == 2)
 
         let home = try fixture("registry-empty-home.json")["providers"].array
-        func guide(_ id: String, supported: Bool = true, kinds: [String] = []) -> ConnectionGuide {
-            let manifest = home.first { $0["providerId"].text == id } ?? .object(["providerId": .string(id), "supported": .bool(supported),
-                "credentialReaders": .array(kinds.map { .object(["credentialKinds": .array([.string($0)])]) })])
-            return ConnectionGuide(manifest: manifest, name: id.capitalized)
+        func manifest(_ id: String, supported: Bool = true, kinds: [String] = [], login: Wire? = nil, service: String? = nil) -> Wire {
+            var fields: [String: Wire] = ["providerId": .string(id), "supported": .bool(supported)]
+            fields["credentialReaders"] = .array(kinds.map { kind in
+                var reader: [String: Wire] = ["id": .string("synthetic-key-reader"), "implemented": .bool(true), "purposes": .array([.string("primary")]), "credentialKinds": .array([.string(kind)]), "kind": .string("keychain"), "owner": .string("subsbar")]
+                if let service { reader["credentialService"] = .string(service) }
+                return .object(reader)
+            })
+            if let login { fields["login"] = login }
+            return .object(fields)
         }
-        let codex = guide("codex")
-        try check("guide codex is login with one-sentence command", codex.kind == .login && codex.primaryTitle == "登录 Codex" && codex.command == "codex login" && codex.instruction.contains("codex login"))
-        try check("guide unsupported provider has no action", guide("claude").kind == .unsupported && guide("claude").command == nil)
-        try check("guide login provider without verified command shows no command", guide("droid").kind == .login && guide("droid").command == nil && guide("droid").instruction.contains("检测连接"))
-        try check("guide api-key providers", ["kimi", "openrouter", "commandcode", "opencode"].allSatisfy { guide($0).kind == .apiKey })
-        try check("guide unknown provider classified by credential kind", guide("x-new", kinds: ["api-key"]).kind == .apiKey && guide("y-new", kinds: ["oauth"]).kind == .login)
+        func guide(_ m: Wire, _ name: String? = nil) -> ConnectionGuide { ConnectionGuide(manifest: m, name: name ?? m["providerId"].text.capitalized) }
+        let verified = Wire.object(["mode": .string("command"), "note": .string("Manage login"), "verified": .bool(true), "command": .string("codex"), "args": .array([.string("login")])])
+        let codex = guide(manifest("codex", login: verified))
+        try check("guide verified projection gives button, command and one sentence", codex.kind == .login && codex.primaryTitle == "登录 Codex" && codex.command == "codex login" && codex.instruction.contains("codex login") && !codex.unverified)
+        let multiArg = guide(manifest("claude", login: .object(["mode": .string("command"), "verified": .bool(true), "command": .string("claude"), "args": .array([.string("auth"), .string("login")])])))
+        try check("guide joins projected args", multiArg.command == "claude auth login")
+        let interactive = guide(manifest("droid", login: .object(["mode": .string("command"), "verified": .bool(true), "command": .string("droid"), "args": .array([])])))
+        try check("guide command without args", interactive.command == "droid")
+        let guideOnly = guide(manifest("grok", login: .object(["mode": .string("guide"), "note": .string("文档为 grok login"), "verified": .bool(false), "url": .string("https://x.ai")])))
+        try check("guide-only projection has text and URL, no command, marked verifying", guideOnly.command == nil && guideOnly.url == "https://x.ai" && guideOnly.unverified && guideOnly.instruction.contains("文档为 grok login"))
+        let unverifiedCommand = guide(manifest("grok", login: .object(["mode": .string("command"), "verified": .bool(false), "command": .string("grok"), "args": .array([.string("login")])])))
+        try check("unverified command never becomes a button command", unverifiedCommand.command == nil)
+        let verifiedGuide = guide(manifest("cursor", login: .object(["mode": .string("guide"), "note": .string("在 Cursor IDE 内登录"), "verified": .bool(true)])))
+        try check("verified guide-only is not marked unverified", verifiedGuide.kind == .login && !verifiedGuide.unverified && verifiedGuide.command == nil)
+        try check("guide falls back to plain text when registry has no login", guide(manifest("droid")).command == nil && guide(manifest("droid")).instruction.contains("检测连接"))
+        try check("guide unsupported provider has no action", guide(manifest("claude", supported: false)).kind == .unsupported && guide(manifest("claude", supported: false)).command == nil)
+        try check("guide api-key providers use declared capabilities", ["kimi", "openrouter", "commandcode", "opencode", "zai"].allSatisfy { guide(manifest($0, kinds: ["api-key"])).kind == .apiKey })
+        try check("guide login providers", ["codex", "claude", "droid", "antigravity", "devin", "grok", "ollama", "copilot"].allSatisfy { guide(manifest($0)).kind == .login })
+        try check("guide unknown provider classified by credential kind", guide(manifest("x-new", kinds: ["api-key"])).kind == .apiKey && guide(manifest("y-new", kinds: ["oauth"])).kind == .login)
+        let template = "SubsBar credential <providerId>"
+        let keyManifest = manifest("kimi", kinds: ["api-key"], login: verified, service: "SubsBar credential kimi")
+        let keyGuide = guide(keyManifest, "Kimi")
+        try check("api-key guide uses final service unchanged", keyGuide.canPasteKey && keyGuide.credentialService == "SubsBar credential kimi")
+        try check("unrendered service is refused, never expanded", !guide(manifest("kimi", kinds: ["api-key"], service: template)).canPasteKey)
+        let pendingReader = keyManifest["credentialReaders"].array[0].setting("implemented", .bool(false))
+        try check("unimplemented writer is not offered", !guide(keyManifest.setting("credentialReaders", .array([pendingReader]))).canPasteKey)
+        let quoted = guide(manifest("synthetic", login: verified.setting("args", .array([.string("login; echo unsafe")]))))
+        try check("copied command quotes arguments", quoted.command == "codex 'login; echo unsafe'")
+        try check("non-https guide links are not opened", guide(manifest("synthetic", login: verified.setting("url", .string("file:///tmp/synthetic")))).url == nil)
+        try check("api-key guide without annotated reader cannot paste", !guide(manifest("kimi", kinds: ["api-key"])).canPasteKey && !guide(manifest("codex", kinds: ["oauth"], service: template)).canPasteKey)
         let developerWords = ["reader", "source", "priority", "profile", "keychain", "discovery"]
-        let texts = ["codex", "droid", "kimi", "claude"].map { guide($0) }.flatMap { [$0.primaryTitle, $0.instruction] }
+        let texts = [codex, guideOnly, keyGuide, guide(manifest("droid"))].flatMap { [$0.primaryTitle, $0.instruction] }
         try check("guide default copy has no developer terms", !texts.contains { text in developerWords.contains { text.lowercased().contains($0) } })
+
+        final class MockStore: CredentialStore, @unchecked Sendable {
+            let lock = NSLock(); var saved: [(service: String, account: String, label: String, secret: Data)] = []; var failure: Error?
+            func save(service: String, account: String, label: String, secret: Data) throws {
+                if let failure { throw failure }
+                lock.lock(); saved.append((service, account, label, secret)); lock.unlock()
+            }
+        }
+        struct Leaky: Error, CustomStringConvertible { let description: String }
+        let mock = MockStore(), writer = CredentialWriter(store: mock)
+        try writer.save(guide: keyGuide, profileID: "personal", key: "  synthetic-key-body\n")
+        try check("keychain write follows frozen naming, key body only", mock.saved.count == 1 && mock.saved[0].service == "SubsBar credential kimi" && mock.saved[0].account == "kimi:personal" && String(decoding: mock.saved[0].secret, as: UTF8.self) == "synthetic-key-body")
+        try check("keychain label carries no account identifier", mock.saved[0].label == "SubsBar credential" && !mock.saved[0].label.contains("personal"))
+        let connection = try CredentialWriter.connectionDraft(.object(["profiles": .array([])]), guide: keyGuide, profileID: "chosen-profile")
+        let selected = connection["profiles"].array[0]
+        try check("new key connection creates and activates current form profile", connection["enabled"].bool && connection["activeProfile"].text == "chosen-profile" && selected["id"].text == "chosen-profile")
+        try check("connection reference matches keychain destination", selected["sources"].array[0]["service"].text == "SubsBar credential kimi" && selected["sources"].array[0]["account"].text == "kimi:chosen-profile" && selected["allowKeychain"].bool && selected["discovery"].text == "only")
+        try check("config patch contains no key material", !String(decoding: try connection.encoded(), as: UTF8.self).contains("synthetic-key-body"))
+        let otherProfile = Wire.object(["id": .string("other"), "label": .string("untouched")])
+        let replacement = try CredentialWriter.connectionDraft(connection.setting("profiles", .array([selected, otherProfile])), guide: keyGuide, profileID: "chosen-profile")
+        try check("key replacement preserves other profiles", replacement["profiles"].array.count == 2 && replacement["profiles"].array[1] == otherProfile && replacement["profiles"].array[0]["sources"].array.count == 1)
+        func rejected(_ run: () throws -> Void) -> String? { do { try run(); return nil } catch { return String(describing: error) } }
+        try check("empty and control-character keys never reach the store", rejected { try writer.save(guide: keyGuide, profileID: "p", key: "   ") } == "credential-invalid" && rejected { try writer.save(guide: keyGuide, profileID: "p", key: "a\u{0007}b") } == "credential-invalid" && mock.saved.count == 1)
+        try check("provider without key channel is refused", rejected { try writer.save(guide: codex, profileID: "p", key: "x") } == "credential-unsupported" && mock.saved.count == 1)
+        mock.failure = Leaky(description: "boom synthetic-private-value at /tmp/synthetic-account")
+        let failure = rejected { try writer.save(guide: keyGuide, profileID: "p", key: "synthetic-private-value") }
+        try check("store failure surfaces a fixed code without key or path", failure == "credential-save-failed" && !(failure ?? "").contains("synthetic-private-value"))
         let resolved = Wire.object(["credentialReaders": home[0]["credentialReaders"], "profiles": .array([.object(["sources": .array([
             .object(["reader": .string("codex-auth-file"), "availability": .string("missing")]),
             .object(["reader": .string("codex-official"), "availability": .string("resolved")])])])])])

@@ -17,6 +17,9 @@ import SubsCore
     @Published var expandedOverrides: [String: Bool] = [:]
     @Published var addSubscriptionExpanded = false
     @Published var guideOpen: Set<String> = []
+    @Published var keyError: String?
+    @Published var keySaving = false
+    var credentialWriter = CredentialWriter(store: SecurityKeychainStore())
     private var pendingConnect: String?
     var detailsHeight: CGFloat?
     var chromeHeight: CGFloat?
@@ -56,12 +59,40 @@ import SubsCore
     func toggleGuide(_ id: String) {
         if guideOpen.contains(id) { guideOpen.remove(id) } else { guideOpen.insert(id) }
     }
+    /// Saves a pasted API key to SubsBar's own Keychain item, then runs the normal connection check.
+    /// The key is never stored on the model, logged or cached; only a fixed-text error is kept.
+    func saveKey(guide: ConnectionGuide, base: ConfigDocument, draft: Wire, profileID: String, key: String) {
+        guard !keySaving, !saving, !refreshing, !stopping else { return }
+        keySaving = true; keyError = nil
+        let writer = credentialWriter
+        Task {
+            defer { keySaving = false }
+            do {
+                let updated = try CredentialWriter.connectionDraft(draft, guide: guide, profileID: profileID)
+                try await Task.detached { try writer.save(guide: guide, profileID: profileID, key: key) }.value
+                guard !stopping else { return }
+                pendingConnect = guide.providerID
+                save(base: base, patch: .object(["providers": .object([guide.providerID: updated])])) { [weak self] ok in
+                    if !ok { self?.pendingConnect = nil; self?.keyError = "密钥已存入钥匙串，但连接配置未保存。请重新载入配置后重试。" }
+                }
+            } catch {
+                keyError = String(describing: error) == "credential-invalid" ? "密钥格式不对，请重新粘贴" : "无法保存到钥匙串，请检查授权后重试"
+            }
+        }
+    }
     /// "I'm done logging in": enable the provider if needed, then check only this provider.
     /// The check waits for the config reload so it sees the enabled provider.
     func connect(provider id: String, base: ConfigDocument, draft: Wire) {
+        guard !keySaving, !saving, !refreshing, !stopping else { return }
         if config["providers"][id]["enabled"].bool { refresh(provider: id, connect: true); return }
+        var connection = draft
+        if connection["profiles"].array.isEmpty {
+            let profileID = "profile-" + String(UUID().uuidString.lowercased().prefix(8))
+            let profile = Wire.object(["id": .string(profileID), "discovery": .string("auto"), "allowKeychain": .bool(false), "allowBrowser": .bool(false), "allowLocalApi": .bool(false), "sources": .array([])])
+            connection = connection.setting("profiles", .array([profile])).setting("activeProfile", .string(profileID))
+        }
         pendingConnect = id
-        save(base: base, patch: .object(["providers": .object([id: draft.setting("enabled", .bool(true))])])) { [weak self] ok in
+        save(base: base, patch: .object(["providers": .object([id: connection.setting("enabled", .bool(true))])])) { [weak self] ok in
             if !ok { self?.pendingConnect = nil }
         }
     }
