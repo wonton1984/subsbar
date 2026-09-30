@@ -35,41 +35,8 @@ jobs:
           mkdir -p "$HOME/.config/subsbar" "$HOME/.cache/subsbar" "$HOME/.local/state/subsbar"
           cp examples/config.example.json "$HOME/.config/subsbar/config.json"
           # enable one provider so the active-config projection keeps it (all-default config is disabled by design)
-          python3 - <<'PYJ'
-          import json, os
-          p = os.environ["HOME"] + "/.config/subsbar/config.json"
-          c = json.load(open(p))
-          c["providers"]["commandcode"]["enabled"] = True
-          json.dump(c, open(p, "w"), indent=2)
-          PYJ
-          python3 - <<'PYEOF'
-          import json, time
-          envelope = {
-              "schemaVersion": 1, "kind": "usage", "contextId": "ci",
-              "generatedAtMs": int(time.time() * 1000), "cacheRevision": 0,
-              "providers": [{
-                  "providerId": "commandcode", "profileId": "personal", "status": "ok",
-                  "freshness": "fresh", "dataDisposition": "current",
-                  "attempt": {"state": "succeeded"}, "diagnostics": [],
-                  "report": {
-                      "name": "CommandCode", "capturedAtMs": int(time.time() * 1000),
-                      "observationBasis": "remote-response",
-                      "windows": [{
-                          "id": "monthly-credits", "ruleId": "monthly-credits", "label": "monthly credits",
-                          "kind": "quota", "state": "known", "unit": "percent", "used": 0, "limit": 100,
-                          "scope": "subscription", "provenance": "reported", "sourceEndpointIds": [],
-                          "quotaState": "within-limit", "derivations": [],
-                          "period": {"kind": "unknown", "resetState": "unknown"}, "diagnostics": []
-                      }],
-                      "metrics": [], "primaryMetricId": "monthly-credits", "diagnostics": []
-                  }
-              }],
-              "diagnostics": []
-          }
-          import os
-          with open(os.environ["HOME"] + "/.cache/subsbar/usage-v1.json", "w") as f:
-              json.dump(envelope, f)
-          PYEOF
+          node -e "const fs=require('fs'),os=require('os');const cfg=JSON.parse(fs.readFileSync(os.homedir()+'/.config/subsbar/config.json','utf8'));cfg.providers.commandcode.enabled=true;fs.writeFileSync(os.homedir()+'/.config/subsbar/config.json',JSON.stringify(cfg,null,2));"
+          node -e "const fs=require('fs');const envelope={schemaVersion:1,kind:'usage',contextId:'ci',generatedAtMs:Date.now(),cacheRevision:0,providers:[{providerId:'commandcode',profileId:'personal',status:'ok',freshness:'fresh',dataDisposition:'current',attempt:{state:'succeeded'},diagnostics:[],report:{name:'CommandCode',capturedAtMs:Date.now(),observationBasis:'remote-response',windows:[{id:'monthly-credits',ruleId:'monthly-credits',label:'monthly credits',kind:'quota',state:'known',unit:'percent',used:0,limit:100,scope:'subscription',provenance:'reported',sourceEndpointIds:[],quotaState:'within-limit',derivations:[],period:{kind:'unknown',resetState:'unknown'},diagnostics:[]}],metrics:[],primaryMetricId:'monthly-credits',diagnostics:[]}}],diagnostics:[]};fs.writeFileSync(require('os').homedir()+'/.cache/subsbar/usage-v1.json',JSON.stringify(envelope));"
           node core/cli.mjs usage --json > /tmp/usage-out.json
           node -e "const d=JSON.parse(require('fs').readFileSync('/tmp/usage-out.json','utf8'));if(d.kind!=='usage'||d.schemaVersion!==1)process.exit(1);const cc=d.providers.find(p=>p.providerId==='commandcode');if(!cc||cc.status!=='ok')process.exit(1);console.log('contract-integration: CLI consumed synthetic cache, status ok');"
       - name: schema conformance of shipped manifests (structural)
