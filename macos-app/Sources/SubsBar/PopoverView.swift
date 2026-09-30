@@ -7,6 +7,7 @@ import SubsCore
 }
 enum PopoverLayout {
     static let width: CGFloat = 360
+    @MainActor static func width(for model: AppModel) -> CGFloat { CGFloat(OverviewLayout(count: model.sections.cards.count, single: model.config["ui"]["overviewMode"].text == "single").width) }
     static let fallbackChrome: CGFloat = 120
 }
 private struct DetailsHeightKey: PreferenceKey {
@@ -37,7 +38,16 @@ struct PopoverView: View {
                         if model.selected.isEmpty { Text("选择一个订阅显示紧凑视图。").foregroundStyle(.secondary) }
                         else { ProviderCardView(model: model, card: model.card(model.selected, single: true), single: true) }
                     } else {
-                        ForEach(sections.cards, id: \.self) { id in ProviderCardView(model: model, card: model.card(id, single: false), single: false) }
+                        let layout = OverviewLayout(count: sections.cards.count)
+                        ForEach(Array(layout.rows(sections.cards).enumerated()), id: \.offset) { _, row in
+                            HStack(alignment: .top, spacing: spacing) {
+                                ForEach(row, id: \.self) { id in
+                                    ProviderCardView(model: model, card: model.card(id, single: false), single: false, compact: layout.columns == 2)
+                                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                                }
+                                if layout.columns == 2 && row.count == 1 { Color.clear.frame(maxWidth: .infinity).frame(height: 0) }
+                            }
+                        }
                         if sections.cards.isEmpty && !model.loading {
                             Text("尚未启用订阅。点击下方「添加订阅」选择要添加的订阅并连接；不会自动读取凭证或发起网络请求。").foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                         }
@@ -56,7 +66,7 @@ struct PopoverView: View {
         }
         .onPreferenceChange(ChromeHeightKey.self) { value in Task { @MainActor in model.measureChrome(value + 2) } }
         .font(.system(size: 11))
-        .frame(width: PopoverLayout.width, height: model.height)
+        .frame(width: PopoverLayout.width(for: model), height: model.height)
     }
     func header(_ sections: ProviderSections) -> some View {
         VStack(alignment: .leading, spacing: 8) {

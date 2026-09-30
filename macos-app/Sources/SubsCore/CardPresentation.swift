@@ -175,3 +175,18 @@ public struct ProviderSections: Equatable, Sendable {
         available = ids.filter { !config["providers"][$0]["enabled"].bool }
     }
 }
+
+/// Row-major layout preserves the configured provider ordering.
+public struct OverviewLayout {
+    public let columns: Int
+    public var width: Double { columns == 2 ? 560 : 360 }
+    public init(count: Int, single: Bool = false) { columns = !single && count > 3 ? 2 : 1 }
+    public func rows(_ ids: [String]) -> [[String]] {
+        stride(from: 0, to: ids.count, by: columns).map { Array(ids[$0..<min($0 + columns, ids.count)]) }
+    }
+}
+public extension CardModel {
+    func displayedMetrics(compact: Bool) -> [MetricDisplay] {
+        compact && !expanded ? Array(metrics.prefix(1)) : metrics
+    }
+}

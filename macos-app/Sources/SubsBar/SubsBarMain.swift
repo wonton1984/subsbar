@@ -98,7 +98,7 @@ import Darwin
         let desiredHeight = ceil(model.detailsHeight ?? 250) + ceil(model.chromeHeight ?? PopoverLayout.fallbackChrome)
         let height = min(maxHeight, max(230, desiredHeight))
         if abs(model.height - height) > 0.5 { model.height = height }
-        popover.contentSize = NSSize(width: PopoverLayout.width, height: model.height)
+        popover.contentSize = NSSize(width: PopoverLayout.width(for: model), height: model.height)
     }
     @objc func toggle() {
         if popover.isShown { popover.performClose(nil); return }

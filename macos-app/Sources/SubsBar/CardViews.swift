@@ -140,13 +140,14 @@ struct ProviderCardView: View {
     @ObservedObject var model: AppModel
     let card: CardModel
     let single: Bool
+    var compact = false
     var dimmed: Bool { !["fresh", "stale"].contains(card.freshness) }
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             header
             if !card.metrics.isEmpty {
                 VStack(alignment: .leading, spacing: 9) {
-                    ForEach(card.metrics) { metric in
+                    ForEach(card.displayedMetrics(compact: compact)) { metric in
                         MetricRowView(metric: metric, detailed: card.expanded, dimmed: dimmed,
                                       pinned: model.pinIndex(provider: card.providerID, metric: metric.id) != nil,
                                       canPin: model.pins.count < PinnedMetric.limit && !model.saving,
@@ -155,7 +156,7 @@ struct ProviderCardView: View {
                 }
             }
             if card.primaryHidden && !card.expanded { Text("主指标已隐藏；菜单栏仍按主指标显示").font(.system(size: 10)).foregroundStyle(.secondary) }
-            notices
+            if !compact || card.expanded || card.needsRepair { notices }
             if card.expanded { details }
         }
         .padding(10)
@@ -167,17 +168,17 @@ struct ProviderCardView: View {
     var header: some View {
         Button { if !single { model.toggleExpanded(card.providerID) } } label: {
             HStack(spacing: 8) {
-                Monogram(id: card.providerID, name: card.name)
+                Monogram(id: card.providerID, name: card.name, size: compact ? 20 : 26)
                 VStack(alignment: .leading, spacing: 1) {
                     HStack(spacing: 4) {
-                        Text(card.name).font(.system(size: 12.5, weight: .semibold)).lineLimit(1)
+                        Text(card.name).font(.system(size: compact ? 11 : 12.5, weight: .semibold)).lineLimit(1)
                         if card.favorite { Image(systemName: "star.fill").font(.system(size: 9)).foregroundStyle(Palette.band(.orange)) }
                     }
                     Text(card.updated ?? card.placeholder ?? card.statusText).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Spacer(minLength: 6)
                 VStack(alignment: .trailing, spacing: 2) {
-                    Text(card.headline).font(.system(size: 15, weight: .semibold, design: .rounded)).monospacedDigit()
+                    Text(card.headline).font(.system(size: compact ? 13 : 15, weight: .semibold, design: .rounded)).monospacedDigit()
                         .foregroundStyle(card.headlineFraction == nil ? .secondary : Palette.band(Cache.band(card.headlineFraction)))
                     StatusPill(text: card.statusText, tone: card.tone)
                 }
@@ -220,7 +221,8 @@ struct ProviderCardView: View {
             if let account = card.accountLabel { Text("账户：" + account) }
             ForEach(Array(card.diagnostics.enumerated()), id: \.offset) { _, text in Text(text) }
         }.font(.system(size: 10)).foregroundStyle(.secondary)
-        HStack(spacing: 6) {
+        let actions = compact ? AnyLayout(VStackLayout(alignment: .leading, spacing: 6)) : AnyLayout(HStackLayout(spacing: 6))
+        actions {
             Button(card.needsRepair ? "修复连接" : "连接设置") { model.openSettings?(card.providerID) }
             if model.selected != card.providerID { Button("用于菜单栏饼图") { model.choose(card.providerID) } }
             Spacer()

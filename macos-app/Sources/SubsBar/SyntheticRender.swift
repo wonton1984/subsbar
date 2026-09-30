@@ -41,6 +41,11 @@ import SubsCore
         func popover(_ name: String, maxHeight: CGFloat = 900, dark: Bool = false) throws {
             try renderPopover(model, to: output.appendingPathComponent(name), maxHeight: maxHeight, dark: dark); outputs.append(name)
         }
+        for count in [3, 4, 6, 14] {
+            try scene(enabled: Array(SyntheticScenes.providerIDs.prefix(count)))
+            try popover("M10-grid-\(count)-light.png", maxHeight: 1600)
+            try popover("M10-grid-\(count)-dark.png", maxHeight: 1600, dark: true)
+        }
         try scene(enabled: ["codex", "commandcode", "cursor", "claude"])
         try popover("M2-cards-default.png", maxHeight: 1200)
         try popover("M2-cards-default-dark.png", maxHeight: 1200, dark: true)
@@ -98,10 +103,10 @@ import SubsCore
         model.detailsHeight = nil; model.chromeHeight = nil
         model.height = maxHeight
         let view = PopoverView(model: model)
-        try render(view, size: NSSize(width: PopoverLayout.width, height: maxHeight), to: destination, dark: dark)
+        try render(view, size: NSSize(width: PopoverLayout.width(for: model), height: maxHeight), to: destination, dark: dark)
         let natural = ceil(model.detailsHeight ?? 250) + ceil(model.chromeHeight ?? PopoverLayout.fallbackChrome)
         model.height = min(maxHeight, max(230, natural))
-        try render(view, size: NSSize(width: PopoverLayout.width, height: model.height), to: destination, dark: dark)
+        try render(view, size: NSSize(width: PopoverLayout.width(for: model), height: model.height), to: destination, dark: dark)
     }
     private static func renderMenuBar(_ model: AppModel, to destination: URL) throws {
         var images: [NSImage] = []

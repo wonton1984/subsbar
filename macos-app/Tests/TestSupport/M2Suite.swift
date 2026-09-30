@@ -10,7 +10,7 @@ public enum M2Suite {
             guard try condition() else { throw LocalFailure("FAIL M2: \(name)") }
             count += 1; print("PASS M2 \(name)")
         }
-        for n in [0, 1, 3, 4, 6, 14] {
+        for n in [0, 1, 3, 4, 5, 6, 14] {
             let layout = OverviewLayout(count: n)
             let ids = (0..<n).map(String.init)
             try check("layout threshold \(n)", layout.columns == (n > 3 ? 2 : 1))
@@ -35,7 +35,7 @@ public enum M2Suite {
             try check("\(tag) scene covers 14 providers", usage.providers.count == 14 && Set(usage.providers.map(\.id)) == Set(SyntheticScenes.providerIDs))
             for id in SyntheticScenes.providerIDs {
                 let card = cards(id), compact = expanded(id)
-                try check("grid primary only \(tag) \(id)", card.displayedMetrics(compact: true).count <= 1 && card.displayedMetrics(compact: true).allSatisfy(\.isPrimary))
+                try check("grid primary only \(tag) \(id)", card.displayedMetrics(compact: true).count <= 1 && card.displayedMetrics(compact: true) == Array(card.summaryMetrics.prefix(1)))
                 try check("grid expanded metrics unchanged \(tag) \(id)", compact.displayedMetrics(compact: true) == compact.allMetrics)
                 try check("single metrics unchanged \(tag) \(id)", card.displayedMetrics(compact: false) == card.metrics)
                 let header = [card.status, card.statusText, card.headline, card.freshness, card.issue ?? "", card.action ?? "", card.updated ?? "", card.placeholder ?? ""]
