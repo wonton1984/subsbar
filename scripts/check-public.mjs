@@ -110,10 +110,22 @@ const EXEMPTIONS = [
     reason: "合成假 token：fixture 的『secret 字段必须被 patch 拒绝』用例输入，非真实凭证",
   },
   {
+    rule: "email",
+    pathIncludes: "macos-app/Tests/TestSupport/M1Suite.swift",
+    contentIncludes: "synthetic@example.invalid",
+    reason: "RFC 2606 保留 .invalid 域的合成地址：脱敏显示测试输入，非真实 PII",
+  },
+  {
     rule: "username",
     pathIncludes: "scripts/check-public.mjs",
     contentIncludes: "wonton1984/g",
     reason: "扫描器 username 规则的定义文本本身含该用户名字面量",
+  },
+  {
+    rule: "email",
+    pathIncludes: "scripts/check-public.mjs",
+    contentIncludes: "synthetic@example.invalid",
+    reason: "豁免清单定义文本引用了 .invalid 合成地址字面量，逐规则豁免本文件该规则",
   },
   {
     rule: "usage-fingerprint",
