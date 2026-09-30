@@ -154,12 +154,15 @@ public struct V1Provider: Identifiable, Sendable {
         self.raw = raw
         let report = raw["report"]
         let ids = (report["windows"].array + report["metrics"].array).map { $0["id"].text }
-        let reportBad = report.isObject && (raw["scopeKey"].text.isEmpty || !raw["source"].isObject || V1Metric.timestamp(raw["lastSuccessAtMs"]) == nil || !report["windows"].isArray || !report["metrics"].isArray || ids.count > 128 || Set(ids).count != ids.count || ids.contains(""))
+        let successMissing = raw["dataDisposition"].text != "legacy" && V1Metric.timestamp(raw["lastSuccessAtMs"]) == nil
+        let reportBad = report.isObject && (raw["scopeKey"].text.isEmpty || !raw["source"].isObject || successMissing || !report["windows"].isArray || !report["metrics"].isArray || ids.count > 128 || Set(ids).count != ids.count || ids.contains(""))
         self.invalid = invalid || !raw.isObject || reportBad
     }
     public func freshness(at now: Date) -> String {
         guard report.isObject else { return "none" }
-        if raw["dataDisposition"].text == "legacy" { return "expired" }
+        if raw["dataDisposition"].text == "legacy" {
+            return V1Metric.timestamp(report["observedAtMs"]) != nil || V1Metric.timestamp(report["capturedAtMs"]) != nil ? "expired" : "invalid"
+        }
         let basis = report["observationBasis"].text
         let stamp = basis == "local-snapshot" ? V1Metric.timestamp(report["observedAtMs"]) : V1Metric.timestamp(report["observedAtMs"]) ?? V1Metric.timestamp(report["capturedAtMs"])
         guard let stamp, ["remote-response","cli-response","local-snapshot"].contains(basis) else { return "invalid" }

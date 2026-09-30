@@ -2,6 +2,24 @@ import AppKit
 import SubsCore
 
 @MainActor enum PieIconRenderer {
+    static func miniBar(_ fraction: Double?, appearance: NSAppearance) -> NSImage {
+        let image = NSImage(size: NSSize(width: 28, height: 14), flipped: false) { bounds in
+            appearance.performAsCurrentDrawingAppearance {
+                NSColor.secondaryLabelColor.withAlphaComponent(0.2).setFill()
+                NSBezierPath(roundedRect: NSRect(x: 1, y: 3, width: 26, height: 8), xRadius: 2, yRadius: 2).fill()
+                if let fraction {
+                    NSColor.labelColor.setFill()
+                    NSBezierPath(roundedRect: NSRect(x: 1, y: 3, width: 26 * min(1, max(0, fraction)), height: 8), xRadius: 2, yRadius: 2).fill()
+                } else {
+                    NSColor.secondaryLabelColor.setStroke()
+                    let dash = NSBezierPath(); dash.move(to: NSPoint(x: 11, y: 7)); dash.line(to: NSPoint(x: 17, y: 7)); dash.stroke()
+                }
+            }
+            return true
+        }
+        image.isTemplate = false
+        return image
+    }
     static func verify(at directory: URL) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         for mode in [NSAppearance.Name.aqua, .darkAqua] {

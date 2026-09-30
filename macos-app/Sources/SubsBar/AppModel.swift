@@ -25,12 +25,16 @@ import SubsCore
     private var startedRefresh = false
     private var timer: Timer?
     private var clock: Timer?
+    private var countdown: Timer?
     private var wake: NSObjectProtocol?
     var config: Wire { document?.config ?? .null }
     var selected: String { config["ui"]["selectedProvider"].text }
     var entry: V1Provider? { usage?.providers.first { $0.id == selected } }
     var fraction: Double? { entry?.iconFraction(at: now) }
-    var tooltip: String { "SubsBar · \(name(selected)) · 剩余 \(fraction.map { Cache.format($0 * 100) + "%" } ?? "未知")" }
+    var tooltip: String {
+        let stale = entry.map { $0.freshness(at: now) != "fresh" && $0.report.isObject } ?? false
+        return "SubsBar · \(name(selected)) · 剩余 \(fraction.map { Cache.format($0 * 100) + "%" } ?? "未知") · \(Presentation.status(entry?.status ?? "disabled"))" + (stale ? " · 上次数据" : "")
+    }
     var providers: [Wire] {
         let all = registry["providers"].array
         let order = config["ui"]["providerOrder"].array.map(\.text)
@@ -44,13 +48,15 @@ import SubsCore
     }
     func start() {
         reload()
-        clock = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in Task { @MainActor in self?.now = Date(); self?.changed?() } }
+        clock = Timer(timeInterval: 60, repeats: true) { [weak self] _ in Task { @MainActor in self?.now = Date(); self?.changed?() } }
+        if let clock { RunLoop.main.add(clock, forMode: .common) }
         wake = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in Task { @MainActor in self?.refresh(reason: "wake") } }
     }
     private func schedule() {
         timer?.invalidate()
         let interval = config["runtime"]["refreshIntervalSeconds"].number ?? 300
-        timer = Timer.scheduledTimer(withTimeInterval: max(60, interval), repeats: true) { [weak self] _ in Task { @MainActor in self?.refresh(reason: "timer") } }
+        timer = Timer(timeInterval: max(60, interval), repeats: true) { [weak self] _ in Task { @MainActor in self?.refresh(reason: "timer") } }
+        if let timer { RunLoop.main.add(timer, forMode: .common) }
     }
     private func locate(cancellation: Cancellation) async throws -> NodeBridge {
         let explicit = config["runtime"]["nodePath"].string
@@ -60,7 +66,9 @@ import SubsCore
         else { root = URL(fileURLWithPath: ProcessInfo.processInfo.environment["SUBSBAR_PROJECT_DIR"] ?? FileManager.default.currentDirectoryPath) }
         let configPath = ProcessInfo.processInfo.environment["SUBSBAR_CONFIG"]
         return try await Task.detached {
-            let node = try NodeLocator.locate(explicit: bootstrap ?? (explicit == "auto" ? nil : explicit), cancellation: cancellation)
+            let node: URL
+            do { node = try NodeLocator.locate(explicit: bootstrap ?? (explicit == "auto" ? nil : explicit), cancellation: cancellation) }
+            catch { throw LocalFailure("node-unavailable") }
             return NodeBridge(node: node, root: root, configPath: configPath)
         }.value
     }
@@ -138,7 +146,14 @@ import SubsCore
     }
     func patchUI(_ patch: Wire) { guard let document else { return }; save(base: document, patch: .object(["ui": patch])) }
     func choose(_ id: String) { patchUI(.object(["selectedProvider": id.isEmpty ? .null : .string(id)])) }
-    func setVisible(_ value: Bool) { if value { now = Date(); changed?() } }
+    func setVisible(_ value: Bool) {
+        countdown?.invalidate(); countdown = nil
+        if value {
+            now = Date(); changed?()
+            countdown = Timer(timeInterval: 1, repeats: true) { [weak self] _ in Task { @MainActor in self?.now = Date() } }
+            if let countdown { RunLoop.main.add(countdown, forMode: .common) }
+        }
+    }
     func refresh(reason: String = "manual", provider: String? = nil, connect: Bool = false) {
         guard !refreshing, !stopping, !saving, let bridge, document != nil else { return }
         guard !enabled.isEmpty else { receipt = "没有已启用的订阅"; return }
@@ -167,7 +182,8 @@ import SubsCore
                 // A killed/crashed child is not evidence that any provider failed.
                 let recovery = Cancellation(); activeCalls[operation] = recovery
                 if let response = try? await Task.detached(operation: { try bridge.call(["usage", "--json"], cancellation: recovery) }).value,
-                   let cached = try? UsageV1(response.value) { usage = cached }
+                   let cached = try? UsageV1(response.value), version == generation, !stopping,
+                   usage == nil || usage?.context == cached.context { usage = cached }
             }
         }
     }
@@ -177,7 +193,7 @@ import SubsCore
         if stopping && activeCalls.isEmpty { NSApp.reply(toApplicationShouldTerminate: true) }
     }
     func stop() -> Bool {
-        stopping = true; timer?.invalidate(); clock?.invalidate(); cancellation.cancel()
+        stopping = true; timer?.invalidate(); clock?.invalidate(); countdown?.invalidate(); cancellation.cancel()
         activeCalls.values.forEach { $0.cancel() }
         if let wake { NSWorkspace.shared.notificationCenter.removeObserver(wake) }
         return !activeCalls.isEmpty

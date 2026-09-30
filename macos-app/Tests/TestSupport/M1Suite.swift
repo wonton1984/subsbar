@@ -84,6 +84,33 @@ public enum M1Suite {
         let errors = try fixture("error-envelope-synthetic.json")
         try check("CAS conflict actionable", Presentation.error(errors["config-conflict"]["error"]["code"].text).contains("草稿"))
         try check("unknown unsafe error never echoed", !Presentation.error("Bearer synthetic@example.invalid /tmp/secret").contains("Bearer"))
+        let vectors = try fixture("usage-golden-vectors.json")
+        let normalized = try fixture("usage-golden-normalized.json")
+        try check("golden normalized fixed clock matches", normalized["nowMs"] == vectors["nowMs"])
+        for vector in vectors["vectors"].array {
+            let id = vector["id"].text, output = normalized["vectors"][vector["id"].text]["output"]
+            try check("golden \(id) has Node output", output.isObject)
+            if output["kind"].text == "quota" {
+                let metric = V1Metric(output)
+                try check("golden \(id) metric accepted", metric.valid)
+                try check("golden \(id) used percentage agrees", metric.usedPercent == output["usedPercent"].number)
+                try check("golden \(id) icon agrees", metric.fraction == output["iconFraction"].number)
+            } else if id == "primary-unknown" {
+                try check("golden primary remains unknown", V1Metric(output["primary"]).fraction == nil && V1Metric(output["secondary"]).fraction == output["secondary"]["iconFraction"].number)
+            } else if id == "partial-balance" {
+                try check("golden balance retained", V1Metric(output["metrics"].array[0]).summary == "USD 42.00")
+            } else if id == "legacy-commandcode" {
+                try check("golden legacy balance not percentage", V1Metric(output["metric"]).valid && V1Metric(output["metric"]).fraction == nil)
+            } else if output["computedFreshness"].string != nil {
+                let timestamp = output["capturedAtMs"].number ?? 1_800_000_000_000 - (output["capturedAgeMs"].number ?? 0)
+                try check("golden \(id) freshness agrees", V1Provider(provider(base, captured: timestamp)).freshness(at: now) == output["computedFreshness"].text)
+            } else if id == "stale-network" {
+                try check("golden stale failure kept visible", V1Provider(provider(base).setting("status", output["status"]).setting("error", output["error"])).issue == Presentation.error("network"))
+            } else if id == "scope-switched" {
+                let switched = try UsageV1(envelope([provider(base).setting("scopeKey", output["newScopeKey"])]))
+                try check("golden scope replacement never merges", switched.providers[0].scope == output["newScopeKey"].text && !switched.providers.contains { $0.scope == output["oldScopeKey"].text })
+            }
+        }
         count += try bridgeChecks(fixtures: fixtures, config: config)
         return count
     }

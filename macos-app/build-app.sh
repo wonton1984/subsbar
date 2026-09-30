@@ -1,17 +1,20 @@
 #!/bin/bash
 set -euo pipefail
 cd "$(dirname "$0")"
-swift build -c release --product SubsBar
-app="$PWD/dist/SubsBar.app"
-mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources/scripts"
-cp "$(swift build -c release --show-bin-path)/SubsBar" "$app/Contents/MacOS/SubsBar"
+output_root="${SUBSBAR_BUILD_DIR:-${TMPDIR:-/tmp}/subsbar-native-build}"
+case "$output_root" in /*) ;; *) echo 'SUBSBAR_BUILD_DIR must be absolute' >&2; exit 2 ;; esac
+test -f ../core/cli.mjs || { echo 'Missing core/cli.mjs; complete the data engine checkout first' >&2; exit 2; }
+swift build --scratch-path "$output_root/swift" -c release --product SubsBar
+app="$output_root/dist/SubsBar.app"
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+cp "$(swift build --scratch-path "$output_root/swift" -c release --show-bin-path)/SubsBar" "$app/Contents/MacOS/SubsBar"
 cp Info.plist "$app/Contents/Info.plist"
-# Copy data bridge and relative import verbatim. Never rewrite the repository sources.
-for source in subs.mjs pie-png.mjs; do
-  cp "../scripts/$source" "$app/Contents/Resources/scripts/$source"
-  cmp "../scripts/$source" "$app/Contents/Resources/scripts/$source"
+for directory in core schemas; do
+  if [ -d "../$directory" ]; then
+    rsync -a --delete "../$directory/" "$app/Contents/Resources/$directory/"
+  fi
 done
-(cd "$app/Contents/Resources/scripts" && shasum -a 256 subs.mjs pie-png.mjs) > "$app/Contents/Resources/scripts.sha256"
+(cd "$app/Contents/Resources" && find core -type f -print0 | sort -z | xargs -0 shasum -a 256) > "$app/Contents/Resources/core.sha256"
 if [ -f ../LICENSE ]; then cp ../LICENSE "$app/Contents/Resources/LICENSE"; fi
 codesign --force --sign - "$app"
 codesign --verify --strict --verbose=2 "$app"

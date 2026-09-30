@@ -7,6 +7,7 @@ struct SettingsView: View {
     let initialProvider: String?
     @State private var providerID = ""
     @State private var editorVersion = UUID()
+    @State private var settingsTab = 0
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
@@ -20,7 +21,11 @@ struct SettingsView: View {
             }
             if let error = model.globalError { Text(error).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true) }
             if model.loading { ProgressView("读取连接设置…") }
-            TabView {
+            HStack {
+                Button("订阅连接") { settingsTab = 0 }.buttonStyle(.bordered).tint(settingsTab == 0 ? .accentColor : .secondary)
+                Button("显示与刷新") { settingsTab = 1 }.buttonStyle(.bordered).tint(settingsTab == 1 ? .accentColor : .secondary)
+            }
+            if settingsTab == 0 {
                 HSplitView {
                     List(selection: $providerID) {
                         ForEach(Array(model.providers.enumerated()), id: \.offset) { _, row in
@@ -36,10 +41,9 @@ struct SettingsView: View {
                             .id(providerID + editorVersion.uuidString + document.contentToken)
                             .frame(minWidth: 350)
                     } else { Text("选择订阅以设置连接。所有来源能力由数据引擎声明。").padding() }
-                }.tabItem { Text("订阅连接") }
-                if let document = model.document {
-                    PreferencesEditor(model: model, base: document).id(editorVersion.uuidString + document.contentToken).tabItem { Text("显示与刷新") }
                 }
+            } else if let document = model.document {
+                PreferencesEditor(model: model, base: document).id(editorVersion.uuidString + document.contentToken)
             }
         }.padding(16).frame(minWidth: 650, minHeight: 540)
             .onAppear { providerID = initialProvider ?? model.providers.first?["providerId"].text ?? "" }
@@ -201,6 +205,7 @@ struct SourceEditor: View {
                 ForEach(declaration["purposes"].array.map(\.text), id: \.self) { purpose in Text(purpose == "management" ? "管理权限" : "主要用量").tag(purpose) }
             }
             ForEach(declaration["configurable"].array.map(\.text), id: \.self) { key in
+                Text(fieldLabel(key)).font(.caption).foregroundStyle(.secondary)
                 HStack {
                     TextField(fieldLabel(key), text: Binding(get: { source[key].text }, set: { value in
                         var fields = source.object
@@ -228,10 +233,12 @@ struct PreferencesEditor: View {
     @State private var ui: Wire
     @State private var runtime: Wire
     @State private var privacy: Wire
+    @State private var compatibility: Wire
     @State private var saved = false
     init(model: AppModel, base: ConfigDocument) {
         self.model = model; self.base = base
         _ui = State(initialValue: base.config["ui"]); _runtime = State(initialValue: base.config["runtime"]); _privacy = State(initialValue: base.config["privacy"])
+        _compatibility = State(initialValue: base.config["compatibility"])
     }
     func choice(_ key: String) -> Binding<String> { Binding(get: { ui[key].text }, set: { ui = ui.setting(key, .string($0)) }) }
     func flag(_ key: String) -> Binding<Bool> { Binding(get: { ui[key].bool }, set: { ui = ui.setting(key, .bool($0)) }) }
@@ -248,14 +255,24 @@ struct PreferencesEditor: View {
                 ForEach(Array(model.providers.enumerated()), id: \.offset) { _, row in Text(model.name(row["providerId"].text)).tag(row["providerId"].text) }
             }
             TextField("刷新间隔（秒）", text: Binding(get: { runtime["refreshIntervalSeconds"].number.map { String(Int($0)) } ?? "" }, set: { runtime = runtime.setting("refreshIntervalSeconds", Double($0).map(Wire.number) ?? .string($0)) }))
+            TextField("请求超时（秒）", text: Binding(get: { runtime["timeoutSeconds"].number.map { String(Int($0)) } ?? "" }, set: { runtime = runtime.setting("timeoutSeconds", Double($0).map(Wire.number) ?? .string($0)) }))
+            TextField("同时刷新数量", text: Binding(get: { runtime["maxConcurrency"].number.map { String(Int($0)) } ?? "" }, set: { runtime = runtime.setting("maxConcurrency", Double($0).map(Wire.number) ?? .string($0)) }))
             Toggle("允许发现浏览器来源", isOn: Binding(get: { privacy["allowBrowserDiscovery"].bool }, set: { privacy = privacy.setting("allowBrowserDiscovery", .bool($0)) }))
             Picker("诊断", selection: Binding(get: { privacy["diagnostics"].text }, set: { privacy = privacy.setting("diagnostics", .string($0)) })) {
                 Text("关闭").tag("off"); Text("本地安全诊断").tag("local-redacted")
             }
+            Toggle("允许 Pi 凭证兼容来源", isOn: Binding(get: { compatibility["pi"]["enabled"].bool }, set: { compatibility = compatibility.setting("pi", compatibility["pi"].setting("enabled", .bool($0))) }))
+            HStack {
+                Text("Pi 目录：" + (compatibility["pi"]["agentDir"].string ?? "默认位置"))
+                Button("选择…") {
+                    let panel = NSOpenPanel(); panel.canChooseDirectories = true; panel.canChooseFiles = false
+                    if panel.runModal() == .OK, let path = panel.url?.path { compatibility = compatibility.setting("pi", compatibility["pi"].setting("agentDir", .string(path))) }
+                }
+            }
             Divider()
             LayoutEditor(model: model, ui: $ui)
             Button("保存显示与刷新设置") {
-                model.save(base: base, patch: .object(["ui": ui, "runtime": runtime, "privacy": privacy])) { saved = $0 }
+                model.save(base: base, patch: .object(["ui": ui, "runtime": runtime, "privacy": privacy, "compatibility": compatibility])) { saved = $0 }
             }.disabled(model.saving || saved)
             if saved { Text("已保存。重新载入后继续编辑。") }
         }.padding().disabled(saved) }

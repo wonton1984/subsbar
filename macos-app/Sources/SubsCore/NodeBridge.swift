@@ -74,6 +74,7 @@ public struct NodeBridge: Sendable {
         }
         let wire = try Wire.parse(bytes)
         guard [0,2,3,4].contains(p.terminationStatus), wire.isObject, wire["schemaVersion"].number == 1 else { throw LocalFailure("schema-unsupported") }
+        if p.terminationStatus == 2 && wire["kind"].text != "error" || p.terminationStatus == 3 && wire["kind"].text != "usage" || p.terminationStatus == 0 && wire["kind"].text == "error" { throw LocalFailure("invalid-response") }
         return BridgeResponse(exitCode: p.terminationStatus, value: wire)
     }
 }

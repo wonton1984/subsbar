@@ -60,6 +60,18 @@ import Darwin
             }
             button.image = nil
             button.title = pins.isEmpty ? "—" : pins.map(\.text).joined(separator: " · ")
+            let title = NSMutableAttributedString()
+            for (index, pin) in pins.enumerated() {
+                if index > 0 { title.append(NSAttributedString(string: " · ")) }
+                if pin.style == "mini-bar" {
+                    let attachment = NSTextAttachment()
+                    attachment.image = PieIconRenderer.miniBar(pin.fraction, appearance: button.effectiveAppearance)
+                    title.append(NSAttributedString(attachment: attachment))
+                    title.append(NSAttributedString(string: " "))
+                }
+                title.append(NSAttributedString(string: pin.text))
+            }
+            if !pins.isEmpty { button.attributedTitle = title }
             iconKey = ""
         } else {
             button.title = model.config["ui"]["showMenuBarPercent"].bool ? " " + (model.fraction.map { Cache.format($0 * 100) + "%" } ?? "—") : ""
@@ -155,6 +167,12 @@ import Darwin
         }
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
+        if CommandLine.arguments.count == 4 && CommandLine.arguments[1] == "--render-synthetic" {
+            do {
+                try SyntheticRender.run(fixtures: URL(fileURLWithPath: CommandLine.arguments[2]), output: URL(fileURLWithPath: CommandLine.arguments[3]))
+            } catch { print("Synthetic rendering failed"); exit(1) }
+            return
+        }
         let delegate = AppDelegate(); app.delegate = delegate
         withExtendedLifetime(delegate) { app.run() }
     }

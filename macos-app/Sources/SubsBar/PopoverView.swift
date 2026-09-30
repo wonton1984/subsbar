@@ -47,7 +47,9 @@ struct ProviderCard: View {
                 Button {
                     model.patchUI(.object(["cards": .object([id: .object(["expanded": .bool(!expanded)])])]))
                 } label: { Image(systemName: expanded ? "chevron.down" : "chevron.right") }.buttonStyle(.plain).disabled(single)
-                Text((preferences["favorite"].bool ? "★ " : "") + model.name(id)).font(.system(size: 13, weight: .bold))
+                Button { model.choose(id) } label: {
+                    Text((preferences["favorite"].bool ? "★ " : "") + model.name(id)).font(.system(size: 13, weight: .bold))
+                }.buttonStyle(.plain).help("将此订阅用于菜单栏饼图")
                 Spacer()
                 Button("连接") { model.openSettings?(id) }.controlSize(.small)
             }
@@ -59,18 +61,31 @@ struct ProviderCard: View {
                     Text("剩余 \(entry.iconFraction(at: model.now).map { Cache.format($0 * 100) + "%" } ?? "未知")")
                 }.foregroundStyle(Color(nsColor: quotaColor(entry.iconFraction(at: model.now))))
                 if let issue = entry.issue { Text(issue).foregroundStyle(.orange) }
+                if entry.raw["error"]["action"].string != nil { Text(Presentation.action(entry.raw["error"]["action"].text)).foregroundStyle(.secondary) }
                 if let attempt = entry.attemptMessage { Text(attempt).foregroundStyle(.secondary) }
                 if entry.report.isObject {
                     let freshness = entry.freshness(at: model.now)
                     if freshness != "fresh" { Text(freshness == "stale" ? "上次数据 · 已陈旧" : "历史或时间异常数据 · 比例不用于菜单栏").foregroundStyle(.secondary) }
-                    if model.config["ui"]["showAccountLabel"].bool, let label = entry.raw["account"]["label"].string { Text(Presentation.text(label)).foregroundStyle(.secondary) }
+                    if model.config["ui"]["showAccountLabel"].bool,
+                       let label = model.config["providers"][id]["profiles"].array.first(where: { $0["id"].text == entry.profile })?["label"].string {
+                        Text(Presentation.text(label)).foregroundStyle(.secondary)
+                    }
                     if expanded {
+                        Text("来源：" + Presentation.text(entry.raw["source"]["dataSourceId"].text)).foregroundStyle(.secondary)
+                        if let timestamp = V1Metric.timestamp(entry.report["observedAtMs"]) ?? V1Metric.timestamp(entry.report["capturedAtMs"]) {
+                            Text("采样：" + Date(timeIntervalSince1970: timestamp / 1000).formatted(date: .abbreviated, time: .standard)).foregroundStyle(.secondary)
+                        }
                         ForEach(metrics) { MetricRow(metric: $0, now: model.now) }
                         ForEach(Array(entry.report["diagnostics"].array.enumerated()), id: \.offset) { _, item in Text(Presentation.diagnostic(item["code"].text)).foregroundStyle(.secondary) }
-                    } else if let primary = entry.primary { MetricRow(metric: primary, now: model.now) }
+                    } else if let primary = entry.primary, metrics.contains(where: { $0.id == primary.id }) {
+                        MetricRow(metric: primary, now: model.now)
+                    } else if let value = metrics.first(where: { $0.kind != "quota" }) {
+                        MetricRow(metric: value, now: model.now)
+                    }
                 } else { Text("暂无用量数据；连接状态保持可见").foregroundStyle(.secondary) }
             } else { Text("暂无用量数据").foregroundStyle(.secondary) }
         }.padding(8).background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(model.selected == id ? Color.accentColor.opacity(0.35) : .clear))
     }
 }
 struct PopoverView: View {
