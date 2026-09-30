@@ -32,6 +32,8 @@ jobs:
         run: |
           HOME="$(mktemp -d)"
           export HOME
+          # runners preset XDG_* to the real user home — pin them to the isolated HOME
+          export XDG_CONFIG_HOME="$HOME/.config" XDG_CACHE_HOME="$HOME/.cache" XDG_STATE_HOME="$HOME/.local/state"
           mkdir -p "$HOME/.config/subsbar" "$HOME/.cache/subsbar" "$HOME/.local/state/subsbar"
           cp examples/config.example.json "$HOME/.config/subsbar/config.json"
           # enable one provider so the active-config projection keeps it (all-default config is disabled by design)
