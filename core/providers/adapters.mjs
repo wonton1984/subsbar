@@ -5,7 +5,9 @@
 import { safeText, diagnostic } from "../defs.mjs";
 import { normalizeQuota, usedPercentOf, iconFractionOf } from "../runtime/report.mjs";
 
-const v0 = await import("../../scripts/subs.mjs");
+// C24 依赖方向：core 不得 import scripts/。引擎在 core/providers/engine/engine.mjs
+// （纯模块，无顶层执行、无 pie-png 依赖）。
+const v0 = await import("./engine/engine.mjs");
 
 export const PROVIDER_NAMES = {
   codex: "Codex", opencode: "OpenCode", kimi: "Kimi", commandcode: "CommandCode",

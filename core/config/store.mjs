@@ -9,6 +9,9 @@ export class ConfigError extends Error {
   constructor(code, message) { super(message); this.code = code; }
 }
 
+/** 缺文件 CAS 基线（IPC freeze rev4）：revision=0 + 本哨兵 token。 */
+export const ABSENT_CONTENT_TOKEN = "absent";
+
 export function contentToken(rawText) {
   // 外部编辑检测 token：对原始文件字节做摘要（不依赖 revision 字段）。
   return createHash("sha256").update(rawText, "utf8").digest("hex").slice(0, 32);
@@ -54,7 +57,20 @@ export class ConfigStore {
    */
   saveWithPatch({ baseRevision, contentToken: baseToken, patch }) {
     const current = this.load();
-    if (!current) throw new ConfigError("invalid-config", "config 不存在，无法 patch");
+    if (!current) {
+      // 缺文件 CAS 首写（IPC freeze rev4）：baseRevision=0 + ABSENT_CONTENT_TOKEN；
+      // 文件在竞态中出现（并发首写）→ 其真实 token 必然 != "absent" → config-conflict
+      if (baseRevision !== 0 || baseToken !== ABSENT_CONTENT_TOKEN) {
+        throw new ConfigError("config-conflict", "config 不存在且基线不是缺文件哨兵");
+      }
+      const defaultCfg = validateConfig({ schemaVersion: 1, revision: 0 });
+      const patchedRaw = applyMergePatch(defaultCfg, patch, patchAllowedPath);
+      patchedRaw.revision = 1;
+      const config = validateConfig(patchedRaw);
+      const invalidated = computeInvalidations(defaultCfg, config);
+      this.writeAtomic(config);
+      return { config, revision: config.revision, contentToken: this.lastWriteToken, invalidatedProviderIds: invalidated };
+    }
     if (current.revision !== baseRevision) {
       throw new ConfigError("config-conflict", `revision 冲突：当前 ${current.revision} != base ${baseRevision}`);
     }

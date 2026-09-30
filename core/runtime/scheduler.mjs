@@ -140,7 +140,7 @@ export class RefreshCoordinator {
       const r = results.get(entry.providerId);
       if (!r) continue;
       completed.push(entry.providerId);
-      applyResult(entry, r, { nowMs: Date.now(), trigger });
+      applyResult(entry, r, { nowMs: Date.now(), trigger, configRevision: cfgLoaded?.config?.revision ?? 0 });
       // 退避状态持久化
       runtimeByProvider[entry.providerId] = {
         consecutiveFailures: r.kind === "failed" ? (runtimeByProvider[entry.providerId]?.consecutiveFailures ?? 0) + 1 : 0,
@@ -308,7 +308,8 @@ function receiptOutcome(providers, requested, results) {
   return "unchanged";
 }
 
-function applyResult(entry, r, { nowMs, trigger }) {
+function applyResult(entry, r, { nowMs, trigger, configRevision = 0 }) {
+  r.configRevision = configRevision;
   entry.attempt = {
     state: r.kind === "success" ? "succeeded" : r.kind === "partial" ? "partial"
       : r.kind === "failed" ? "failed" : r.kind === "cancelled" ? "cancelled" : "deferred",
@@ -316,6 +317,7 @@ function applyResult(entry, r, { nowMs, trigger }) {
     deferredReason: r.kind === "deferred" ? (r.reason === "busy" ? "busy" : r.reason === "cancelled" ? undefined : "backoff") : undefined,
   };
   entry.lastAttemptAtMs = nowMs;
+  entry.configRevision = r.configRevision;
   if (r.kind === "success" || r.kind === "partial") {
     entry.status = r.kind === "partial" ? "partial" : "ok";
     entry.freshness = "fresh";

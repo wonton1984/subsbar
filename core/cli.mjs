@@ -5,17 +5,18 @@
  * stdout 严格一个 JSON 对象 + 换行；stderr 仅固定结构诊断；退出码 0/2/3/4。
  * SIGTERM/SIGINT → 取消整批 → 输出 request.outcome=cancelled → exit 3（≤500ms 宽限）。
  */
-import { writeFileSync } from "fs";
+import { writeFileSync, mkdirSync, readFileSync, renameSync } from "fs";
 import { resolveConfigPath, resolveStateDirs } from "./config/paths.mjs";
 import { ConfigStore } from "./config/store.mjs";
 import { validateConfig, applyMergePatch, patchAllowedPath } from "./config/schema.mjs";
 import { ProviderRegistry } from "./providers/registry.mjs";
 import { createCredentialStores } from "./credentials/stores.mjs";
 import { RefreshCoordinator } from "./runtime/scheduler.mjs";
+import { projectUsage } from "./runtime/project.mjs";
 import { freshnessOf } from "./runtime/report.mjs";
+import { ABSENT_CONTENT_TOKEN } from "./config/store.mjs";
 import { safeError } from "./defs.mjs";
 import { runGoldenVectors } from "./golden.mjs";
-import { readFileSync } from "fs";
 
 const REGISTRY = new ProviderRegistry();
 const REASONS = ["startup", "timer", "manual", "wake", "cli", "config-change"];
@@ -121,7 +122,14 @@ async function main() {
     if (sub === "read") {
       try {
         const loaded = store.load();
-        if (!loaded) return exitWith(errEnvelope("invalid-config", "not-configured", "configure-source"), 2);
+        if (!loaded) {
+          // 缺文件（IPC freeze rev4）：规范默认 config + 缺文件哨兵基线，供首连 CAS
+          return exitWith({
+            schemaVersion: 1, kind: "config",
+            config: validateConfig({ schemaVersion: 1, revision: 0 }),
+            revision: 0, contentToken: ABSENT_CONTENT_TOKEN,
+          }, 0);
+        }
         return exitWith({ schemaVersion: 1, kind: "config", config: loaded.config, revision: loaded.revision, contentToken: loaded.contentToken }, 0);
       } catch (e) {
         return exitWith(errEnvelope(e.code ?? "invalid-config", "file-malformed", "none"), 2);
@@ -152,8 +160,22 @@ async function main() {
         for await (const chunk of process.stdin) chunks.push(chunk);
         const req = JSON.parse(Buffer.concat(chunks).toString("utf8"));
         const store2 = new ConfigStore(configPath);
-        if (!store2.load()) return exitWith(errEnvelope("invalid-config", "not-configured", "configure-source"), 2);
         const result = store2.saveWithPatch({ baseRevision: req.baseRevision, contentToken: req.contentToken, patch: req.patch });
+        // 首写/身份相关失效记录进 runtime state（usage 投影依据，IPC freeze rev4）
+        try {
+          const dirs = resolveStateDirs({ env: process.env });
+          mkdirSync(dirs.stateDir, { recursive: true, mode: 0o700 });
+          const stFile = dirs.runtimeStateFile;
+          let st = {};
+          try { st = JSON.parse(readFileSync(stFile, "utf8")); } catch { /* 首次 */ }
+          const inv = st.invalidated ?? {};
+          for (const pid of result.invalidatedProviderIds) inv[pid] = result.revision;
+          st.invalidated = inv;
+          st.invalidatedRevision = result.revision;
+          const tmp = `${stFile}.${process.pid}.tmp`;
+          writeFileSync(tmp, JSON.stringify(st) + "\n", { mode: 0o600 });
+          renameSync(tmp, stFile);
+        } catch { /* 失效记录失败不阻塞写配置；下次全量失效由 revision 比对兜底 */ }
         return exitWith({ schemaVersion: 1, kind: "config-write", revision: result.revision, contentToken: result.contentToken, invalidatedProviderIds: result.invalidatedProviderIds }, 0);
       } catch (e) {
         const code = e.code === "config-conflict" ? "config-conflict" : "invalid-config";
@@ -166,11 +188,17 @@ async function main() {
   // ---- usage ----
   if (command === "usage") {
     const coordinator = new RefreshCoordinator({ configPath, env: process.env });
+    const loaded = coordinator.loadConfigOrNull();
+    const runtime = coordinator.readRuntimeState();
     const cache = coordinator.readUsageCache();
-    if (cache) return exitWith({ ...cache, generatedAtMs: Date.now() }, 0);
+    if (cache) {
+      // 投影（IPC freeze rev4 / C07·C21）：disabled 剥离、跨 profile/失效不重现
+      const projected = projectUsage({ ...cache, generatedAtMs: Date.now() }, { config: loaded?.config ?? null, invalidated: runtime.invalidated ?? {} });
+      return exitWith(projected, 0);
+    }
     // 无缓存：生成 not-configured envelope（无网络、无 secret）
-    const coordinatorEnvelope = coordinator.buildEnvelope({ nowMs: Date.now(), config: coordinator.loadConfigOrNull(), runtime: coordinator.readRuntimeState() });
-    return exitWith(coordinatorEnvelope, 0);
+    const coordinatorEnvelope = coordinator.buildEnvelope({ nowMs: Date.now(), config: loaded, runtime });
+    return exitWith(projectUsage(coordinatorEnvelope, { config: loaded?.config ?? null, invalidated: runtime.invalidated ?? {} }), 0);
   }
 
   // ---- refresh ----

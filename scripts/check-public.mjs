@@ -157,8 +157,13 @@ const EXEMPTIONS = [
   },
   {
     rule: "cookie",
+    pathIncludes: "core/providers/engine/engine.mjs",
+    reason: "Cursor 派生 Cookie 头构造实现代码（WorkosCursorSessionToken=<脱敏userId>::<jwt> 运行时拼接），无字面 secret",
+  },
+  {
+    rule: "cookie",
     pathIncludes: "scripts/subs.mjs",
-    reason: "凭证传输实现代码（对 Cookie 头做脱敏/构造），不含字面 secret",
+    reason: "兼容入口 re-export 引擎（同上），不含字面 secret",
   },
 ];
 
