@@ -242,19 +242,18 @@ export function createCredentialStores({ env = process.env } = {}) {
   for (const alias of ["codex-official", "claude-official-usage", "copilot-official", "agy-official-usage"]) {
     impls.set(alias, impls.get("cli-generic"));
   }
-  // keychain/json-file 专属名别名（manifest implementationId → 通用实现）
-  for (const alias of ["codex-subsbar-key", "opencode-subsbar-key", "kimi-subsbar-key",
-      "commandcode-subsbar-key", "droid-subsbar-key", "zai-subsbar-key", "openrouter-subsbar-key",
-      "grok-subsbar-key", "devin-subsbar-session", "zai-env-key", "kimi-env-key",
-      "commandcode-env-key", "droid-env-key", "openrouter-env-key", "codex-env-token"]) {
-    impls.set(alias, impls.get("keychain-generic").__isKeychain ? impls.get("keychain-generic") : impls.get(alias === null ? "" : "keychain-generic"));
-  }
-  for (const alias of ["codex-auth-file", "opencode-auth-file", "grok-auth-file", "devin-toml"]) {
-    if (!impls.has(alias)) impls.set(alias, impls.get("json-file-generic"));
-  }
-  for (const alias of ["openai-codex", "opencode-go", "kimi-coding", "commandcode", "openrouter", "zai"]) {
-    if (!impls.has(alias)) impls.set(alias, impls.get("pi-generic"));
-  }
+  // kind 别名表（manifest implementationId → 通用实现）：按 kind 分流，env 不得误接 keychain
+  const envAliases = ["zai-env-key", "kimi-env-key", "commandcode-env-key", "droid-env-key", "openrouter-env-key", "codex-env-token"];
+  const keychainAliases = ["codex-subsbar-key", "opencode-subsbar-key", "kimi-subsbar-key", "commandcode-subsbar-key",
+    "droid-subsbar-key", "zai-subsbar-key", "openrouter-subsbar-key", "grok-subsbar-key",
+    "devin-subsbar-session", "copilot-gh-keychain", "openrouter-management-key"];
+  const fileAliases = ["codex-auth-file", "opencode-auth-file", "grok-auth-file", "devin-toml", "copilot-apps-json"];
+  const piAliases = ["openai-codex", "opencode-go", "kimi-coding", "commandcode", "openrouter",
+    "zai", "zai-coding-cn", "claude-pi-anthropic", "github-copilot"];
+  for (const a of envAliases) impls.set(a, impls.get("env-generic"));
+  for (const a of keychainAliases) impls.set(a, impls.get("keychain-generic"));
+  for (const a of fileAliases) impls.set(a, impls.get("json-file-generic"));
+  for (const a of piAliases) impls.set(a, impls.get("pi-generic"));
 
   // 各 reader 的默认路径/pi 键/默认可执行登记（manifest 的 implementationId → 元数据）
   const defaults = new Map([
@@ -268,6 +267,10 @@ export function createCredentialStores({ env = process.env } = {}) {
     ["openrouter", { piKey: "openrouter" }],
     ["grok-auth-file", { path: join(env.GROK_HOME ? expand(env.GROK_HOME) : "", ".grok", "auth.json"), extract: grokAuthExtract }],
     ["devin-credentials-toml", { path: "~/.local/share/devin/credentials.toml" }],
+    ["copilot-apps-json", { path: join(env.XDG_CONFIG_HOME ? expand(env.XDG_CONFIG_HOME) : join(homedir(), ".config"), "github-copilot", "apps.json"), extract: copilotAppsExtract }],
+    ["claude-pi-anthropic", { piKey: "anthropic" }],
+    ["github-copilot", { piKey: "github-copilot" }],
+    ["openrouter", { piKey: "openrouter" }],
   ]);
   function implDefaults(readerId) { return defaults.get(readerId); }
 
@@ -299,6 +302,14 @@ function opencodeAuthExtract(json) {
   const entry = json?.["opencode-go"] ?? json?.opencode;
   const key = entry?.key ?? entry?.apiKey;
   if (typeof key === "string" && key.length >= 16) return { bytes: new TextEncoder().encode(key) };
+  throw new ReaderOutcome("rejected", "file-malformed");
+}
+
+function copilotAppsExtract(json) {
+  // github-copilot apps.json：{"github.com":{"oauth_token":"gho_…"}}
+  const entry = json?.["github.com"];
+  const token = entry?.oauth_token;
+  if (typeof token === "string" && token.length >= 16) return { bytes: new TextEncoder().encode(token) };
   throw new ReaderOutcome("rejected", "file-malformed");
 }
 

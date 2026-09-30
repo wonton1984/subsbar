@@ -90,7 +90,7 @@ function sanitizeDisplayText(value, maxChars = 160) {
 const MAX_SUCCESS_BODY_BYTES = 64 * 1024;
 const MAX_ERROR_BODY_BYTES = 4 * 1024;
 
-async function fetchJson({ url, headers, description, secrets, timeoutMs, method = "GET", body, signal: callerSignal }) {
+export async function fetchJson({ url, headers, description, secrets, timeoutMs, method = "GET", body, signal: callerSignal }) {
   const timeout = timeoutMs ?? FETCH_TIMEOUT_MS;
   const controller = new AbortController();
   let timedOut = false;

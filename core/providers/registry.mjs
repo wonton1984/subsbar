@@ -23,7 +23,7 @@ export const IMPLEMENTED_READERS = new Set([
 ]);
 
 // 已实现六家的数据适配器（v0 引擎桥接）；其余 8 家 M1 标 not-implemented（unsupported）
-export const IMPLEMENTED_ADAPTERS = new Set(["codex", "opencode", "kimi", "commandcode", "droid", "cursor"]);
+export const IMPLEMENTED_ADAPTERS = new Set(["codex", "opencode", "kimi", "commandcode", "droid", "cursor", "claude", "copilot", "zai", "openrouter", "antigravity", "devin", "grok", "ollama"]);
 
 function validateManifest(m, file) {
   const errs = [];

@@ -3,7 +3,7 @@
   "id": "zai",
   "name": "Z.AI / GLM Coding Plan",
   "product": "GLM Coding Plan",
-  "releaseStatus": "planned",
+  "releaseStatus": "experimental",
   "adapterVersion": "0.1.0",
   "platforms": [
     "darwin"
@@ -66,6 +66,40 @@
       ],
       "owner": "external",
       "renewMode": "none"
+    },
+    {
+      "id": "zai-pi-global",
+      "kind": "pi",
+      "credentialKinds": [
+        "api-key"
+      ],
+      "implementationId": "zai",
+      "configurable": [
+        "path"
+      ],
+      "requires": [],
+      "purposes": [
+        "primary"
+      ],
+      "owner": "external",
+      "renewMode": "none"
+    },
+    {
+      "id": "zai-pi-cn",
+      "kind": "pi",
+      "credentialKinds": [
+        "api-key"
+      ],
+      "implementationId": "zai-coding-cn",
+      "configurable": [
+        "path"
+      ],
+      "requires": [],
+      "purposes": [
+        "primary"
+      ],
+      "owner": "external",
+      "renewMode": "none"
     }
   ],
   "endpoints": [
@@ -91,15 +125,16 @@
       "id": "zai-quota",
       "kind": "community-api",
       "grade": "B",
-      "admission": "pending",
-      "approvalNote": "docs/providers/zai.md",
+      "admission": "approved",
+      "approvalNote": "docs/providers/zai.md；官方插件同源接口；CN/Global 由 profile.region 决定 origin，不跨区试探；Apache-2.0 插件仅协议参考无代码复制",
       "endpointIds": [
         "zai-quota"
       ],
       "credentialChain": [
         "zai-env-key",
         "zai-subsbar-key",
-        "zai"
+        "zai-pi-global",
+        "zai-pi-cn"
       ],
       "capabilities": [
         "quota"
@@ -150,6 +185,19 @@
       "period": "rolling",
       "derivations": [],
       "description": "tool call quota",
+      "missingPolicy": "unknown"
+    },
+    {
+      "id": "zai-mcp-monthly",
+      "metricId": "mcp-monthly",
+      "kind": "quota",
+      "unit": "count",
+      "scope": "subscription",
+      "period": "calendar",
+      "derivations": [
+        "remaining-from-limit-used"
+      ],
+      "description": "TIME_LIMIT MCP monthly count",
       "missingPolicy": "unknown"
     }
   ],

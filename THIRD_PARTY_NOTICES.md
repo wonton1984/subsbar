@@ -6,7 +6,7 @@
 | --- | --- | --- | --- | --- |
 | @narumitw/pi-usage | https://github.com/narumiruna/pi-extensions （monorepo，参考版本 v0.61.1；kimi/opencode/codex 响应解析） | MIT | `scripts/subs.mjs`（kimi / opencode / codex 解析函数） | TypeScript 移植为 JavaScript；字段解析逻辑重写以适配本仓窗口/指标模型；未复制 UI 代码 |
 | pi-commandcode-provider | https://github.com/patlux/pi-commandcode-provider v0.6.4（commandcode 响应解析与月度语义） | MIT | `scripts/subs.mjs`（commandcode 解析函数） | TypeScript 移植为 JavaScript；补充 summary 缺失时仅 remaining 的降级路径 |
-| pi-subs | 维护者私有参考实现（未公开）。移植链上游为 @narumitw/pi-usage（MIT），归因由上行承载 | MIT | `scripts/subs.mjs`（解析适配与窗口/指标模型扩展） | 移植并扩展：droid/cursor 新增、月度语义修正、仅余额降级契约、窗口标签按真实时长 |
+| pi-subs | 维护者私有参考实现（未公开）。移植链上游为 @narumitw/pi-usage（MIT），归因由上行承载 | MIT | `core/providers/engine/`（含 m2-providers.mjs） | 移植并扩展：droid/cursor 新增、月度语义修正、仅余额降级契约、窗口标签按真实时长；M2 移植 claude/copilot/zai/openrouter 四家解析（TS→JS，v1 归一化语义：不 clamp、缺失即 unknown） |
 
 > 仅"参考协议/交互"而未复制代码的来源（CodexBar、OpenUsage、OpenUsageCN 的公开文档）不列入本表，记录于 `docs/providers/` 各文件的来源段。
 

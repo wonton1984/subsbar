@@ -3,7 +3,7 @@
   "id": "copilot",
   "name": "GitHub Copilot",
   "product": "Copilot subscription",
-  "releaseStatus": "planned",
+  "releaseStatus": "experimental",
   "adapterVersion": "0.1.0",
   "platforms": [
     "darwin"
@@ -61,6 +61,40 @@
       "requires": [
         "keychain"
       ],
+      "purposes": [
+        "primary"
+      ],
+      "owner": "external",
+      "renewMode": "none"
+    },
+    {
+      "id": "copilot-apps-json",
+      "kind": "file",
+      "credentialKinds": [
+        "oauth"
+      ],
+      "implementationId": "copilot-apps-json",
+      "configurable": [
+        "path"
+      ],
+      "requires": [],
+      "purposes": [
+        "primary"
+      ],
+      "owner": "external",
+      "renewMode": "none"
+    },
+    {
+      "id": "github-copilot",
+      "kind": "pi",
+      "credentialKinds": [
+        "oauth"
+      ],
+      "implementationId": "github-copilot",
+      "configurable": [
+        "path"
+      ],
+      "requires": [],
       "purposes": [
         "primary"
       ],
@@ -135,6 +169,31 @@
         "copilot-credits"
       ],
       "coverageMatch": "any"
+    },
+    {
+      "id": "copilot-internal",
+      "kind": "community-api",
+      "grade": "C",
+      "admission": "approved",
+      "approvalNote": "docs/providers/copilot.md；copilot_internal/user 社区来源（C），个人配额；组织汇总需管理员另验",
+      "endpointIds": [
+        "copilot-internal"
+      ],
+      "credentialChain": [
+        "copilot-apps-json",
+        "copilot-gh-keychain",
+        "github-copilot"
+      ],
+      "capabilities": [
+        "quota"
+      ],
+      "coverageMetricRules": [
+        "copilot-ai-credits",
+        "copilot-premium-requests",
+        "copilot-chat-requests"
+      ],
+      "coverageMatch": "any",
+      "minimumIntervalSeconds": 300
     }
   ],
   "refresh": {
@@ -154,12 +213,59 @@
       "derivations": [],
       "description": "AI credits / legacy premium requests classification",
       "missingPolicy": "unknown"
+    },
+    {
+      "id": "copilot-ai-credits",
+      "metricId": "ai-credits",
+      "kind": "quota",
+      "unit": "count",
+      "scope": "subscription",
+      "period": "calendar",
+      "derivations": [
+        "used-from-limit-remaining",
+        "remaining-from-limit-used",
+        "limit-from-used-remaining"
+      ],
+      "description": "token-based billing AI credits",
+      "missingPolicy": "unknown"
+    },
+    {
+      "id": "copilot-premium-requests",
+      "metricId": "premium-requests",
+      "kind": "quota",
+      "unit": "count",
+      "scope": "subscription",
+      "period": "calendar",
+      "derivations": [
+        "used-from-limit-remaining",
+        "remaining-from-limit-used",
+        "limit-from-used-remaining"
+      ],
+      "description": "legacy premium requests",
+      "missingPolicy": "unknown"
+    },
+    {
+      "id": "copilot-chat-requests",
+      "metricId": "chat-requests",
+      "kind": "quota",
+      "unit": "count",
+      "scope": "subscription",
+      "period": "calendar",
+      "derivations": [
+        "used-from-limit-remaining",
+        "remaining-from-limit-used",
+        "limit-from-used-remaining"
+      ],
+      "description": "limited_user_quotas chat legacy shape",
+      "missingPolicy": "unknown"
     }
   ],
   "primaryPreference": [
     "copilot-credits"
   ],
-  "diagnosticCodes": [],
+  "diagnosticCodes": [
+    "copilot-plan"
+  ],
   "reasonCodes": [],
   "fixtureIds": [
     "copilot-synthetic-normal",

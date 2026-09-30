@@ -8,6 +8,7 @@ import { normalizeQuota, usedPercentOf, iconFractionOf } from "../runtime/report
 // C24 依赖方向：core 不得 import scripts/。引擎在 core/providers/engine/engine.mjs
 // （纯模块，无顶层执行、无 pie-png 依赖）。
 const v0 = await import("./engine/engine.mjs");
+const m2 = await import("./engine/m2-providers.mjs");
 
 export const PROVIDER_NAMES = {
   codex: "Codex", opencode: "OpenCode", kimi: "Kimi", commandcode: "CommandCode",
@@ -94,4 +95,28 @@ export function v0ReportToSnapshot(providerId, report, { capturedAtMs }) {
 /** 检查 report 是否有可显示数据（§5.3：必需字段/全部 quota 为空 → invalid-response）。 */
 export function snapshotHasData(snapshot) {
   return snapshot.windows.length > 0 || snapshot.metrics.length > 0;
+}
+
+
+// ---------------------------------------------------------------------------
+// M2：统一 fetch 分派 —— 六家走 v0 桥接（v0 report → SnapshotReport），
+// 八家走 M2 引擎（直接产出 SnapshotReport；批次 B-D 为防御性解析 pending-verification）。
+// ---------------------------------------------------------------------------
+
+const M2_FETCH = {
+  claude: m2.fetchClaudeUsage,
+  copilot: m2.fetchCopilotUsage,
+  zai: m2.fetchZaiUsage,
+  openrouter: m2.fetchOpenRouterUsage,
+  grok: m2.fetchGrokBilling,
+  devin: m2.fetchDevinQuota,
+  antigravity: m2.fetchAntigravityUsage,
+};
+
+/** 返回 SnapshotReport。extra: {region?, organizationId?}；ctx: {signal?} */
+export async function fetchProviderSnapshot(providerId, token, extra = {}, ctx = {}) {
+  const m2Fetch = M2_FETCH[providerId];
+  if (m2Fetch) return m2Fetch(token, extra, ctx);
+  const v0Report = await v0Fetch(providerId, token);
+  return v0ReportToSnapshot(providerId, v0Report, { capturedAtMs: Date.now() });
 }

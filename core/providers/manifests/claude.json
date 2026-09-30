@@ -3,7 +3,7 @@
   "id": "claude",
   "name": "Claude",
   "product": "Claude Pro/Max subscription",
-  "releaseStatus": "planned",
+  "releaseStatus": "experimental",
   "adapterVersion": "0.1.0",
   "platforms": [
     "darwin"
@@ -29,6 +29,23 @@
       ],
       "owner": "external",
       "renewMode": "owner-cli"
+    },
+    {
+      "id": "claude-pi-anthropic",
+      "kind": "pi",
+      "credentialKinds": [
+        "oauth"
+      ],
+      "implementationId": "claude-pi-anthropic",
+      "configurable": [
+        "path"
+      ],
+      "requires": [],
+      "purposes": [
+        "primary"
+      ],
+      "owner": "external",
+      "renewMode": "none"
     }
   ],
   "endpoints": [
@@ -42,6 +59,19 @@
       "authPurpose": "primary",
       "documentationUrl": "https://github.com/subsbar/subsbar#readme",
       "commandId": "claude-usage"
+    },
+    {
+      "id": "claude-usage-http",
+      "transport": "https",
+      "operation": "usage",
+      "readOnly": true,
+      "grade": "C",
+      "origin": "https://api.anthropic.com",
+      "method": "GET",
+      "pathTemplate": "/api/oauth/usage",
+      "maxResponseBytes": 65536,
+      "authPurpose": "primary",
+      "documentationUrl": "https://subsbar.dev/docs"
     }
   ],
   "dataSources": [
@@ -64,6 +94,28 @@
         "claude-session"
       ],
       "coverageMatch": "any"
+    },
+    {
+      "id": "claude-oauth-usage",
+      "kind": "community-api",
+      "grade": "C",
+      "admission": "approved",
+      "approvalNote": "docs/providers/claude.md；OAuth 来源政策准入 UNVERIFIED（§5.1 Claude 特殊边界），真实账号验收前不宣称合规；官方 CLI 路线并行验证中",
+      "endpointIds": [
+        "claude-usage-http"
+      ],
+      "credentialChain": [
+        "claude-pi-anthropic"
+      ],
+      "capabilities": [
+        "quota"
+      ],
+      "coverageMetricRules": [
+        "claude-five-hour",
+        "claude-seven-day"
+      ],
+      "coverageMatch": "any",
+      "minimumIntervalSeconds": 300
     }
   ],
   "refresh": {
@@ -83,10 +135,43 @@
       "derivations": [],
       "description": "session/weekly windows; pending C23 admission",
       "missingPolicy": "unknown"
+    },
+    {
+      "id": "claude-five-hour",
+      "metricId": "five-hour",
+      "kind": "quota",
+      "unit": "percent",
+      "scope": "subscription",
+      "period": "rolling",
+      "derivations": [],
+      "description": "five_hour utilization percent (raw, no clamp)",
+      "missingPolicy": "unknown"
+    },
+    {
+      "id": "claude-seven-day",
+      "metricId": "seven-day",
+      "kind": "quota",
+      "unit": "percent",
+      "scope": "subscription",
+      "period": "rolling",
+      "derivations": [],
+      "description": "seven_day utilization percent",
+      "missingPolicy": "unknown"
+    },
+    {
+      "id": "claude-seven-day-opus",
+      "metricId": "seven-day-opus",
+      "kind": "quota",
+      "unit": "percent",
+      "scope": "subscription",
+      "period": "rolling",
+      "derivations": [],
+      "description": "seven_day_opus utilization percent",
+      "missingPolicy": "unknown"
     }
   ],
   "primaryPreference": [
-    "claude-session"
+    "claude-five-hour"
   ],
   "diagnosticCodes": [],
   "reasonCodes": [],

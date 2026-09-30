@@ -10,7 +10,7 @@ import { resolveChain } from "../credentials/resolver.mjs";
 import { SecretBroker } from "../credentials/broker.mjs";
 import { createCredentialStores } from "../credentials/stores.mjs";
 import { ProviderRegistry } from "../providers/registry.mjs";
-import { v0ReadAuth, v0ResolveCredential, v0Fetch, v0ReportToSnapshot, snapshotHasData } from "../providers/adapters.mjs";
+import { v0ReadAuth, v0ResolveCredential, fetchProviderSnapshot, snapshotHasData } from "../providers/adapters.mjs";
 import { safeError, diagnostic, isAtMs } from "../defs.mjs";
 import { legacyWindowToMetric } from "./report.mjs";
 import { parseStrictJson } from "./json-strict.mjs";
@@ -210,8 +210,8 @@ export class RefreshCoordinator {
     try {
       const bytes = await broker.withSecret(resolved.lease.access, providerId, async (b) => b);
       const token = new TextDecoder().decode(bytes);
-      const v0Report = await withTimeout(v0Fetch(providerId, token), manifest.refresh.taskTimeoutSeconds * 1000, signal);
-      report = v0ReportToSnapshot(providerId, v0Report, { capturedAtMs: Date.now() });
+      const extra = { region: profile.region, organizationId: profile.organizationId ?? provCfg?.profiles?.find((p) => p.id === profile.id)?.organizationId };
+      report = await withTimeout(fetchProviderSnapshot(providerId, token, extra, { signal }), manifest.refresh.taskTimeoutSeconds * 1000, signal);
     } catch (e) {
       if (signal.aborted) return { kind: "cancelled", retainLastGood: true };
       return { kind: "failed", error: fetchErrorToSafe(e), retainLastGood: true };

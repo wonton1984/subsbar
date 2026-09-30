@@ -3,7 +3,7 @@
   "id": "openrouter",
   "name": "OpenRouter",
   "product": "OpenRouter key quota",
-  "releaseStatus": "planned",
+  "releaseStatus": "experimental",
   "adapterVersion": "0.1.0",
   "platforms": [
     "darwin"
@@ -66,6 +66,26 @@
       ],
       "owner": "external",
       "renewMode": "none"
+    },
+    {
+      "id": "openrouter-management",
+      "kind": "keychain",
+      "credentialKinds": [
+        "api-key"
+      ],
+      "implementationId": "openrouter-management-key",
+      "configurable": [
+        "service",
+        "account"
+      ],
+      "requires": [
+        "keychain"
+      ],
+      "purposes": [
+        "management"
+      ],
+      "owner": "subsbar",
+      "renewMode": "none"
     }
   ],
   "endpoints": [
@@ -88,8 +108,8 @@
       "id": "openrouter-key",
       "kind": "official-api",
       "grade": "A",
-      "admission": "pending",
-      "approvalNote": "docs/providers/openrouter.md",
+      "admission": "approved",
+      "approvalNote": "docs/providers/openrouter.md；普通 key /api/v1/key 限额；management key 仅账户 credits，独立 purpose 不与 key quota 合并",
       "endpointIds": [
         "openrouter-key"
       ],
@@ -127,12 +147,63 @@
       "description": "key quota; account credits are separate management purpose",
       "missingPolicy": "unknown",
       "currency": "USD"
+    },
+    {
+      "id": "openrouter-usage-daily",
+      "metricId": "usage-daily",
+      "kind": "spend",
+      "unit": "currency",
+      "scope": "api-key",
+      "period": "unknown",
+      "derivations": [],
+      "currency": "USD",
+      "description": "daily spend USD",
+      "missingPolicy": "omit-optional"
+    },
+    {
+      "id": "openrouter-usage-weekly",
+      "metricId": "usage-weekly",
+      "kind": "spend",
+      "unit": "currency",
+      "scope": "api-key",
+      "period": "unknown",
+      "derivations": [],
+      "currency": "USD",
+      "description": "weekly spend USD",
+      "missingPolicy": "omit-optional"
+    },
+    {
+      "id": "openrouter-usage-monthly",
+      "metricId": "usage-monthly",
+      "kind": "spend",
+      "unit": "currency",
+      "scope": "api-key",
+      "period": "unknown",
+      "derivations": [],
+      "currency": "USD",
+      "description": "monthly spend USD",
+      "missingPolicy": "omit-optional"
+    },
+    {
+      "id": "openrouter-usage-total",
+      "metricId": "usage-total",
+      "kind": "spend",
+      "unit": "currency",
+      "scope": "api-key",
+      "period": "lifetime",
+      "derivations": [],
+      "currency": "USD",
+      "description": "total spend USD",
+      "missingPolicy": "omit-optional"
     }
   ],
   "primaryPreference": [
     "openrouter-limit"
   ],
-  "diagnosticCodes": [],
+  "diagnosticCodes": [
+    "openrouter-no-limit",
+    "openrouter-free-tier"
+  ],
   "reasonCodes": [],
   "fixtureIds": [
     "openrouter-synthetic-normal",
