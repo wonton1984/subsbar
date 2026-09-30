@@ -28,6 +28,10 @@ public struct ConnectionGuide: Equatable, Sendable {
     public let credentialService: String?
     public let credentialReader: String?
     public var canPasteKey: Bool { kind == .apiKey && credentialService != nil }
+    /// Registry already found a working source (e.g. Pi / local login file).
+    public let hasDiscoveredSource: Bool
+    /// Default chain can pick up an existing login; the primary action is detect, not a new login.
+    public let prefersDetect: Bool
 
     public init(manifest: Wire, name: String) {
         let id = manifest["providerId"].text
@@ -46,28 +50,42 @@ public struct ConnectionGuide: Equatable, Sendable {
         credentialReader = keyReader?["id"].string
         if !manifest["supported"].bool {
             kind = .unsupported; primaryTitle = "尚不支持"; command = nil; url = nil; unverified = false
+            hasDiscoveredSource = false; prefersDetect = false
             instruction = "\(name) 暂时无法读取用量，后续版本支持。"
             return
         }
         let kinds = Set(manifest["credentialReaders"].array.flatMap { $0["credentialKinds"].array.map(\.text) })
+        let readerKinds = Set(manifest["credentialReaders"].array.map { $0["kind"].text })
         kind = kinds.contains("api-key") ? .apiKey : .login
         command = verifiedCommand
         let proposedURL = login["url"].string.flatMap(URL.init(string:))
         url = proposedURL?.scheme == "https" && proposedURL?.host != nil ? proposedURL?.absoluteString : nil
         unverified = !login["verified"].bool
+        let discovered = Self.sourceSentence(manifest: manifest, name: name)
+        hasDiscoveredSource = discovered != nil
+        prefersDetect = hasDiscoveredSource || ["pi", "file", "cli", "local-api"].contains(where: { readerKinds.contains($0) })
         let steps: String
         if let verifiedCommand { steps = "在终端运行 \(verifiedCommand)，按提示完成登录。" }
         else if let note = login["note"].string, !note.isEmpty { steps = note + (login["note"].text.hasSuffix("。") ? "" : "。") }
         else { steps = "请先在 \(name) 官方应用或命令行中完成登录。" }
-        switch kind {
-        case .login, .appSession:
-            primaryTitle = "登录 \(name)"
-            instruction = steps + "完成后回到这里点「我已完成，检测连接」。"
-        case .apiKey:
-            primaryTitle = "粘贴 API Key"
-            instruction = (credentialService != nil ? "粘贴 \(name) 的 API Key，只保存在本机钥匙串中。也可按以下指引登录：" : "\(name) 使用 API Key 连接。") + steps
-        case .unsupported:
-            primaryTitle = "尚不支持"; instruction = ""
+        if prefersDetect {
+            primaryTitle = "检测连接"
+            if let discovered {
+                instruction = discovered + "点「检测连接」即可，不必再登录。"
+            } else {
+                instruction = "如果本机已经登录过，直接点「检测连接」。" + (kind == .apiKey && credentialService != nil ? "也可以粘贴 API Key，只保存在本机钥匙串中。" : steps)
+            }
+        } else {
+            switch kind {
+            case .login, .appSession:
+                primaryTitle = "登录 \(name)"
+                instruction = steps + "完成后回到这里点「我已完成，检测连接」。"
+            case .apiKey:
+                primaryTitle = "粘贴 API Key"
+                instruction = (credentialService != nil ? "粘贴 \(name) 的 API Key，只保存在本机钥匙串中。也可按以下指引登录：" : "\(name) 使用 API Key 连接。") + steps
+            case .unsupported:
+                primaryTitle = "尚不支持"; instruction = ""
+            }
         }
     }
 

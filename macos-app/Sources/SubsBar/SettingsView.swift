@@ -131,9 +131,19 @@ struct ConnectionEditor: View {
                 }
             }
             HStack {
-                Button(connected ? (guide.kind == .apiKey ? "更换 API Key" : "重新登录") : guide.primaryTitle) { model.toggleGuide(providerID) }
-                    .buttonStyle(.borderedProminent).controlSize(.large)
-                if connected { Button("重新检测") { detect() }.disabled(model.saving || model.refreshing) }
+                if connected {
+                    Button(guide.kind == .apiKey ? "更换 API Key" : "重新登录") { model.toggleGuide(providerID) }
+                        .buttonStyle(.borderedProminent).controlSize(.large)
+                    Button("重新检测") { detect() }.disabled(model.saving || model.refreshing)
+                } else if guide.prefersDetect {
+                    Button(guide.primaryTitle) { detect() }
+                        .buttonStyle(.borderedProminent).controlSize(.large)
+                        .disabled(model.saving || model.refreshing || model.keySaving)
+                    Button(guide.kind == .apiKey ? "粘贴 API Key" : "其他登录方式") { model.toggleGuide(providerID) }
+                } else {
+                    Button(guide.primaryTitle) { model.toggleGuide(providerID) }
+                        .buttonStyle(.borderedProminent).controlSize(.large)
+                }
             }
             if guideOpen {
                 VStack(alignment: .leading, spacing: 10) {

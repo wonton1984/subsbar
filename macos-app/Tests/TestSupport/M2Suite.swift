@@ -10,6 +10,14 @@ public enum M2Suite {
             guard try condition() else { throw LocalFailure("FAIL M2: \(name)") }
             count += 1; print("PASS M2 \(name)")
         }
+        for n in [0, 1, 3, 4, 6, 14] {
+            let layout = OverviewLayout(count: n)
+            let ids = (0..<n).map(String.init)
+            try check("layout threshold \(n)", layout.columns == (n > 3 ? 2 : 1))
+            try check("layout ordered rows \(n)", layout.rows(ids).flatMap { $0 } == ids && layout.rows(ids).allSatisfy { $0.count <= layout.columns })
+            try check("layout width \(n)", layout.width == (n > 3 ? 560 : 360))
+            try check("single unchanged \(n)", OverviewLayout(count: n, single: true).width == 360)
+        }
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let fixtures = root.appendingPathComponent("test/fixtures/ipc")
         func fixture(_ name: String) throws -> Wire { try Wire.parse(Data(contentsOf: fixtures.appendingPathComponent(name))) }
@@ -27,6 +35,9 @@ public enum M2Suite {
             try check("\(tag) scene covers 14 providers", usage.providers.count == 14 && Set(usage.providers.map(\.id)) == Set(SyntheticScenes.providerIDs))
             for id in SyntheticScenes.providerIDs {
                 let card = cards(id), compact = expanded(id)
+                try check("grid primary only \(tag) \(id)", card.displayedMetrics(compact: true).count <= 1 && card.displayedMetrics(compact: true).allSatisfy(\.isPrimary))
+                try check("grid expanded metrics unchanged \(tag) \(id)", compact.displayedMetrics(compact: true) == compact.allMetrics)
+                try check("single metrics unchanged \(tag) \(id)", card.displayedMetrics(compact: false) == card.metrics)
                 let header = [card.status, card.statusText, card.headline, card.freshness, card.issue ?? "", card.action ?? "", card.updated ?? "", card.placeholder ?? ""]
                 let compactHeader = [compact.status, compact.statusText, compact.headline, compact.freshness, compact.issue ?? "", compact.action ?? "", compact.updated ?? "", compact.placeholder ?? ""]
                 try check("\(tag) \(id) card and compact header agree", header == compactHeader && card.headlineFraction == compact.headlineFraction && card.tone == compact.tone && card.needsRepair == compact.needsRepair)
@@ -165,11 +176,22 @@ public enum M2Suite {
         mock.failure = Leaky(description: "boom synthetic-private-value at /tmp/synthetic-account")
         let failure = rejected { try writer.save(guide: keyGuide, profileID: "p", key: "synthetic-private-value") }
         try check("store failure surfaces a fixed code without key or path", failure == "credential-save-failed" && !(failure ?? "").contains("synthetic-private-value"))
-        let resolved = Wire.object(["credentialReaders": home[0]["credentialReaders"], "profiles": .array([.object(["sources": .array([
+        let resolved = Wire.object(["supported": .bool(true), "credentialReaders": home[0]["credentialReaders"], "profiles": .array([.object(["sources": .array([
             .object(["reader": .string("codex-auth-file"), "availability": .string("missing")]),
             .object(["reader": .string("codex-official"), "availability": .string("resolved")])])])])])
         try check("connected source is one user sentence", ConnectionGuide.sourceSentence(manifest: resolved, name: "Codex") == "凭证来源：Codex 命令行登录")
         try check("no resolved source gives no sentence", ConnectionGuide.sourceSentence(manifest: home[0], name: "Codex") == nil)
+        try check("resolved source primary is detect", guide(resolved, "Codex").prefersDetect && guide(resolved, "Codex").primaryTitle == "检测连接")
+        let auto = Wire.object([
+            "providerId": .string("commandcode"), "supported": .bool(true),
+            "credentialReaders": .array([
+                .object(["id": .string("commandcode"), "kind": .string("pi"), "implemented": .bool(true), "owner": .string("external"), "purposes": .array([.string("primary")]), "credentialKinds": .array([.string("api-key")])]),
+                .object(["id": .string("commandcode-subsbar-key"), "kind": .string("keychain"), "implemented": .bool(true), "owner": .string("subsbar"), "purposes": .array([.string("primary")]), "credentialKinds": .array([.string("api-key")]), "credentialService": .string("SubsBar credential commandcode")])
+            ])
+        ])
+        let autoGuide = guide(auto, "CommandCode")
+        try check("auto-discoverable CommandCode shows detect not login", autoGuide.kind == .apiKey && autoGuide.prefersDetect && autoGuide.primaryTitle == "检测连接" && autoGuide.canPasteKey)
+        try check("paste-only api-key still asks for a key", keyGuide.primaryTitle == "粘贴 API Key" && !keyGuide.prefersDetect)
         return count
     }
 }

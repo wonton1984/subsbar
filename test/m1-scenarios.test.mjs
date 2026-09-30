@@ -385,6 +385,24 @@ console.log("\n== S3. fetch 错误分类（timeout ≠ http-5xx）==");
   check("commandcode 任务超时宽于 15s 内层 abort", cc.refresh.taskTimeoutSeconds >= 60 && cc.refresh.requestTimeoutSeconds >= 20);
 }
 
+console.log("\n== S4. Pi 默认 agentDir（检测连接可发现 ~/.pi/agent）==");
+{
+  const fakeHome = join(base, "pi-home");
+  mkdirSync(join(fakeHome, ".pi", "agent"), { recursive: true, mode: 0o700 });
+  writeFileSync(join(fakeHome, ".pi", "agent", "auth.json"), "{}\n", { mode: 0o600 });
+  const prevHome = process.env.HOME;
+  process.env.HOME = fakeHome;
+  try {
+    const stores = createCredentialStores({ env: { ...process.env, HOME: fakeHome } });
+    const skipped = stores.discover("commandcode", { reader: "commandcode" }, { compatibility: { pi: { enabled: false } } });
+    check("Pi 开关关闭 → skipped", skipped.status === "skipped");
+    const found = stores.discover("commandcode", { reader: "commandcode" }, { compatibility: { pi: { enabled: true } } });
+    check("Pi 开关打开且默认目录有 auth.json → resolved", found.status === "resolved");
+  } finally {
+    process.env.HOME = prevHome;
+  }
+}
+
 console.log("\n== C19. 严格 JSON ==");
 {
   check("重复键拒绝", (() => { try { parseStrictJson('{"a":1,"a":2}'); return false; } catch (e) { return e.reasonCode === "duplicate-key"; } })());

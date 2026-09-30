@@ -84,7 +84,19 @@ import SubsCore
     /// The check waits for the config reload so it sees the enabled provider.
     func connect(provider id: String, base: ConfigDocument, draft: Wire) {
         guard !keySaving, !saving, !refreshing, !stopping else { return }
-        if config["providers"][id]["enabled"].bool { refresh(provider: id, connect: true); return }
+        var patch = Wire.object([:])
+        if hasPiReader(id) && !config["compatibility"]["pi"]["enabled"].bool {
+            patch = patch.setting("compatibility", config["compatibility"].setting("pi", config["compatibility"]["pi"].setting("enabled", .bool(true))))
+        }
+        if config["providers"][id]["enabled"].bool {
+            if patch["compatibility"].isObject {
+                pendingConnect = id
+                save(base: base, patch: patch) { [weak self] ok in if !ok { self?.pendingConnect = nil } }
+            } else {
+                refresh(provider: id, connect: true)
+            }
+            return
+        }
         var connection = draft
         if connection["profiles"].array.isEmpty {
             let profileID = "profile-" + String(UUID().uuidString.lowercased().prefix(8))
@@ -92,9 +104,12 @@ import SubsCore
             connection = connection.setting("profiles", .array([profile])).setting("activeProfile", .string(profileID))
         }
         pendingConnect = id
-        save(base: base, patch: .object(["providers": .object([id: connection.setting("enabled", .bool(true))])])) { [weak self] ok in
+        save(base: base, patch: patch.setting("providers", .object([id: connection.setting("enabled", .bool(true))]))) { [weak self] ok in
             if !ok { self?.pendingConnect = nil }
         }
+    }
+    private func hasPiReader(_ id: String) -> Bool {
+        providers.first { $0["providerId"].text == id }?["credentialReaders"].array.contains { $0["kind"].text == "pi" && $0["implemented"].bool } ?? false
     }
     func card(_ id: String, single: Bool) -> CardModel {
         CardModel(providerID: id, name: name(id), config: config, usage: usage, now: now, expanded: single || isExpanded(id))

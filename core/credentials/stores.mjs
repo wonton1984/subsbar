@@ -229,14 +229,14 @@ export function createCredentialStores({ env = process.env } = {}) {
   register("pi-generic", {
     discover(spec, ctx) {
       if (!ctx.compatibility?.pi?.enabled) return { status: "skipped", reasonCode: "reader-unavailable" };
-      const path = spec.path ?? ctx.compatibility?.pi?.agentDir;
+      const path = spec.path ?? ctx.compatibility?.pi?.agentDir ?? join(homedir(), ".pi", "agent");
       const key = implDefaults(spec.reader)?.piKey;
       if (!path || !key || !fileExistsQuiet(join(path, "auth.json"))) return { status: "missing", reasonCode: "not-configured" };
       return { status: "resolved", reasonCode: undefined };
     },
     resolve(spec, ctx) {
       if (!ctx.compatibility?.pi?.enabled) throw new ReaderOutcome("skipped", "reader-unavailable");
-      const path = spec.path ?? ctx.compatibility?.pi?.agentDir;
+      const path = spec.path ?? ctx.compatibility?.pi?.agentDir ?? join(homedir(), ".pi", "agent");
       const key = implDefaults(spec.reader)?.piKey;
       const { data } = readFileBounded(join(path, "auth.json"));
       let json;
