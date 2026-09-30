@@ -39,7 +39,7 @@ struct PopoverView: View {
                     } else {
                         ForEach(sections.cards, id: \.self) { id in ProviderCardView(model: model, card: model.card(id, single: false), single: false) }
                         if sections.cards.isEmpty && !model.loading {
-                            Text("尚未启用订阅。在下方选择要添加的订阅并连接；不会自动读取凭证或发起网络请求。").foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                            Text("尚未启用订阅。点击下方「添加订阅」选择要添加的订阅并连接；不会自动读取凭证或发起网络请求。").foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                         }
                         if !sections.available.isEmpty { AddSubscriptionSection(model: model, ids: sections.available).padding(.top, 4) }
                     }

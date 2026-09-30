@@ -232,13 +232,23 @@ struct AddSubscriptionSection: View {
     let ids: [String]
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text("添加订阅").font(.system(size: 11, weight: .semibold))
-                Text("\(ids.count)").foregroundStyle(.secondary)
-                Spacer()
-                Text("未启用，不读取凭证").font(.system(size: 10)).foregroundStyle(.tertiary)
+            Button { model.toggleAddSubscription() } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: model.addSubscriptionExpanded ? "minus.circle" : "plus.circle")
+                    Text("添加订阅").font(.system(size: 11, weight: .semibold))
+                    Text("\(ids.count)").foregroundStyle(.secondary)
+                    Spacer()
+                    if model.addSubscriptionExpanded { Text("未启用，不读取凭证").font(.system(size: 10)).foregroundStyle(.tertiary) }
+                    else { Image(systemName: "chevron.down").font(.system(size: 9)).foregroundStyle(.tertiary) }
+                }
+                .padding(.horizontal, 8).padding(.vertical, 6)
+                .background(Color.secondary.opacity(0.07), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .contentShape(Rectangle())
             }
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)], spacing: 6) {
+            .buttonStyle(.plain)
+            .help(model.addSubscriptionExpanded ? "收起可添加订阅" : "展开可添加订阅")
+            .accessibilityLabel("添加订阅，\(ids.count) 个未启用，\(model.addSubscriptionExpanded ? "已展开" : "已折叠")")
+            if model.addSubscriptionExpanded { LazyVGrid(columns: [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)], spacing: 6) {
                 ForEach(ids, id: \.self) { id in
                     Button { model.openSettings?(id) } label: {
                         HStack(spacing: 6) {
@@ -255,7 +265,7 @@ struct AddSubscriptionSection: View {
                         .contentShape(Rectangle())
                     }.buttonStyle(.plain).help("打开 \(model.name(id)) 的连接设置")
                 }
-            }
+            } }
         }.font(.system(size: 11))
     }
 }

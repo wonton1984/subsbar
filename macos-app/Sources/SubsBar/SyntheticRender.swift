@@ -34,6 +34,7 @@ import SubsCore
             model.registry = registry
             model.usage = try SyntheticScenes.usage(normalized, decorated: decorated)
             model.expandedOverrides = [:]
+            model.addSubscriptionExpanded = false
             model.receipt = "本次部分更新"
         }
         var outputs: [String] = []
@@ -43,6 +44,9 @@ import SubsCore
         try scene(enabled: ["codex", "commandcode", "cursor", "claude"])
         try popover("M2-cards-default.png", maxHeight: 1200)
         try popover("M2-cards-default-dark.png", maxHeight: 1200, dark: true)
+        model.addSubscriptionExpanded = true
+        try popover("M2-cards-default-add-expanded.png", maxHeight: 1200)
+        model.addSubscriptionExpanded = false
         try scene(enabled: SyntheticScenes.enabledIDs)
         try popover("M2-cards-all-scroll.png", maxHeight: 640)
         try popover("M2-cards-all-full.png", maxHeight: 4000)

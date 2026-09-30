@@ -15,6 +15,7 @@ import SubsCore
     @Published var height: CGFloat = 300
     @Published var receipt: String?
     @Published var expandedOverrides: [String: Bool] = [:]
+    @Published var addSubscriptionExpanded = false
     var detailsHeight: CGFloat?
     var chromeHeight: CGFloat?
     var changed: (() -> Void)?
@@ -49,6 +50,7 @@ import SubsCore
     /// Click-to-expand is session state; `ui.cards[id].expanded` stays the persisted default.
     func isExpanded(_ id: String) -> Bool { expandedOverrides[id] ?? config["ui"]["cards"][id]["expanded"].bool }
     func toggleExpanded(_ id: String) { expandedOverrides[id] = !isExpanded(id); changed?() }
+    func toggleAddSubscription() { addSubscriptionExpanded.toggle(); changed?() }
     func card(_ id: String, single: Bool) -> CardModel {
         CardModel(providerID: id, name: name(id), config: config, usage: usage, now: now, expanded: single || isExpanded(id))
     }
