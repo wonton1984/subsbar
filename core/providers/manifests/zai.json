@@ -48,7 +48,8 @@
         "primary"
       ],
       "owner": "subsbar",
-      "renewMode": "none"
+      "renewMode": "none",
+      "credentialService": "SubsBar credential <providerId>"
     },
     {
       "id": "zai",
@@ -210,5 +211,11 @@
     "zai-synthetic-normal",
     "zai-synthetic-missing"
   ],
-  "provenance": []
+  "provenance": [],
+  "login": {
+    "mode": "guide",
+    "note": "Z.AI 控制台获取 API key；无官方 CLI login（UNVERIFIED）",
+    "verified": false,
+    "url": "https://z.ai"
+  }
 }

@@ -151,9 +151,11 @@ export class ProviderRegistry {
             implemented,
             expiryCapability: expiryCapabilityOf(r),
           };
+          if (r.credentialService) out.credentialService = r.credentialService;
           if (!implemented) out.unsupportedReason = "reader-unavailable";
           return out;
         }),
+        login: m.login ?? undefined,
         dataSources: (m.dataSources ?? []).map((s) => ({
           id: s.id, kind: s.kind, grade: s.grade, admission: s.admission,
           endpointIds: s.endpointIds, capabilities: s.capabilities,

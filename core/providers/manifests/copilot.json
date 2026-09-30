@@ -271,5 +271,15 @@
     "copilot-synthetic-normal",
     "copilot-synthetic-missing"
   ],
-  "provenance": []
+  "provenance": [],
+  "login": {
+    "mode": "command",
+    "note": "Authenticate with a GitHub host（--help 核实；token 存系统 credential store）",
+    "verified": true,
+    "command": "gh",
+    "args": [
+      "auth",
+      "login"
+    ]
+  }
 }

@@ -22,7 +22,8 @@
     "diagnosticCodes",
     "reasonCodes",
     "fixtureIds",
-    "provenance"
+    "provenance",
+    "login"
   ],
   "additionalProperties": false,
   "properties": {
@@ -168,6 +169,10 @@
               "subsbar-store",
               "none"
             ]
+          },
+          "credentialService": {
+            "type": "string",
+            "description": "SubsBar 自有 keychain reader 的 service 命名约定：'SubsBar credential <providerId>'（rev5）"
           }
         }
       }
@@ -533,6 +538,44 @@
           "noticePath": {
             "type": "string"
           }
+        }
+      }
+    },
+    "login": {
+      "type": "object",
+      "required": [
+        "mode",
+        "note",
+        "verified"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "enum": [
+            "command",
+            "guide"
+          ]
+        },
+        "command": {
+          "type": "string"
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 512
+        },
+        "verified": {
+          "type": "boolean",
+          "description": "true=本机 CLI --help 核实；false=UNVERIFIED"
+        },
+        "url": {
+          "type": "string",
+          "pattern": "^https://"
         }
       }
     }

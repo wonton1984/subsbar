@@ -48,7 +48,8 @@
         "primary"
       ],
       "owner": "subsbar",
-      "renewMode": "none"
+      "renewMode": "none",
+      "credentialService": "SubsBar credential <providerId>"
     },
     {
       "id": "kimi-coding",
@@ -169,5 +170,14 @@
     "kimi-synthetic-normal",
     "kimi-synthetic-missing"
   ],
-  "provenance": []
+  "provenance": [],
+  "login": {
+    "mode": "command",
+    "note": "Authenticate with Kimi Code CLI via the device-code flow（--help 核实）",
+    "verified": true,
+    "command": "kimi",
+    "args": [
+      "login"
+    ]
+  }
 }

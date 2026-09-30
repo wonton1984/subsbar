@@ -58,7 +58,7 @@
               "kind": "keychain",
               "reader": "commandcode-subsbar-key",
               "purpose": "primary",
-              "service": "SubsBar",
+              "service": "SubsBar credential commandcode",
               "account": "commandcode:personal"
             }
           ]

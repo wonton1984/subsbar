@@ -48,7 +48,8 @@
         "primary"
       ],
       "owner": "subsbar",
-      "renewMode": "none"
+      "renewMode": "none",
+      "credentialService": "SubsBar credential <providerId>"
     },
     {
       "id": "commandcode",
@@ -183,5 +184,10 @@
     "commandcode-synthetic-normal",
     "commandcode-synthetic-missing"
   ],
-  "provenance": []
+  "provenance": [],
+  "login": {
+    "mode": "guide",
+    "note": "CLI 未安装；登录方式待官方文档核实（UNVERIFIED）",
+    "verified": false
+  }
 }

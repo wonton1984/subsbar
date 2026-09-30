@@ -68,7 +68,8 @@
         "primary"
       ],
       "owner": "subsbar",
-      "renewMode": "none"
+      "renewMode": "none",
+      "credentialService": "SubsBar credential <providerId>"
     }
   ],
   "endpoints": [
@@ -176,5 +177,12 @@
     "droid-synthetic-normal",
     "droid-synthetic-missing"
   ],
-  "provenance": []
+  "provenance": [],
+  "login": {
+    "mode": "command",
+    "note": "首次交互运行完成登录（生成 auth.v2.loginkeychain）；无独立 login 子命令（--help 核实）",
+    "verified": true,
+    "command": "droid",
+    "args": []
+  }
 }

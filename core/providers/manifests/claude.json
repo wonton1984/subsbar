@@ -179,5 +179,15 @@
     "claude-synthetic-normal",
     "claude-synthetic-missing"
   ],
-  "provenance": []
+  "provenance": [],
+  "login": {
+    "mode": "command",
+    "note": "Sign in to your Anthropic account（--help 核实）",
+    "verified": true,
+    "command": "claude",
+    "args": [
+      "auth",
+      "login"
+    ]
+  }
 }

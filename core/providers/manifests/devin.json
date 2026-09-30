@@ -49,7 +49,8 @@
         "primary"
       ],
       "owner": "subsbar",
-      "renewMode": "none"
+      "renewMode": "none",
+      "credentialService": "SubsBar credential <providerId>"
     }
   ],
   "endpoints": [
@@ -153,5 +154,11 @@
     "devin-synthetic-normal",
     "devin-synthetic-missing"
   ],
-  "provenance": []
+  "provenance": [],
+  "login": {
+    "mode": "guide",
+    "note": "纯网页登录 app.devin.ai（无 CLI）；会话导入见 docs/providers/devin.md",
+    "verified": false,
+    "url": "https://app.devin.ai"
+  }
 }

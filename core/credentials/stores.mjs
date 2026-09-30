@@ -17,6 +17,20 @@ export class ReaderOutcome extends Error {
   }
 }
 
+/**
+ * SubsBar 自有 Keychain 命名约定（IPC freeze rev5）：
+ *   service = "SubsBar credential <providerId>"（Swift Security 框架写入同此命名）
+ *   account = "<providerId>:<profileId>"
+ * Node keychain reader 按此约定读取；label 不得含用户名；诊断/日志/缓存永不落 key。
+ */
+export function subsbarCredentialService(providerId) {
+  return `SubsBar credential ${providerId}`;
+}
+
+export function subsbarCredentialAccount(providerId, profileId) {
+  return `${providerId}:${profileId}`;
+}
+
 function expand(p) {
   if (typeof p !== "string") return p;
   if (p.startsWith("~/")) return join(homedir(), p.slice(2));

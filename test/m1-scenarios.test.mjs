@@ -151,6 +151,28 @@ console.log("\n== C11. 退避与 Retry-After ==");
   check("抖动只增不减且 ≤10%（n=2 基线 600s）", jittered[0] === 600_000 && jittered[1] >= 600_000 && jittered[1] <= 660_000);
 }
 
+console.log("\n== R5. Keychain 命名约定（IPC freeze rev5）==");
+{
+  const { subsbarCredentialService, subsbarCredentialAccount } = await import("../core/credentials/stores.mjs");
+  check("service 约定格式", subsbarCredentialService("commandcode") === "SubsBar credential commandcode");
+  check("account 约定格式", subsbarCredentialAccount("commandcode", "personal") === "commandcode:personal");
+  // keychain reader 按约定 service/account 读取（discover 静默；不存在 → missing 不弹框）
+  const stores = createCredentialStores({ env: process.env });
+  const d = stores.discover("keychain-generic", { service: subsbarCredentialService("synthetic-prov"), account: subsbarCredentialAccount("synthetic-prov", "p") }, { compatibility: { pi: { enabled: false } } });
+  check("约定命名的项不存在 → missing（无弹框路径）", d.status === "missing" && d.reasonCode === "not-configured");
+  // manifest 投影一致性：SubsBar 自有 keychain reader 均带 credentialService
+  const { ProviderRegistry } = await import("../core/providers/registry.mjs");
+  const reg = new ProviderRegistry();
+  for (const id of reg.order) {
+    const m = reg.get(id);
+    for (const r of m.credentialReaders ?? []) {
+      if (r.kind === "keychain" && r.owner === "subsbar") {
+        check(`${id}/${r.id} 标注 service 约定`, r.credentialService === "SubsBar credential <providerId>");
+      }
+    }
+  }
+}
+
 console.log("\n== C19. 严格 JSON ==");
 {
   check("重复键拒绝", (() => { try { parseStrictJson('{"a":1,"a":2}'); return false; } catch (e) { return e.reasonCode === "duplicate-key"; } })());

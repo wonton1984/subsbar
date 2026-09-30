@@ -124,5 +124,10 @@
     "antigravity-synthetic-normal",
     "antigravity-synthetic-missing"
   ],
-  "provenance": []
+  "provenance": [],
+  "login": {
+    "mode": "guide",
+    "note": "启动 Antigravity app 或运行 agy 交互登录（--help 核实无非交互 login 子命令，UNVERIFIED）",
+    "verified": false
+  }
 }

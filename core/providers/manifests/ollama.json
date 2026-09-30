@@ -98,5 +98,14 @@
     "ollama-synthetic-normal",
     "ollama-synthetic-missing"
   ],
-  "provenance": []
+  "provenance": [],
+  "login": {
+    "mode": "command",
+    "note": "Sign in to ollama.com（--help 核实）",
+    "verified": true,
+    "command": "ollama",
+    "args": [
+      "signin"
+    ]
+  }
 }

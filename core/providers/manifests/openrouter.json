@@ -48,7 +48,8 @@
         "primary"
       ],
       "owner": "subsbar",
-      "renewMode": "none"
+      "renewMode": "none",
+      "credentialService": "SubsBar credential <providerId>"
     },
     {
       "id": "openrouter",
@@ -85,7 +86,8 @@
         "management"
       ],
       "owner": "subsbar",
-      "renewMode": "none"
+      "renewMode": "none",
+      "credentialService": "SubsBar credential <providerId>"
     }
   ],
   "endpoints": [
@@ -209,5 +211,11 @@
     "openrouter-synthetic-normal",
     "openrouter-synthetic-missing"
   ],
-  "provenance": []
+  "provenance": [],
+  "login": {
+    "mode": "guide",
+    "note": "openrouter.ai Keys 页创建 key",
+    "verified": false,
+    "url": "https://openrouter.ai/keys"
+  }
 }

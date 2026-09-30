@@ -65,7 +65,8 @@
         "primary"
       ],
       "owner": "subsbar",
-      "renewMode": "subsbar-store"
+      "renewMode": "subsbar-store",
+      "credentialService": "SubsBar credential <providerId>"
     },
     {
       "id": "codex-env-token",
@@ -226,5 +227,14 @@
     "codex-synthetic-normal",
     "codex-synthetic-missing"
   ],
-  "provenance": []
+  "provenance": [],
+  "login": {
+    "mode": "command",
+    "note": "Manage login（--help 核实）",
+    "verified": true,
+    "command": "codex",
+    "args": [
+      "login"
+    ]
+  }
 }

@@ -48,7 +48,8 @@
         "primary"
       ],
       "owner": "subsbar",
-      "renewMode": "none"
+      "renewMode": "none",
+      "credentialService": "SubsBar credential <providerId>"
     }
   ],
   "endpoints": [
@@ -120,5 +121,11 @@
     "grok-synthetic-normal",
     "grok-synthetic-missing"
   ],
-  "provenance": []
+  "provenance": [],
+  "login": {
+    "mode": "guide",
+    "note": "grok CLI 未安装；文档为 `grok login`（UNVERIFIED）",
+    "verified": false,
+    "url": "https://x.ai"
+  }
 }

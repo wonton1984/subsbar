@@ -48,7 +48,8 @@
         "primary"
       ],
       "owner": "subsbar",
-      "renewMode": "none"
+      "renewMode": "none",
+      "credentialService": "SubsBar credential <providerId>"
     },
     {
       "id": "opencode-go",
@@ -167,5 +168,11 @@
     "opencode-synthetic-normal",
     "opencode-synthetic-missing"
   ],
-  "provenance": []
+  "provenance": [],
+  "login": {
+    "mode": "guide",
+    "note": "CLI 未安装；官方文档为 `opencode auth login`（UNVERIFIED）",
+    "verified": false,
+    "url": "https://opencode.ai/docs"
+  }
 }
