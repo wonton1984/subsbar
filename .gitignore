@@ -1,0 +1,24 @@
+# 隐私排除：以下目录/文件永不进入公开仓库
+evidence/
+verification/
+dist/
+.build/
+build/
+*.log
+notes/
+swiftbar/
+test/run.mjs
+test/live/
+
+# 构建与系统产物
+.DS_Store
+*.o
+*.app
+Packages/
+Package.resolved
+
+# 本地状态
+*.local.json
+auth.json
+subs-bar-cache.json
+subs-bar-state.json
