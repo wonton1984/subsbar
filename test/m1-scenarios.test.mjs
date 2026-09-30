@@ -160,17 +160,18 @@ console.log("\n== R5. Keychain 命名约定（IPC freeze rev5）==");
   const stores = createCredentialStores({ env: process.env });
   const d = stores.discover("keychain-generic", { service: subsbarCredentialService("synthetic-prov"), account: subsbarCredentialAccount("synthetic-prov", "p") }, { compatibility: { pi: { enabled: false } } });
   check("约定命名的项不存在 → missing（无弹框路径）", d.status === "missing" && d.reasonCode === "not-configured");
-  // manifest 投影一致性：SubsBar 自有 keychain reader 均带 credentialService
+  // manifest 投影一致性：registry 输出渲染后的具体服务名（模板仅存在于 manifest 源文件）
   const { ProviderRegistry } = await import("../core/providers/registry.mjs");
   const reg = new ProviderRegistry();
-  for (const id of reg.order) {
-    const m = reg.get(id);
-    for (const r of m.credentialReaders ?? []) {
+  const proj = reg.projectRegistry(null, stores, { compatibility: { pi: { enabled: false } } });
+  for (const p of proj.providers) {
+    for (const r of p.credentialReaders ?? []) {
       if (r.kind === "keychain" && r.owner === "subsbar") {
-        check(`${id}/${r.id} 标注 service 约定`, r.credentialService === "SubsBar credential <providerId>");
+        check(`${p.providerId}/${r.id} 输出渲染后具体服务名`, r.credentialService === `SubsBar credential ${p.providerId}`, r.credentialService);
       }
     }
   }
+  check("渲染值与 helper 一致", proj.providers.find((p) => p.providerId === "commandcode").credentialReaders.find((r) => r.id === "commandcode-subsbar-key").credentialService === subsbarCredentialService("commandcode"));
 }
 
 console.log("\n== C19. 严格 JSON ==");

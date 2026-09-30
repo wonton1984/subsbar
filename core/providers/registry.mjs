@@ -151,7 +151,11 @@ export class ProviderRegistry {
             implemented,
             expiryCapability: expiryCapabilityOf(r),
           };
-          if (r.credentialService) out.credentialService = r.credentialService;
+          if (r.credentialService) {
+            // 模板渲染职责归 Node（rev5）：manifest 源文件含 <providerId> 占位符，
+            // registry 输出渲染后的具体服务名；Swift 永不做模板替换。
+            out.credentialService = r.credentialService.replaceAll("<providerId>", id);
+          }
           if (!implemented) out.unsupportedReason = "reader-unavailable";
           return out;
         }),
