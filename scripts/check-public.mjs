@@ -104,6 +104,12 @@ const EXEMPTIONS = [
     reason: "扫描器自身的模式定义（规则文本），不是泄漏值",
   },
   {
+    rule: "secret-prefix",
+    pathIncludes: "test/fixtures/ipc/config-write-patch-synthetic.json",
+    contentIncludes: "sk-synthetic-000",
+    reason: "合成假 token：fixture 的『secret 字段必须被 patch 拒绝』用例输入，非真实凭证",
+  },
+  {
     rule: "username",
     pathIncludes: "scripts/check-public.mjs",
     contentIncludes: "wonton1984/g",
