@@ -21,6 +21,7 @@ export const IMPLEMENTED_READERS = new Set([
   "devin-subsbar-session", "zai-env-key", "kimi-env-key", "commandcode-env-key",
   "droid-env-key", "openrouter-env-key", "codex-env-token",
   "openai-codex", "opencode-go", "kimi-coding", "commandcode", "openrouter", "zai",
+  "zai-coding-cn", "openrouter-management-key",
   "copilot-official", "copilot-apps-json", "copilot-gh-keychain", "github-copilot",
 ]);
 

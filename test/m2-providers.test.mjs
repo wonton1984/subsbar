@@ -4,17 +4,18 @@
  * 断言基于 pi-subs 上游语义（MIT，移植不改数值口径）+ §6.3 v1 语义。
  * 运行：node test/m2-providers.test.mjs ；退出码 0 = 全过。
  */
-import { readFileSync } from "fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import {
   normalizeClaudeUsage, normalizeCopilotUsage, normalizeZaiQuota, normalizeOpenRouterKey,
   normalizeGrokBilling, normalizeDevinQuota, normalizeAntigravityUsage, normalizeOllamaUsage,
-  ZAI_REGION_ORIGINS, fetchCopilotUsage,
+  ZAI_REGION_ORIGINS, ZAI_QUOTA_PATH, fetchCopilotUsage, fetchZaiUsage, mergeOpenRouterCredits,
 } from "../core/providers/engine/m2-providers.mjs";
 import { fetchProviderSnapshot } from "../core/providers/adapters.mjs";
 import { ProviderRegistry } from "../core/providers/registry.mjs";
-import { isCopilotOauthToken, copilotAppsExtract } from "../core/credentials/stores.mjs";
+import { isCopilotOauthToken, copilotAppsExtract, zaiEnvName, createCredentialStores } from "../core/credentials/stores.mjs";
 
 let ok = 0, fail = 0;
 const failures = [];
@@ -84,29 +85,70 @@ console.log("\n== A2. copilot（premium / AI credits / OAuth 门禁 / 403 不打
 
 console.log("\n== A3. zai（TIME_LIMIT/TOKENS unit3/unit6，region origin）==");
 {
-  const r = normalizeZaiQuota({ data: { level: "glm-coding-pro", limits: [
-    { type: "TOKENS_LIMIT", unit: 3, percentage: 55, nextResetTime: 1800003600000 },
-    { type: "TOKENS_LIMIT", unit: 6, currentValue: 120, usage: 500, nextResetTime: 1800086400000 },
-    { type: "TIME_LIMIT", unit: 9, currentValue: 3, usage: 10 },
-  ] } }, NOW);
+  const r = normalizeZaiQuota(fixture("zai-synthetic-normal.json"), NOW);
   check("5h percent 窗口（300min）", r.windows.some((w) => w.id === "five-hour" && w.used === 55 && w.period.durationSeconds === 18000));
   check("weekly count 窗口（used 120/limit 500）", r.windows.some((w) => w.id === "weekly" && w.used === 120 && w.limit === 500));
   check("MCP 月度 count 窗口", r.windows.some((w) => w.id === "mcp-monthly" && w.used === 3 && w.limit === 10));
   check("无 primary 时补 5h", r.windows.find((w) => w.id === "five-hour").primary === true);
+  const five = r.windows.find((w) => w.id === "five-hour");
+  check("nextResetTime 秒→ms", five.period.resetsAtMs === 1_800_003_600_000);
+  const msReset = normalizeZaiQuota({ data: { limits: [{ type: "TOKENS_LIMIT", unit: 3, percentage: 1, nextResetTime: 1_800_003_600_000 }] } }, NOW);
+  check("nextResetTime 已是 ms 不二次放大", msReset.windows[0].period.resetsAtMs === 1_800_003_600_000);
   check("region origin 表", ZAI_REGION_ORIGINS.global === "https://api.z.ai" && ZAI_REGION_ORIGINS.cn === "https://open.bigmodel.cn");
-  check("缺 data → 抛错", (() => { try { normalizeZaiQuota({}, NOW); return false; } catch { return true; } })());
+  check("quota path 与 manifest 对齐", ZAI_QUOTA_PATH === "/api/monitor/usage/quota/limit" && (reg.get("zai").endpoints ?? []).some((e) => e.pathTemplate === ZAI_QUOTA_PATH));
+  check("缺 data → 抛错", (() => { try { normalizeZaiQuota(fixture("zai-synthetic-missing.json"), NOW); return false; } catch { return true; } })());
+  check("缺 region 拒绝且不互探", await (async () => { try { await fetchZaiUsage("synthetic-zai-key-0001", {}, {}); return false; } catch (e) { return /不跨区试探/.test(String(e.message)); } })());
+  check("global env 名", zaiEnvName({}, { region: "global" }) === "ZAI_API_KEY");
+  check("cn env 名", zaiEnvName({}, { region: "cn" }) === "BIGMODEL_API_KEY");
+  check("缺 region 无 env 名", zaiEnvName({}, {}) === undefined);
+  const envIso = { ZAI_API_KEY: "synthetic-zai-global-key-01", BIGMODEL_API_KEY: "synthetic-zai-cn-key-01" };
+  const stores = createCredentialStores({ env: envIso });
+  const g = stores.discover("zai-env-key", { reader: "zai-env-key" }, { region: "global" });
+  const c = stores.discover("zai-env-key", { reader: "zai-env-key" }, { region: "cn" });
+  const none = stores.discover("zai-env-key", { reader: "zai-env-key" }, {});
+  check("region=global 只看 ZAI_API_KEY", g.status === "resolved");
+  check("region=cn 只看 BIGMODEL_API_KEY", c.status === "resolved");
+  check("缺 region 不读任一 env", none.status === "unsupported");
+  const cnNoFallback = createCredentialStores({ env: { ZAI_API_KEY: "synthetic-zai-global-key-01" } });
+  check("cn 不回退 global env", cnNoFallback.discover("zai-env-key", { reader: "zai-env-key" }, { region: "cn" }).status === "missing");
+  const zai = reg.get("zai");
+  check("zai 单源 regionOrigins 含两区", (zai.endpoints ?? []).some((e) => e.regionOrigins?.global && e.regionOrigins?.cn));
+  const piDir = mkdtempSync(join(tmpdir(), "zai-pi-"));
+  writeFileSync(join(piDir, "auth.json"), JSON.stringify({
+    zai: { key: "synthetic-zai-pi-global-k01" },
+    "zai-coding-cn": { key: "synthetic-zai-pi-cn-key001" },
+  }));
+  try {
+    const piStores = createCredentialStores({ env: {} });
+    const piCtx = { compatibility: { pi: { enabled: true, agentDir: piDir } } };
+    check("pi global 读 zai 键", piStores.discover("zai", { reader: "zai-pi-global", implementationId: "zai" }, piCtx).status === "resolved");
+    check("pi cn 读 zai-coding-cn 键", piStores.discover("zai-coding-cn", { reader: "zai-pi-cn", implementationId: "zai-coding-cn" }, piCtx).status === "resolved");
+  } finally {
+    rmSync(piDir, { recursive: true, force: true });
+  }
 }
 
 console.log("\n== A4. openrouter（key 限额 + spend metrics + 注册诊断）==");
 {
-  const r = normalizeOpenRouterKey({ data: { limit: 20, limit_remaining: 15.5, limit_reset: "monthly", usage_daily: 1.5, usage: 4.5, is_free_tier: false } }, NOW);
+  const r = normalizeOpenRouterKey(fixture("openrouter-synthetic-normal.json"), NOW);
   const w = r.windows[0];
   check("key-limit：used=4.5/remaining=15.5/limit=20 USD", w.id === "key-limit" && w.used === 4.5 && w.remaining === 15.5 && w.limit === 20 && w.currency === "USD");
   check("spend metrics（今日/累计）", r.metrics.some((m) => m.id === "usage-daily" && m.value === 1.5) && r.metrics.some((m) => m.id === "usage-total" && m.value === 4.5));
   check("无 no-limit 诊断", !r.diagnostics.some((d) => d.code === "openrouter-no-limit"));
+  check("limit_remaining 不是账户余额", !r.metrics.some((m) => m.kind === "balance" || m.id === "account-credits"));
 
-  const r2 = normalizeOpenRouterKey({ data: { limit: null, usage: 0.3, is_free_tier: true } }, NOW);
+  const r2 = normalizeOpenRouterKey(fixture("openrouter-synthetic-no-limit.json"), NOW);
   check("未设上限 → 诊断 + 无窗口", r2.windows.length === 0 && r2.diagnostics.some((d) => d.code === "openrouter-no-limit") && r2.diagnostics.some((d) => d.code === "openrouter-free-tier"));
+
+  const withCredits = mergeOpenRouterCredits(r, fixture("openrouter-synthetic-credits.json"));
+  check("management credits 才写入账户余额", withCredits.metrics.some((m) => m.id === "account-credits" && m.kind === "balance" && m.value === 12.25));
+  check("合并后仍保留 key-limit", withCredits.windows[0].id === "key-limit" && withCredits.windows[0].remaining === 15.5);
+  const or = reg.get("openrouter");
+  check("key 源 approved、credits 源 pending", or.dataSources.find((s) => s.id === "openrouter-key")?.admission === "approved" && or.dataSources.find((s) => s.id === "openrouter-credits")?.admission === "pending");
+  const orStores = createCredentialStores({ env: { OPENROUTER_API_KEY: "synthetic-openrouter-key-01" } });
+  check("openrouter env 默认 OPENROUTER_API_KEY", orStores.discover("openrouter-env-key", { reader: "openrouter-env-key", implementationId: "openrouter-env-key" }, {}).status === "resolved");
+  const engineSrc = readFileSync(join(here, "..", "core", "providers", "engine", "m2-providers.mjs"), "utf8");
+  check("无 managementToken 不打 /credits", /if \(!extra\.managementToken\) return report/.test(engineSrc));
 }
 
 console.log("\n== B-D. 防御性解析（乐观形状 fixture；真实字段名 pending-verification）==");

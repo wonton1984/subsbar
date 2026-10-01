@@ -35,8 +35,8 @@ execution after admission review (`admission: approved` in its data source).
 | cursor | IDE state.vscdb + usage-summary | C | approved | verified |
 | claude | `api.anthropic.com/api/oauth/usage` | C | approved (policy admission **UNVERIFIED**) | unverified |
 | copilot | `copilot_internal/user` (community; Copilot OAuth only). Official CLI pending. | C/A | approved (community) / pending (CLI) | unverified |
-| zai | quota/limit (region-scoped origins) | B | approved | unverified |
-| openrouter | `/api/v1/key` (official) | A | approved | unverified |
+| zai | quota/limit, region-scoped origins (CN unverified) | B | approved | unverified |
+| openrouter | `/api/v1/key` (official). `/credits` pending (management key) | A | approved (key) / pending (credits) | unverified |
 | antigravity | `agy` CLI usage | A | pending-verification | unverified |
 | devin | app.devin.ai org quota (web session + orgId) | C | pending-verification | unverified |
 | grok | `cli-chat-proxy.grok.com/v1/billing` | C | pending-verification | unverified |

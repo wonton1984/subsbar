@@ -1,0 +1,10 @@
+{
+  "data": {
+    "limit": 20,
+    "limit_remaining": 15.5,
+    "limit_reset": "monthly",
+    "usage_daily": 1.5,
+    "usage": 4.5,
+    "is_free_tier": false
+  }
+}

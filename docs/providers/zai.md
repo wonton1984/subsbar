@@ -1,25 +1,58 @@
 # zai
 
-> 状态：计划中（来源成熟度 B/C）。本文为 M0 占位草案，M2 验收后补全来源版本、已验证 CLI 版本、fixture 清单与人工验收记录。
+> Status: experimental (community/plugin-homologous B). Not enabled for
+> open-source first release until a later publish-round gate. **CN region was
+> not exercised this round** — do not advertise dual-region support.
 
-> **验证状态**：结构已防御性实现（解析器在本仓并有合成 fixture 测试）；维护者本机无此订阅，未经真实端点验证——字段名可能偏差。欢迎社区贡献者以真实账号验证并回馈字段级结论。
+| Field | Value |
+| --- | --- |
+| Product / plan | Z.AI / GLM Coding Plan |
+| Source | `GET {origin}/api/monitor/usage/quota/limit` (pi-subs transplant) |
+| Grade / admission | B / approved in the candidate tree only |
+| Origins | `global` → `https://api.z.ai`；`cn` → `https://open.bigmodel.cn` |
+| Verified CLI / adapter | No official CLI login. Parser transplanted from pi-subs (MIT). Official zai-coding-plugins (Apache-2.0) referenced for protocol only — no code copied |
+| Last maintained | 2026-10-02 |
+| Maintainer | SubsBar Node core |
 
-## 数据来源
+## Threshold / ToS
 
-Z.AI quota/limit 接口（社区来源）
+- Global console: https://z.ai
+- CN console: https://open.bigmodel.cn
+- Enabling a community/plugin-homologous quota URL is the owner's choice; this project does not grant Z.AI/BigModel permission.
 
-## 凭证方式
+## Credentials
 
-API key：global 或 cn 独立 origin；env/Keychain/显式 pi
+`profile.region` is **required** (`global` or `cn`). Missing region → `invalid-config` / `select-profile`. The other region's env/origin is never probed.
 
-## 口径说明（首发指标）
+| Region | Env | pi reader | Origin |
+| --- | --- | --- | --- |
+| global | `ZAI_API_KEY` | `zai` / `zai-pi-global` | `https://api.z.ai` |
+| cn | `BIGMODEL_API_KEY` | `zai-coding-cn` / `zai-pi-cn` | `https://open.bigmodel.cn` |
 
-5h/weekly/工具 quota 按 schema
+Then SubsBar Keychain for that profile. Explicit `sources` replace the chain.
 
-## 风险与 403/异常处理
+## Quota semantics
 
-CN/Global 不互探、不重复计数；CN 未实测不宣传双区支持
+| Upstream `type`/`unit` | Metric | Unit |
+| --- | --- | --- |
+| TOKENS/CREDIT_LIMIT + unit 3 | `five-hour` | percent, 5h rolling |
+| TOKENS/CREDIT_LIMIT + unit 6 | `weekly` | count if currentValue/usage present, else percent |
+| TIME_LIMIT | `mcp-monthly` (tool/MCP quota) | count |
 
-## 已知缺口
+`nextResetTime` accepts unix seconds or millisecond epoch. Over-limit not clamped. Plan/level strings are not copied into the report.
 
-- 见上；M2 验收时逐项登记未支持场景与未验证套餐。
+## 403 / errors
+
+- 403: check key, region, and plan. Do not retry the other origin.
+- 401 → `reauth-required` / `relogin-owner` (per-provider).
+
+## Known gaps (this round, unverified)
+
+- **CN origin not live-tested.** Dual-region is wired but not claimed supported.
+- Alternate path `/api/coding/purchases/quota` (OpenUsage) **not used**; adapter follows the pi-subs path above.
+- Tool-quota field names vs 5h/weekly **unverified** against a real account.
+- No official CLI login (UNVERIFIED).
+
+## Synthetic fixtures
+
+`test/fixtures/providers/zai-synthetic-*.json`.

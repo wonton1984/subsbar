@@ -148,7 +148,7 @@ export function createCredentialStores({ env = process.env } = {}) {
   // ---- env：只检查注册变量是否存在；不枚举整环境 ----
   register("env-generic", {
     discover(spec) {
-      const name = spec.envName;
+      const name = spec.envName ?? implDefaults(spec.implementationId)?.envName ?? implDefaults(spec.reader)?.envName;
       if (typeof name !== "string" || !name) return { status: "unsupported", reasonCode: "reader-unavailable" };
       const v = env[name];
       if (v === undefined) return { status: "missing", reasonCode: "not-configured" };
@@ -156,7 +156,7 @@ export function createCredentialStores({ env = process.env } = {}) {
       return { status: "resolved", reasonCode: undefined };
     },
     resolve(spec) {
-      const name = spec.envName;
+      const name = spec.envName ?? implDefaults(spec.implementationId)?.envName ?? implDefaults(spec.reader)?.envName;
       const v = env[name];
       if (v === undefined) throw new ReaderOutcome("missing", "not-configured");
       if (v === "") throw new ReaderOutcome("rejected", "file-malformed");
@@ -230,14 +230,14 @@ export function createCredentialStores({ env = process.env } = {}) {
     discover(spec, ctx) {
       if (!ctx.compatibility?.pi?.enabled) return { status: "skipped", reasonCode: "reader-unavailable" };
       const path = spec.path ?? ctx.compatibility?.pi?.agentDir ?? join(homedir(), ".pi", "agent");
-      const key = implDefaults(spec.reader)?.piKey;
+      const key = implDefaults(spec.reader)?.piKey ?? implDefaults(spec.implementationId)?.piKey;
       if (!path || !key || !fileExistsQuiet(join(path, "auth.json"))) return { status: "missing", reasonCode: "not-configured" };
       return { status: "resolved", reasonCode: undefined };
     },
     resolve(spec, ctx) {
       if (!ctx.compatibility?.pi?.enabled) throw new ReaderOutcome("skipped", "reader-unavailable");
       const path = spec.path ?? ctx.compatibility?.pi?.agentDir ?? join(homedir(), ".pi", "agent");
-      const key = implDefaults(spec.reader)?.piKey;
+      const key = implDefaults(spec.reader)?.piKey ?? implDefaults(spec.implementationId)?.piKey;
       const { data } = readFileBounded(join(path, "auth.json"));
       let json;
       try { json = JSON.parse(data.toString("utf8")); } catch { throw new ReaderOutcome("rejected", "file-malformed"); }
@@ -349,7 +349,7 @@ export function createCredentialStores({ env = process.env } = {}) {
     impls.set(alias, impls.get("cli-generic"));
   }
   // kind 别名表（manifest implementationId → 通用实现）：按 kind 分流，env 不得误接 keychain
-  const envAliases = ["zai-env-key", "kimi-env-key", "commandcode-env-key", "droid-env-key", "openrouter-env-key", "codex-env-token"];
+  const envAliases = ["kimi-env-key", "commandcode-env-key", "droid-env-key", "openrouter-env-key", "codex-env-token"];
   const keychainAliases = ["codex-subsbar-key", "opencode-subsbar-key", "kimi-subsbar-key", "commandcode-subsbar-key",
     "droid-subsbar-key", "zai-subsbar-key", "openrouter-subsbar-key", "grok-subsbar-key",
     "devin-subsbar-session", "copilot-gh-keychain", "openrouter-management-key"];
@@ -382,6 +382,19 @@ export function createCredentialStores({ env = process.env } = {}) {
       return out;
     },
   });
+  const envGeneric = impls.get("env-generic");
+  impls.set("zai-env-key", {
+    discover(spec, ctx) {
+      const name = zaiEnvName(spec, ctx);
+      if (!name) return { status: "unsupported", reasonCode: "invalid-config" };
+      return envGeneric.discover({ ...spec, envName: name }, ctx);
+    },
+    resolve(spec, ctx) {
+      const name = zaiEnvName(spec, ctx);
+      if (!name) throw new ReaderOutcome("rejected", "invalid-config");
+      return envGeneric.resolve({ ...spec, envName: name }, ctx);
+    },
+  });
 
   // 各 reader 的默认路径/pi 键/默认可执行登记（manifest 的 implementationId → 元数据）
   const defaults = new Map([
@@ -393,12 +406,16 @@ export function createCredentialStores({ env = process.env } = {}) {
     ["kimi-coding", { piKey: "kimi-coding" }],
     ["commandcode", { piKey: "commandcode" }],
     ["openrouter", { piKey: "openrouter" }],
+    ["zai", { piKey: "zai" }],
+    ["zai-pi-global", { piKey: "zai" }],
+    ["zai-pi-cn", { piKey: "zai-coding-cn" }],
+    ["zai-coding-cn", { piKey: "zai-coding-cn" }],
     ["grok-auth-file", { path: join(env.GROK_HOME ? expand(env.GROK_HOME) : "", ".grok", "auth.json"), extract: grokAuthExtract }],
     ["devin-credentials-toml", { path: "~/.local/share/devin/credentials.toml" }],
     ["copilot-apps-json", { path: join(env.XDG_CONFIG_HOME ? expand(env.XDG_CONFIG_HOME) : join(homedir(), ".config"), "github-copilot", "apps.json"), extract: copilotAppsExtract }],
     ["claude-pi-anthropic", { piKey: "anthropic" }],
     ["github-copilot", { piKey: "github-copilot" }],
-    ["openrouter", { piKey: "openrouter" }],
+    ["openrouter-env-key", { envName: "OPENROUTER_API_KEY" }],
   ]);
   function implDefaults(readerId) { return defaults.get(readerId); }
 
@@ -438,6 +455,15 @@ export function isCopilotOauthToken(token) {
   if (typeof token !== "string" || token.length < 16) return false;
   if (/^(ghp_|github_pat_|ghs_|ghr_)/.test(token)) return false;
   return /^(gho_|ghu_)/.test(token);
+}
+
+/** Z.AI：global → ZAI_API_KEY，cn → BIGMODEL_API_KEY；缺 region 不猜、不互探。 */
+export function zaiEnvName(spec, ctx) {
+  if (typeof spec?.envName === "string" && spec.envName) return spec.envName;
+  const region = spec?.region ?? ctx?.region;
+  if (region === "cn") return "BIGMODEL_API_KEY";
+  if (region === "global") return "ZAI_API_KEY";
+  return undefined;
 }
 
 export function copilotAppsExtract(json) {

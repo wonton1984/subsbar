@@ -29,7 +29,8 @@ function isoToMs(v) {
 }
 function epochSecToMs(v) {
   const n = asNonNegative(v);
-  return n === undefined ? undefined : Math.round(n * 1000);
+  if (n === undefined) return undefined;
+  return n > 1e12 ? Math.round(n) : Math.round(n * 1000);
 }
 function metric(rule, fields) {
   const m = normalizeQuota(rule, fields);
@@ -167,16 +168,17 @@ export function normalizeCopilotUsage(payload, capturedAtMs) {
 }
 
 // ---------------------------------------------------------------------------
-// 批次 A — zai（官方插件口径同源接口；CN/Global 由 profile.region 决定 origin）
+// 批次 B — zai：region 必填；global/cn origin 不互探；CN 本轮未实测。
 // ---------------------------------------------------------------------------
 
 export const ZAI_REGION_ORIGINS = { global: "https://api.z.ai", cn: "https://open.bigmodel.cn" };
+export const ZAI_QUOTA_PATH = "/api/monitor/usage/quota/limit";
 
 export async function fetchZaiUsage(token, extra = {}, ctx = {}) {
   const origin = ZAI_REGION_ORIGINS[extra.region];
   if (!origin) throw new Error("Z.AI 需要明确 region（global/cn），不跨区试探。");
   const payload = await fetchJson({
-    url: `${origin}/api/monitor/usage/quota/limit`,
+    url: `${origin}${ZAI_QUOTA_PATH}`,
     headers: { Authorization: token },
     description: "Z.AI quota",
     secrets: [token],
@@ -235,18 +237,36 @@ export function normalizeZaiQuota(payload, capturedAtMs) {
 }
 
 // ---------------------------------------------------------------------------
-// 批次 A — openrouter（普通 key 限额；management key 是另一个 purpose，不混用）
+// 批次 B — openrouter：普通 key /api/v1/key 为主路径。
+// /credits 需 management key；本轮调度不解析第二凭证。limit_remaining 不是账户余额。
 // ---------------------------------------------------------------------------
+
+export const OPENROUTER_KEY_URL = "https://openrouter.ai/api/v1/key";
+export const OPENROUTER_CREDITS_URL = "https://openrouter.ai/api/v1/credits";
 
 export async function fetchOpenRouterUsage(token, extra = {}, ctx = {}) {
   const payload = await fetchJson({
-    url: "https://openrouter.ai/api/v1/key",
+    url: OPENROUTER_KEY_URL,
     headers: { Authorization: `Bearer ${token}` },
     description: "OpenRouter key",
     secrets: [token],
     signal: ctx.signal,
   });
-  return normalizeOpenRouterKey(payload, Date.now());
+  const report = normalizeOpenRouterKey(payload, Date.now());
+  if (!extra.managementToken) return report;
+  try {
+    const credits = await fetchJson({
+      url: OPENROUTER_CREDITS_URL,
+      headers: { Authorization: `Bearer ${extra.managementToken}` },
+      description: "OpenRouter credits",
+      secrets: [extra.managementToken],
+      signal: ctx.signal,
+    });
+    return mergeOpenRouterCredits(report, credits);
+  } catch {
+    report.diagnostics = [...(report.diagnostics ?? []), diagnostic("openrouter-credits-unavailable", "info")];
+    return report;
+  }
 }
 
 export function normalizeOpenRouterKey(payload, capturedAtMs) {
@@ -282,6 +302,22 @@ export function normalizeOpenRouterKey(payload, capturedAtMs) {
   if (data.is_free_tier === true) diagnostics.push(diagnostic("openrouter-free-tier", "info"));
   if (windows.length === 0 && metrics.length === 0) throw new Error("OpenRouter key 响应没有可显示的用量数据。");
   return buildReport("openrouter", "OpenRouter", { capturedAtMs, windows, metrics, diagnostics });
+}
+
+/** management-key /credits。不得把 key.limit_remaining 写入这里。 */
+export function mergeOpenRouterCredits(report, payload) {
+  const data = asObject(payload?.data) ?? asObject(payload);
+  if (!report || !data) return report;
+  const total = asNonNegative(data.total_credits);
+  if (total === undefined) return report;
+  report.metrics = [...(report.metrics ?? [])];
+  report.metrics.push({
+    id: "account-credits", ruleId: "account-credits", label: "账户余额",
+    kind: "balance", unit: "currency", currency: "USD", scope: "subscription",
+    provenance: "reported", sourceEndpointIds: ["openrouter-credits"],
+    state: "known", value: total, diagnostics: [],
+  });
+  return report;
 }
 
 // ---------------------------------------------------------------------------

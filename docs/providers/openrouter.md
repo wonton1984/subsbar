@@ -1,25 +1,55 @@
 # openrouter
 
-> 状态：计划中（来源成熟度 A/B）。本文为 M0 占位草案，M2 验收后补全来源版本、已验证 CLI 版本、fixture 清单与人工验收记录。
+> Status: experimental (official key API A). Not enabled for open-source first
+> release until a later publish-round gate. Maintainer has **not** exercised a
+> real OpenRouter key this round.
 
-> **验证状态**：结构已防御性实现（解析器在本仓并有合成 fixture 测试）；维护者本机无此订阅，未经真实端点验证——字段名可能偏差。欢迎社区贡献者以真实账号验证并回馈字段级结论。
+| Field | Value |
+| --- | --- |
+| Product | OpenRouter API key quota |
+| Primary source | `GET https://openrouter.ai/api/v1/key` (official, A) |
+| Optional | `GET https://openrouter.ai/api/v1/credits` — **management key required** (official docs). Not wired through the refresh credential resolver this round |
+| Admission | `openrouter-key` approved in the candidate tree; `openrouter-credits` **pending** |
+| Verified version | Parser transplanted from pi-subs (MIT) + synthetic fixtures |
+| Last maintained | 2026-10-02 |
+| Maintainer | SubsBar Node core |
 
-## 数据来源
+## Threshold / ToS
 
-openrouter.ai/api/v1/key（官方）；/credits 需 management key
+- Keys: https://openrouter.ai/keys
+- Current key API: https://openrouter.ai/docs/api/api-reference/api-keys/get-current-key
+- Credits API: https://openrouter.ai/docs/api/api-reference/credits/get-credits
+- Terms: https://openrouter.ai/terms
 
-## 凭证方式
+## Credentials
 
-普通 API key
+1. `OPENROUTER_API_KEY` (auto env name)
+2. SubsBar Keychain
+3. Explicit pi `openrouter`
 
-## 口径说明（首发指标）
+Optional management key is a **separate purpose** (`openrouter-management`). It is not a substitute for the primary key and is not merged into the default refresh chain.
 
-key quota 与分期消费；账户余额单独能力
+## Quota semantics
 
-## 风险与 403/异常处理
+| Field | Meaning |
+| --- | --- |
+| `limit` / `limit_remaining` | **Key** quota window (`key-limit`, USD). Remaining is key headroom, **not** account balance |
+| `usage` / `usage_daily` / weekly / monthly | Key spend counters (`kind: spend`, `scope: api-key`) |
+| `limit: null` | Diagnostic `openrouter-no-limit`; no invented cap |
+| `is_free_tier` | Diagnostic `openrouter-free-tier` |
+| `total_credits` (credits API) | Account balance (`kind: balance`) — only if a management key actually returned the payload |
 
-普通 key 403 时保留 key 数据、余额 unavailable；不把 key limit 冒充账户余额
+## 403 / errors
 
-## 已知缺口
+- Ordinary key 403 on `/credits`: **keep** the `/api/v1/key` snapshot; emit `openrouter-credits-unavailable`; do not copy `limit_remaining` into a balance metric.
+- This round the scheduler does not pass `managementToken`, so `/credits` is not called on refresh. Adapter `mergeOpenRouterCredits` exists for tests and a future dual-lease.
 
-- 见上；M2 验收时逐项登记未支持场景与未验证套餐。
+## Known gaps (this round, unverified)
+
+- **Blocker, not faked:** `/credits` needs a management key; dual-credential resolve is not in the refresh coordinator yet.
+- Real-account field names unverified.
+- Activity/usage-by-model APIs out of scope.
+
+## Synthetic fixtures
+
+`test/fixtures/providers/openrouter-synthetic-*.json`.

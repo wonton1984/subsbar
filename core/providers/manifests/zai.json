@@ -10,7 +10,8 @@
   ],
   "docsPath": "docs/providers/zai.md",
   "documentationUrls": [
-    "https://github.com/subsbar/subsbar#readme"
+    "https://docs.z.ai",
+    "https://open.bigmodel.cn"
   ],
   "credentialReaders": [
     {
@@ -119,7 +120,7 @@
         "global": "https://api.z.ai",
         "cn": "https://open.bigmodel.cn"
       },
-      "pathTemplate": "/api/coding/purchases/quota"
+      "pathTemplate": "/api/monitor/usage/quota/limit"
     }
   ],
   "dataSources": [
@@ -128,7 +129,7 @@
       "kind": "community-api",
       "grade": "B",
       "admission": "approved",
-      "approvalNote": "docs/providers/zai.md；官方插件同源接口；CN/Global 由 profile.region 决定 origin，不跨区试探；Apache-2.0 插件仅协议参考无代码复制",
+      "approvalNote": "docs/providers/zai.md；pi-subs 同源 GET {origin}/api/monitor/usage/quota/limit。profile.region 必填 global|cn，origin 不互探。CN 本轮未实测，不宣称双区已支持。",
       "endpointIds": [
         "zai-quota"
       ],

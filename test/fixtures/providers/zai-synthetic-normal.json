@@ -1,0 +1,10 @@
+{
+  "data": {
+    "level": "glm-coding-pro",
+    "limits": [
+      { "type": "TOKENS_LIMIT", "unit": 3, "percentage": 55, "nextResetTime": 1800003600 },
+      { "type": "TOKENS_LIMIT", "unit": 6, "currentValue": 120, "usage": 500, "nextResetTime": 1800086400 },
+      { "type": "TIME_LIMIT", "unit": 9, "currentValue": 3, "usage": 10 }
+    ]
+  }
+}

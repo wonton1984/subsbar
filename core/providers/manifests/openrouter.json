@@ -10,7 +10,9 @@
   ],
   "docsPath": "docs/providers/openrouter.md",
   "documentationUrls": [
-    "https://github.com/subsbar/subsbar#readme"
+    "https://openrouter.ai/docs/api/api-reference/api-keys/get-current-key",
+    "https://openrouter.ai/docs/api/api-reference/credits/get-credits",
+    "https://openrouter.ai/terms"
   ],
   "credentialReaders": [
     {
@@ -98,13 +100,26 @@
       "transport": "https",
       "operation": "usage",
       "readOnly": true,
-      "grade": "C",
+      "grade": "A",
       "maxResponseBytes": 65536,
       "authPurpose": "primary",
-      "documentationUrl": "https://github.com/subsbar/subsbar#readme",
+      "documentationUrl": "https://openrouter.ai/docs/api/api-reference/api-keys/get-current-key",
       "method": "GET",
       "origin": "https://openrouter.ai",
       "pathTemplate": "/api/v1/key"
+    },
+    {
+      "id": "openrouter-credits",
+      "transport": "https",
+      "operation": "usage",
+      "readOnly": true,
+      "grade": "A",
+      "maxResponseBytes": 65536,
+      "authPurpose": "management",
+      "documentationUrl": "https://openrouter.ai/docs/api/api-reference/credits/get-credits",
+      "method": "GET",
+      "origin": "https://openrouter.ai",
+      "pathTemplate": "/api/v1/credits"
     }
   ],
   "dataSources": [
@@ -113,7 +128,7 @@
       "kind": "official-api",
       "grade": "A",
       "admission": "approved",
-      "approvalNote": "docs/providers/openrouter.md；普通 key /api/v1/key 限额；management key 仅账户 credits，独立 purpose 不与 key quota 合并",
+      "approvalNote": "docs/providers/openrouter.md；普通 key GET /api/v1/key（A）。/credits 需 management key，本轮调度不解析第二凭证；403 时保留 key quota，余额 unavailable。limit_remaining 不是账户余额。本轮未实测真实端点。",
       "endpointIds": [
         "openrouter-key"
       ],
@@ -128,6 +143,24 @@
       "coverageMetricRules": [
         "openrouter-limit"
       ],
+      "coverageMatch": "any"
+    },
+    {
+      "id": "openrouter-credits",
+      "kind": "official-api",
+      "grade": "A",
+      "admission": "pending",
+      "approvalNote": "docs/providers/openrouter.md；GET /api/v1/credits 官方标注 management key required。本轮未接入双凭证 resolve，refresh 不自动跑此源。",
+      "endpointIds": [
+        "openrouter-credits"
+      ],
+      "credentialChain": [
+        "openrouter-management"
+      ],
+      "capabilities": [
+        "balance"
+      ],
+      "coverageMetricRules": [],
       "coverageMatch": "any"
     }
   ],
@@ -206,12 +239,14 @@
   ],
   "diagnosticCodes": [
     "openrouter-no-limit",
-    "openrouter-free-tier"
+    "openrouter-free-tier",
+    "openrouter-credits-unavailable"
   ],
   "reasonCodes": [],
   "fixtureIds": [
     "openrouter-synthetic-normal",
-    "openrouter-synthetic-missing"
+    "openrouter-synthetic-no-limit",
+    "openrouter-synthetic-credits"
   ],
   "provenance": [],
   "login": {

@@ -379,11 +379,15 @@ export class RefreshCoordinator {
     const requestedAtMs = nowMs;
 
     const profile = (provCfg.profiles ?? []).find((p) => p.id === provCfg.activeProfile) ?? { id: profileId ?? "default", discovery: "auto", sources: [] };
-    const chain = buildChain(manifest, dataSource);
+    if (providerId === "zai" && profile.region !== "global" && profile.region !== "cn") {
+      return { kind: "failed", error: safeError("invalid-config", "invalid-config", "select-profile"), retainLastGood: true, profileId: profile.id };
+    }
+    const chain = buildChain(manifest, dataSource, profile);
     const ctx = {
       nowMs, signal, interaction: trigger.interaction ?? "background",
       stores, broker, compatibility: cfgLoaded?.config?.compatibility, stateDir: this.dirs().stateDir,
       credentialReaders: manifest.credentialReaders,
+      region: profile.region,
     };
     let resolved;
     try {
@@ -689,10 +693,18 @@ function withTimeout(promise, ms, signal) {
   });
 }
 
-function buildChain(manifest, dataSource) {
-  return (dataSource.credentialChain ?? []).map((rid) => {
+function buildChain(manifest, dataSource, profile = {}) {
+  const region = profile.region;
+  return (dataSource.credentialChain ?? []).flatMap((rid) => {
     const decl = (manifest.credentialReaders ?? []).find((r) => r.id === rid);
-    return { id: rid, kind: decl?.kind ?? "file", reader: rid, implementationId: decl?.implementationId ?? rid, purpose: decl?.purposes?.[0] ?? "primary", originOfChoice: "discovered" };
+    const src = { id: rid, kind: decl?.kind ?? "file", reader: rid, implementationId: decl?.implementationId ?? rid, purpose: decl?.purposes?.[0] ?? "primary", originOfChoice: "discovered" };
+    if (rid === "openrouter-env-key") return [{ ...src, envName: "OPENROUTER_API_KEY" }];
+    if (manifest.id !== "zai") return [src];
+    if (region !== "global" && region !== "cn") return [];
+    if (rid === "zai-env-key") return [{ ...src, envName: region === "cn" ? "BIGMODEL_API_KEY" : "ZAI_API_KEY", region }];
+    if (rid === "zai-pi-global") return region === "global" ? [src] : [];
+    if (rid === "zai-pi-cn") return region === "cn" ? [src] : [];
+    return [{ ...src, region }];
   });
 }
 
