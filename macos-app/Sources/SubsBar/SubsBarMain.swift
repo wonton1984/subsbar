@@ -19,6 +19,7 @@ import Darwin
     private var anchorButton: NSStatusBarButton?
     private var stopped = false
     private var segments: [MenuBarSegment] = []
+    private var lastMenuIDs: [String]?
     let popover = NSPopover()
     private var settings: NSWindow?
     private var local: Any?
@@ -71,6 +72,11 @@ import Darwin
             button.toolTip = segment.map { $0.accessibilityTitle(fullName: model.name($0.providerID)) } ?? model.tooltip
             button.setAccessibilityTitle(button.toolTip ?? "SubsBar")
             button.setAccessibilityLabel(button.toolTip ?? "SubsBar")
+        }
+        let ids = segments.map(\.providerID)
+        if ids != lastMenuIDs {
+            lastMenuIDs = ids
+            record("menu slots=\(items.count) providers=\(ids.joined(separator: ","))")
         }
         let appearanceName = model.config["ui"]["appearance"].text
         let preferred: NSAppearance? = appearanceName == "dark" ? NSAppearance(named: .darkAqua) : appearanceName == "light" ? NSAppearance(named: .aqua) : nil
@@ -142,6 +148,7 @@ import Darwin
         if CommandLine.arguments.contains("--show-popover") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in self?.status?.toggle() }
         }
+        if CommandLine.arguments.contains("--show-settings") { status?.showSettings(nil) }
         record("ready bundle=\(Bundle.main.bundleIdentifier ?? "bare") accessory=\(NSApp.activationPolicy() == .accessory)")
     }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {

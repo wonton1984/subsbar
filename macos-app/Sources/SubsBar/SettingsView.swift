@@ -337,6 +337,7 @@ struct PreferencesEditor: View {
     func choice(_ key: String) -> Binding<String> { Binding(get: { ui[key].text }, set: { ui = ui.setting(key, .string($0)) }) }
     func flag(_ key: String) -> Binding<Bool> { Binding(get: { ui[key].bool }, set: { ui = ui.setting(key, .bool($0)) }) }
     var body: some View {
+        VStack(spacing: 0) {
         ScrollView { Form {
             Picker("首页", selection: choice("overviewMode")) { Text("订阅卡片").tag("cards"); Text("单个订阅").tag("single") }
             Picker("外观", selection: choice("appearance")) { Text("跟随系统").tag("system"); Text("浅色").tag("light"); Text("深色").tag("dark") }
@@ -365,11 +366,17 @@ struct PreferencesEditor: View {
             MenuBarEditor(model: model, ui: $ui)
             Divider()
             LayoutEditor(model: model, ui: $ui)
+        }.padding().disabled(saved || model.saving || model.loading) }
+        Divider()
+        HStack {
+            Text(saved ? "已保存，正在载入…" : "修改后点击保存，菜单栏立即更新。")
+                .font(.caption).foregroundStyle(.secondary)
+            Spacer()
             Button("保存显示与刷新设置") {
                 model.save(base: base, patch: .object(["ui": ui, "runtime": runtime, "privacy": privacy, "compatibility": compatibility])) { saved = $0 }
-            }.disabled(model.saving || saved)
-            if saved { Text("已保存。重新载入后继续编辑。") }
-        }.padding().disabled(saved) }
+            }.disabled(model.saving || model.loading || saved)
+        }.padding(10)
+        }
     }
 }
 
@@ -439,21 +446,17 @@ struct MenuBarEditor: View {
             Text("菜单栏显示").font(.headline)
             Text("每家一个圆环仪表：中心是名称缩写，外圈是剩余额度；顺序跟随下方订阅排序。未选择或上限为 0 时，仅保留一个无文字圆环入口。").font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             Picker("显示家数上限", selection: Binding(get: { Int(ui["menuBarLimit"].number ?? 1) }, set: { limit in
-                let retained = Array(selected.prefix(limit))
-                ui = ui.setting("menuBarLimit", .number(Double(limit)))
-                if ui["menuBarProviders"].isArray || limit == 0 { ui = ui.setting("menuBarProviders", .strings(retained)) }
+                ui = MenuBarEditing.limit(limit, ui: ui, ordered: ordered, enabled: ordered.filter { model.config["providers"][$0]["enabled"].bool })
             })) {
                 ForEach(0..<5) { Text("\($0) 家").tag($0) }
             }
             ForEach(ordered, id: \.self) { id in
                 Toggle(model.name(id) + (model.config["providers"][id]["enabled"].bool ? "" : "（未启用）"), isOn: Binding(get: { selected.contains(id) }, set: { on in
-                    var next = selected.filter { $0 != id }
-                    if on { next.append(id) }
-                    ui = ui.setting("menuBarProviders", .strings(ordered.filter { next.contains($0) }))
-                })).disabled(!selected.contains(id) && selected.count >= Int(ui["menuBarLimit"].number ?? 1))
+                    ui = MenuBarEditing.toggle(id, on: on, ui: ui, ordered: ordered, enabled: ordered.filter { model.config["providers"][$0]["enabled"].bool })
+                })).disabled(!selected.contains(id) && selected.count >= 4)
             }
-            Text("降低上限会按订阅顺序保留前面的选择；已停用订阅显示未知。").font(.caption).foregroundStyle(.secondary)
-            Button("恢复默认：第一家已启用订阅") { ui = ui.setting("menuBarProviders", .null).setting("menuBarLimit", .number(1)) }
+            Text("勾选会自动提高上限，最多 4 家；降低上限会保留顺序靠前的选择。保存后生效。").font(.caption).foregroundStyle(.secondary)
+            Button("恢复默认：第一家已启用订阅") { ui = MenuBarEditing.defaults(ui) }
         }
     }
 }

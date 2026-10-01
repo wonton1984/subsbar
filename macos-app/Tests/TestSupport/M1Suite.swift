@@ -214,6 +214,35 @@ public enum M1Suite {
         let menuDefault = try ConfigDocument(emptyBridge.call(["config", "read", "--json"]).value)
         try check("menu null default restores", restoredMenu.exitCode == 0 && menuDefault.config["ui"]["menuBarProviders"] == .null && menuDefault.config["ui"]["menuBarLimit"].number == 1)
         try check("menu legacy switches not emitted", menuDefault.config["ui"].object["pinnedMetrics"] == nil && menuDefault.config["ui"].object["menuBarMode"] == nil)
+        // Exercise the very same edits used by the settings checkboxes, through real Node CAS.
+        let editIDs = ["codex", "kimi", "droid", "cursor", "commandcode"]
+        func menuEdit(_ name: String, expected: [String], edit: (Wire) -> Wire) throws {
+            let before = try ConfigDocument(emptyBridge.call(["config", "read", "--json"]).value)
+            let changed = edit(before.config["ui"])
+            let written = try emptyBridge.call(["config", "set", "--stdin"], input: before.submission(patch: .object(["ui": changed])))
+            let after = try ConfigDocument(emptyBridge.call(["config", "read", "--json"]).value)
+            let visible = MenuBarSelection.visible(ui: after.config["ui"], ordered: editIDs, enabled: editIDs)
+            try check("checkbox CAS \(name)", written.exitCode == 0 && visible == expected && (after.config["ui"]["menuBarLimit"].number ?? 0) >= Double(expected.count))
+        }
+        try menuEdit("default 1", expected: ["codex"]) { MenuBarEditing.defaults($0) }
+        for (index, id) in editIDs.prefix(4).enumerated() {
+            try menuEdit("select \(index + 1)", expected: Array(editIDs.prefix(index + 1))) { MenuBarEditing.toggle(id, on: true, ui: $0, ordered: editIDs, enabled: editIDs) }
+        }
+        try menuEdit("fifth blocked", expected: Array(editIDs.prefix(4))) { MenuBarEditing.toggle("commandcode", on: true, ui: $0, ordered: editIDs, enabled: editIDs) }
+        try menuEdit("uncheck", expected: ["codex", "droid", "cursor"]) { MenuBarEditing.toggle("kimi", on: false, ui: $0, ordered: editIDs, enabled: editIDs) }
+        try menuEdit("recheck", expected: Array(editIDs.prefix(4))) { MenuBarEditing.toggle("kimi", on: true, ui: $0, ordered: editIDs, enabled: editIDs) }
+        try menuEdit("limit zero", expected: []) { MenuBarEditing.limit(0, ui: $0, ordered: editIDs, enabled: editIDs) }
+        try menuEdit("select from zero", expected: ["kimi"]) { MenuBarEditing.toggle("kimi", on: true, ui: $0, ordered: editIDs, enabled: editIDs) }
+        try menuEdit("uncheck last", expected: []) { MenuBarEditing.toggle("kimi", on: false, ui: $0, ordered: editIDs, enabled: editIDs) }
+        try menuEdit("restore default", expected: ["codex"]) { MenuBarEditing.defaults($0) }
+        let focusBase = try ConfigDocument(emptyBridge.call(["config", "read", "--json"]).value)
+        let focusWrite = try emptyBridge.call(["config", "set", "--stdin"], input: focusBase.submission(patch: .object(["ui": ProviderNavigation.focus("kimi")])))
+        let focused = try ConfigDocument(emptyBridge.call(["config", "read", "--json"]).value)
+        try check("direct selector CAS focuses clicked provider", focusWrite.exitCode == 0 && ProviderNavigation.selected("kimi", ui: focused.config["ui"]) && !ProviderNavigation.selected("codex", ui: focused.config["ui"]))
+        try check("selector 6 and 14 overflow horizontally", ProviderNavigation.overflows(count: 6, width: 340) && ProviderNavigation.overflows(count: 14, width: 340))
+        try check("zero limit auto has no checked provider", MenuBarSelection.selected(ui: .object(["menuBarLimit": .number(0)]), ordered: editIDs, enabled: editIDs).isEmpty)
+        try check("selector short row fits", !ProviderNavigation.overflows(count: 3, width: 340))
+        try check("overview has no selected chip", !ProviderNavigation.selected("kimi", ui: focused.config["ui"].setting("overviewMode", .string("cards"))))
         let legacyURL = temporary.appendingPathComponent("legacy-menu.json")
         let legacyBridge = NodeBridge(node: node, root: root, configPath: legacyURL.path, environment: environment)
         for ids in [["commandcode", "codex"], ["codex", "codex"], []] {

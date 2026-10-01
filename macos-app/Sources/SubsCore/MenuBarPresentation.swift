@@ -50,7 +50,7 @@ public struct MenuBarSegment: Equatable, Sendable {
 /// Selection projection only; config validation and legacy migration remain in Node.
 public enum MenuBarSelection {
     public static func selected(ui: Wire, ordered: [String], enabled: [String]) -> [String] {
-        let candidates = ui["menuBarProviders"].isArray ? ui["menuBarProviders"].array.map(\.text) : Array(enabled.prefix(1))
+        let candidates = ui["menuBarProviders"].isArray ? ui["menuBarProviders"].array.map(\.text) : (ui["menuBarLimit"].number == 0 ? [] : Array(enabled.prefix(1)))
         return ordered.filter { candidates.contains($0) }
     }
     public static func visible(ui: Wire, ordered: [String], enabled: [String]) -> [String] {
@@ -70,4 +70,31 @@ public struct RingGauge: Equatable, Sendable {
     public var endDegrees: Double { 90 - sweepDegrees }
     public var dashed: Bool { fraction == nil && !hasKnownAmount }
     public var band: Band { Cache.band(fraction) }
+}
+
+/// User-intent edits only. Node remains the config validator and CAS writer.
+public enum MenuBarEditing {
+    public static func toggle(_ id: String, on: Bool, ui: Wire, ordered: [String], enabled: [String]) -> Wire {
+        let current = MenuBarSelection.selected(ui: ui, ordered: ordered, enabled: enabled)
+        guard ordered.contains(id), !on || current.contains(id) || current.count < 4 else { return ui }
+        var next = current.filter { $0 != id }
+        if on { next.append(id) }
+        next = ordered.filter { next.contains($0) }
+        return ui.setting("menuBarProviders", .strings(next))
+            .setting("menuBarLimit", .number(Double(max(Int(ui["menuBarLimit"].number ?? 1), next.count))))
+    }
+    public static func limit(_ limit: Int, ui: Wire, ordered: [String], enabled: [String]) -> Wire {
+        let retained = Array(MenuBarSelection.selected(ui: ui, ordered: ordered, enabled: enabled).prefix(limit))
+        let result = ui.setting("menuBarLimit", .number(Double(limit)))
+        return ui["menuBarProviders"].isArray || limit == 0 ? result.setting("menuBarProviders", .strings(retained)) : result
+    }
+    public static func defaults(_ ui: Wire) -> Wire { ui.setting("menuBarProviders", .null).setting("menuBarLimit", .number(1)) }
+}
+
+public enum ProviderNavigation {
+    public static let chipWidth: Double = 78
+    public static let spacing: Double = 5
+    public static func overflows(count: Int, width: Double) -> Bool { Double(count) * chipWidth + Double(max(0, count - 1)) * spacing > width }
+    public static func selected(_ id: String, ui: Wire) -> Bool { ui["overviewMode"].text == "single" && ui["selectedProvider"].text == id }
+    public static func focus(_ id: String) -> Wire { .object(["overviewMode": .string("single"), "selectedProvider": .string(id)]) }
 }

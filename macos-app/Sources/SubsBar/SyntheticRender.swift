@@ -46,6 +46,17 @@ import SubsCore
             try popover("M10-grid-\(count)-light.png", maxHeight: 1600)
             try popover("M10-grid-\(count)-dark.png", maxHeight: 1600, dark: true)
         }
+        for count in [6, 14] {
+            for atEnd in [false, true] {
+                let ids = Array(SyntheticScenes.providerIDs.prefix(count))
+                try scene(enabled: ids, ui: ["overviewMode": .string("single"), "selectedProvider": .string(atEnd ? ids.last! : ids.first!)])
+                for dark in [false, true] {
+                    let name = "M13-selector-\(count)\(atEnd ? "-end" : "")-\(dark ? "dark" : "light").png"
+                    try render(PopoverView(model: model).header(model.sections), size: NSSize(width: 360, height: 90), to: output.appendingPathComponent(name), dark: dark)
+                    outputs.append(name)
+                }
+            }
+        }
         for state in ["ok", "unknown", "exceeded"] {
             for count in 0...4 {
                 for dark in [false, true] {

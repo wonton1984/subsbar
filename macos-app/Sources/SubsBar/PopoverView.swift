@@ -87,12 +87,8 @@ struct PopoverView: View {
                 }
                 HeaderButton(symbol: "gearshape", help: "设置") { model.openSettings?(nil) }
             }
-            if single {
-                Picker("订阅", selection: Binding(get: { model.selected }, set: { model.choose($0) })) {
-                    Text("未选择").tag("")
-                    ForEach(Array(model.providers.enumerated()), id: \.offset) { _, row in Text(model.name(row["providerId"].text)).tag(row["providerId"].text) }
-                }.labelsHidden().controlSize(.small)
-            }
+            ProviderSelector(model: model)
+
         }.padding(.horizontal, 10).padding(.vertical, 8)
     }
     func subtitle(_ sections: ProviderSections) -> String {
@@ -131,5 +127,36 @@ private struct AppMark: View {
         .frame(width: 24, height: 24)
         .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
         .accessibilityHidden(true)
+    }
+}
+
+/// One row of direct buttons in both overview and focused modes; horizontal overflow only.
+struct ProviderSelector: View {
+    @ObservedObject var model: AppModel
+    var ids: [String] { model.enabled.map { $0["providerId"].text } }
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: true) {
+                HStack(spacing: ProviderNavigation.spacing) {
+                    ForEach(ids, id: \.self) { id in
+                        let selected = ProviderNavigation.selected(id, ui: model.config["ui"])
+                        Button { model.patchUI(ProviderNavigation.focus(id)) } label: {
+                            HStack(spacing: 3) {
+                                Text(selected ? "●" : "○").font(.system(size: 8))
+                                Text(model.name(id)).font(.system(size: 10, weight: selected ? .semibold : .regular)).lineLimit(1)
+                            }.frame(width: ProviderNavigation.chipWidth, height: 24)
+                                .background(selected ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 5))
+                                .foregroundStyle(selected ? Color.accentColor : Color.primary)
+                        }.buttonStyle(.plain).id(id).help("查看 " + model.name(id))
+                            .accessibilityLabel("查看 " + model.name(id))
+                            .accessibilityAddTraits(selected ? [.isSelected] : [])
+                            .disabled(model.saving || model.loading || model.document == nil)
+                    }
+                }.padding(.vertical, 2)
+            }.frame(height: 32)
+                .accessibilityLabel("订阅直选，可横向滚动")
+                .onChange(of: model.selected) { id in proxy.scrollTo(id, anchor: .center) }
+                .onAppear { proxy.scrollTo(model.selected, anchor: .center) }
+        }
     }
 }
