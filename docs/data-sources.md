@@ -37,9 +37,9 @@ execution after admission review (`admission: approved` in its data source).
 | copilot | `copilot_internal/user` (community; Copilot OAuth only). Official CLI pending. | C/A | approved (community) / pending (CLI) | unverified |
 | zai | quota/limit, region-scoped origins (CN unverified) | B | approved | unverified |
 | openrouter | `/api/v1/key` (official). `/credits` pending (management key) | A | approved (key) / pending (credits) | unverified |
-| antigravity | `agy` CLI usage | A | pending-verification | unverified |
-| devin | app.devin.ai org quota (web session + orgId) | C | pending-verification | unverified |
-| grok | `cli-chat-proxy.grok.com/v1/billing` | C | pending-verification | unverified |
+| antigravity | `agy -p /usage --output-format json` (CLI version unverified). local-api pending | A/C | pending | unverified |
+| devin | CLI TOML `windsurf_api_key` (Connect RPC unverified) + web org quota (manual session + orgId) | C | pending | unverified |
+| grok | `cli-chat-proxy.grok.com/v1/billing?format=credits` | C | pending | unverified |
 | ollama | signed `ollama.com/api/usage` | C | pending-verification | unverified |
 
 ## Credential chains

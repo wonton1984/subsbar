@@ -78,7 +78,10 @@ export async function resolveSource(providerId, profile, source, ctx) {
   const store = ctx.stores;
   // discover：安全元信息（不读正文）
   const region = ctx.region ?? profile.region;
-  const d = store.discover(source.implementationId, source, { compatibility: ctx.compatibility, interaction: ctx.interaction, testAesKeyB64: ctx.testAesKeyB64, region });
+  const d = store.discover(source.implementationId, source, {
+    compatibility: ctx.compatibility, interaction: ctx.interaction, testAesKeyB64: ctx.testAesKeyB64,
+    region, allowLocalApi: ctx.allowLocalApi, allowBrowser: ctx.allowBrowser,
+  });
   trace.push({ sourceId: source.id, reader: source.reader, outcome: d.status, reasonCode: d.reasonCode });
   if (d.status === "missing" || d.status === "skipped") {
     return { status: "failed", code: "not-configured", reasonCode: d.reasonCode ?? "not-configured", action: actionFor("not-configured"), trace };
@@ -94,7 +97,10 @@ export async function resolveSource(providerId, profile, source, ctx) {
   // resolve：执行读取（仍不输出正文）
   let resolved;
   try {
-    resolved = store.resolve(source.implementationId, source, { compatibility: ctx.compatibility, interaction: ctx.interaction, testAesKeyB64: ctx.testAesKeyB64, region });
+    resolved = store.resolve(source.implementationId, source, {
+      compatibility: ctx.compatibility, interaction: ctx.interaction, testAesKeyB64: ctx.testAesKeyB64,
+      region, allowLocalApi: ctx.allowLocalApi, allowBrowser: ctx.allowBrowser,
+    });
   } catch (e) {
     if (e instanceof ReaderOutcome) {
       const code = outcomeToCode(e);

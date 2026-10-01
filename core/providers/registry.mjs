@@ -23,6 +23,7 @@ export const IMPLEMENTED_READERS = new Set([
   "openai-codex", "opencode-go", "kimi-coding", "commandcode", "openrouter", "zai",
   "zai-coding-cn", "openrouter-management-key",
   "copilot-official", "copilot-apps-json", "copilot-gh-keychain", "github-copilot",
+  "agy-official-usage", "antigravity-subsbar-key", "devin-app-db",
 ]);
 
 // 已实现六家的数据适配器（v0 引擎桥接）；其余 8 家 M1 标 not-implemented（unsupported）

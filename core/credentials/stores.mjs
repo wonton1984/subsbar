@@ -328,11 +328,43 @@ export function createCredentialStores({ env = process.env } = {}) {
 
   // ---- browser / local-api / request-signer：v1 显式准入才实现 ----
   register("browser-generic", {
-    discover() { return { status: "skipped", reasonCode: "reader-unavailable" }; },
-    resolve() { throw new ReaderOutcome("unsupported", "not-implemented"); },
+    discover(_spec, ctx) {
+      if (!ctx?.allowBrowser) return { status: "skipped", reasonCode: "reader-unavailable" };
+      return { status: "unsupported", reasonCode: "not-implemented" };
+    },
+    resolve(_spec, ctx) {
+      if (!ctx?.allowBrowser) throw new ReaderOutcome("skipped", "reader-unavailable");
+      throw new ReaderOutcome("unsupported", "not-implemented");
+    },
   });
   register("localapi-generic", {
-    discover() { return { status: "skipped", reasonCode: "reader-unavailable" }; },
+    discover(_spec, ctx) {
+      if (!ctx?.allowLocalApi) return { status: "skipped", reasonCode: "reader-unavailable" };
+      return { status: "unsupported", reasonCode: "not-implemented" };
+    },
+    resolve(_spec, ctx) {
+      if (!ctx?.allowLocalApi) throw new ReaderOutcome("skipped", "reader-unavailable");
+      throw new ReaderOutcome("unsupported", "not-implemented");
+    },
+  });
+  register("devin-toml", {
+    discover(spec) {
+      const path = spec.path ?? implDefaults(spec.reader)?.path ?? implDefaults("devin-credentials-toml")?.path;
+      if (!path || !fileExistsQuiet(path)) return { status: "missing", reasonCode: "not-configured" };
+      return { status: "resolved", reasonCode: undefined };
+    },
+    resolve(spec) {
+      const path = spec.path ?? implDefaults(spec.reader)?.path ?? implDefaults("devin-credentials-toml")?.path;
+      if (!path) throw new ReaderOutcome("unsupported", "reader-unavailable");
+      const { text } = readFileBounded(path);
+      const key = parseDevinTomlKey(text);
+      const origin = parseDevinTomlOrigin(text);
+      void origin;
+      return { bytes: new TextEncoder().encode(key) };
+    },
+  });
+  register("devin-app-db", {
+    discover() { return { status: "unsupported", reasonCode: "not-implemented" }; },
     resolve() { throw new ReaderOutcome("unsupported", "not-implemented"); },
   });
   register("ollama-signing-key", {
@@ -348,12 +380,17 @@ export function createCredentialStores({ env = process.env } = {}) {
   for (const alias of ["codex-official", "claude-official-usage", "copilot-official", "agy-official-usage"]) {
     impls.set(alias, impls.get("cli-generic"));
   }
+  const cliGeneric = impls.get("cli-generic");
+  impls.set("agy-official-usage", {
+    discover(spec) { return cliGeneric.discover(spec); },
+    resolve() { return { bytes: new TextEncoder().encode("agy-usage") }; },
+  });
   // kind 别名表（manifest implementationId → 通用实现）：按 kind 分流，env 不得误接 keychain
   const envAliases = ["kimi-env-key", "commandcode-env-key", "droid-env-key", "openrouter-env-key", "codex-env-token"];
   const keychainAliases = ["codex-subsbar-key", "opencode-subsbar-key", "kimi-subsbar-key", "commandcode-subsbar-key",
     "droid-subsbar-key", "zai-subsbar-key", "openrouter-subsbar-key", "grok-subsbar-key",
-    "devin-subsbar-session", "copilot-gh-keychain", "openrouter-management-key"];
-  const fileAliases = ["codex-auth-file", "opencode-auth-file", "grok-auth-file", "devin-toml", "copilot-apps-json"];
+    "devin-subsbar-session", "copilot-gh-keychain", "openrouter-management-key", "antigravity-subsbar-key"];
+  const fileAliases = ["codex-auth-file", "opencode-auth-file", "grok-auth-file", "copilot-apps-json"];
   const piAliases = ["openai-codex", "opencode-go", "kimi-coding", "commandcode", "openrouter",
     "zai", "zai-coding-cn", "claude-pi-anthropic", "github-copilot"];
   for (const a of envAliases) impls.set(a, impls.get("env-generic"));
@@ -400,6 +437,7 @@ export function createCredentialStores({ env = process.env } = {}) {
   const defaults = new Map([
     ["codex-auth-file", { path: join(env.CODEX_HOME ? expand(env.CODEX_HOME) : "", "auth.json"), extract: codexAuthExtract }],
     ["codex-official", { executable: "/opt/homebrew/bin/codex" }],
+    ["agy-official-usage", { executable: agyExecutable(env) }],
     ["opencode-auth-file", { path: join(env.OPENCODE_DATA_DIR ?? join(homedir(), ".local", "share", "opencode"), "auth.json"), extract: opencodeAuthExtract }],
     ["openai-codex", { piKey: "openai-codex" }],
     ["opencode-go", { piKey: "opencode-go" }],
@@ -410,8 +448,8 @@ export function createCredentialStores({ env = process.env } = {}) {
     ["zai-pi-global", { piKey: "zai" }],
     ["zai-pi-cn", { piKey: "zai-coding-cn" }],
     ["zai-coding-cn", { piKey: "zai-coding-cn" }],
-    ["grok-auth-file", { path: join(env.GROK_HOME ? expand(env.GROK_HOME) : "", ".grok", "auth.json"), extract: grokAuthExtract }],
-    ["devin-credentials-toml", { path: "~/.local/share/devin/credentials.toml" }],
+    ["grok-auth-file", { path: grokAuthFilePath(env), extract: grokAuthExtract }],
+    ["devin-credentials-toml", { path: join(homedir(), ".local", "share", "devin", "credentials.toml") }],
     ["copilot-apps-json", { path: join(env.XDG_CONFIG_HOME ? expand(env.XDG_CONFIG_HOME) : join(homedir(), ".config"), "github-copilot", "apps.json"), extract: copilotAppsExtract }],
     ["claude-pi-anthropic", { piKey: "anthropic" }],
     ["github-copilot", { piKey: "github-copilot" }],
@@ -475,12 +513,56 @@ export function copilotAppsExtract(json) {
   return { bytes: new TextEncoder().encode(token) };
 }
 
+export function agyExecutable(env = {}) {
+  if (env.ANTIGRAVITY_CLI_PATH === "") return undefined;
+  if (typeof env.ANTIGRAVITY_CLI_PATH === "string" && env.ANTIGRAVITY_CLI_PATH.trim()) return expand(env.ANTIGRAVITY_CLI_PATH);
+  return "/opt/homebrew/bin/agy";
+}
+
+/** GROK_HOME 为文件或目录；未设则 ~/.grok/auth.json。不扫描浏览器。 */
+export function grokAuthFilePath(env = process.env) {
+  const raw = env.GROK_HOME;
+  if (typeof raw === "string" && raw.trim()) {
+    const expanded = expand(raw);
+    try {
+      const st = statSync(expanded);
+      if (st.isFile()) return expanded;
+      if (st.isDirectory()) return join(expanded, "auth.json");
+    } catch {
+      return /\.json$/i.test(expanded) ? expanded : join(expanded, "auth.json");
+    }
+  }
+  return join(homedir(), ".grok", "auth.json");
+}
+
+export function parseDevinTomlKey(text) {
+  if (typeof text !== "string") throw new ReaderOutcome("rejected", "file-malformed");
+  const m = text.match(/^\s*windsurf_api_key\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s#]+))/m);
+  const key = m?.[1] ?? m?.[2] ?? m?.[3];
+  if (typeof key !== "string" || key.length < 16) throw new ReaderOutcome("rejected", "file-malformed");
+  return key;
+}
+
+/** 仅允许官方 origin；TOML 里的任意 URL 不得成为请求目标。 */
+export function parseDevinTomlOrigin(text) {
+  if (typeof text !== "string") return "https://server.codeium.com";
+  const m = text.match(/^\s*api_server_url\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s#]+))/m);
+  const raw = m?.[1] ?? m?.[2] ?? m?.[3];
+  if (!raw) return "https://server.codeium.com";
+  try {
+    const u = new URL(raw);
+    if (u.protocol === "https:" && u.hostname === "server.codeium.com" && u.pathname === "/" && !u.search && !u.hash) {
+      return "https://server.codeium.com";
+    }
+  } catch { /* invalid */ }
+  throw new ReaderOutcome("rejected", "invalid-config");
+}
+
 function grokAuthExtract(json) {
   const token = json?.access_token ?? json?.apiKey ?? json?.tokens?.access_token;
-  if (typeof token === "string" && token.length >= 16) {
-    return { bytes: new TextEncoder().encode(token), expiry: expiryFromJwt(token) };
-  }
-  throw new ReaderOutcome("rejected", "file-malformed");
+  if (typeof token !== "string" || token.length < 16) throw new ReaderOutcome("rejected", "file-malformed");
+  if (/^xai-/.test(token)) throw new ReaderOutcome("rejected", "invalid");
+  return { bytes: new TextEncoder().encode(token), expiry: expiryFromJwt(token) };
 }
 
 /**

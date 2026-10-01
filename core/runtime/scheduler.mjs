@@ -382,12 +382,17 @@ export class RefreshCoordinator {
     if (providerId === "zai" && profile.region !== "global" && profile.region !== "cn") {
       return { kind: "failed", error: safeError("invalid-config", "invalid-config", "select-profile"), retainLastGood: true, profileId: profile.id };
     }
+    if (providerId === "devin" && dataSource.id === "devin-web-org" && !profile.organizationId) {
+      return { kind: "failed", error: safeError("invalid-config", "invalid-config", "select-profile"), retainLastGood: true, profileId: profile.id };
+    }
     const chain = buildChain(manifest, dataSource, profile);
     const ctx = {
       nowMs, signal, interaction: trigger.interaction ?? "background",
       stores, broker, compatibility: cfgLoaded?.config?.compatibility, stateDir: this.dirs().stateDir,
       credentialReaders: manifest.credentialReaders,
       region: profile.region,
+      allowLocalApi: !!profile.allowLocalApi,
+      allowBrowser: !!profile.allowBrowser && cfgLoaded?.config?.privacy?.allowBrowserDiscovery === true,
     };
     let resolved;
     try {
@@ -403,7 +408,11 @@ export class RefreshCoordinator {
     let report;
     try {
       const token = await broker.withSecret(resolved.lease.access, providerId, async (b) => new TextDecoder().decode(b));
-      const extra = { region: profile.region, organizationId: profile.organizationId ?? provCfg?.profiles?.find((p) => p.id === profile.id)?.organizationId };
+      const extra = {
+        region: profile.region,
+        organizationId: profile.organizationId ?? provCfg?.profiles?.find((p) => p.id === profile.id)?.organizationId,
+        dataSourceId: dataSource.id,
+      };
       report = await withTimeout(fetchProviderSnapshot(providerId, token, extra, { signal }), manifest.refresh.taskTimeoutSeconds * 1000, signal);
     } catch (e) {
       if (signal.aborted) return { kind: "cancelled", retainLastGood: true, profileId: profile.id, startedAtMs, finishedAtMs: Date.now(), requestedAtMs };
@@ -662,6 +671,9 @@ function classifyFetchError(e) {
   const retryAfter = e?.retryAfterHeader;
   const statusFromMsg = msg.match(/returned (\d{3})/);
   const httpStatus = Number.isInteger(e?.httpStatus) ? e.httpStatus : (statusFromMsg ? parseInt(statusFromMsg[1], 10) : undefined);
+  if (kind === "unsupported" || /unverified this round/.test(msg)) {
+    return safeError("unsupported", "not-implemented", "contact-maintainer");
+  }
   if (httpStatus === 401 || /returned 401/.test(msg)) return safeError("invalid-credential", "http-401", "relogin-owner", { httpStatus: 401 });
   if (httpStatus === 403 || /returned 403/.test(msg)) return safeError("permission-denied", "http-403", "check-plan-region");
   if (httpStatus === 429 || /returned 429/.test(msg)) {
@@ -699,6 +711,8 @@ function buildChain(manifest, dataSource, profile = {}) {
     const decl = (manifest.credentialReaders ?? []).find((r) => r.id === rid);
     const src = { id: rid, kind: decl?.kind ?? "file", reader: rid, implementationId: decl?.implementationId ?? rid, purpose: decl?.purposes?.[0] ?? "primary", originOfChoice: "discovered" };
     if (rid === "openrouter-env-key") return [{ ...src, envName: "OPENROUTER_API_KEY" }];
+    if (decl?.kind === "local-api" && !profile.allowLocalApi) return [];
+    if (decl?.kind === "browser" && !profile.allowBrowser) return [];
     if (manifest.id !== "zai") return [src];
     if (region !== "global" && region !== "cn") return [];
     if (rid === "zai-env-key") return [{ ...src, envName: region === "cn" ? "BIGMODEL_API_KEY" : "ZAI_API_KEY", region }];

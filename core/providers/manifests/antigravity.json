@@ -10,7 +10,8 @@
   ],
   "docsPath": "docs/providers/antigravity.md",
   "documentationUrls": [
-    "https://github.com/subsbar/subsbar#readme"
+    "https://antigravity.google/docs/changelog",
+    "https://antigravity.google"
   ],
   "credentialReaders": [
     {
@@ -46,6 +47,28 @@
       ],
       "owner": "external",
       "renewMode": "none"
+    },
+    {
+      "id": "antigravity-subsbar-oauth",
+      "kind": "keychain",
+      "credentialKinds": [
+        "oauth"
+      ],
+      "implementationId": "antigravity-subsbar-key",
+      "configurable": [
+        "service",
+        "account",
+        "keychainPath"
+      ],
+      "requires": [
+        "keychain"
+      ],
+      "purposes": [
+        "primary"
+      ],
+      "owner": "subsbar",
+      "renewMode": "none",
+      "credentialService": "SubsBar credential <providerId>"
     }
   ],
   "endpoints": [
@@ -54,10 +77,10 @@
       "transport": "cli",
       "operation": "usage",
       "readOnly": true,
-      "grade": "C",
+      "grade": "A",
       "maxResponseBytes": 65536,
       "authPurpose": "primary",
-      "documentationUrl": "https://github.com/subsbar/subsbar#readme",
+      "documentationUrl": "https://antigravity.google/docs/changelog",
       "commandId": "agy-usage"
     },
     {
@@ -68,7 +91,7 @@
       "grade": "C",
       "maxResponseBytes": 65536,
       "authPurpose": "primary",
-      "documentationUrl": "https://github.com/subsbar/subsbar#readme",
+      "documentationUrl": "https://antigravity.google/docs/changelog",
       "helperId": "antigravity-language-server"
     }
   ],
@@ -78,12 +101,32 @@
       "kind": "official-cli",
       "grade": "A",
       "admission": "pending",
-      "approvalNote": "pending-verification: 防御性解析已实现，响应字段名未经真实账号验证（本机网络无法核实开源实现细节）；真实账号冒烟前排程",
+      "approvalNote": "docs/providers/antigravity.md；agy -p /usage --output-format json（changelog v1.1.11）。CLI 版本与 JSON 形状本轮未实测。不启动 onboarding/推理。403 quotas denied 不装满额度。",
       "endpointIds": [
         "agy-usage"
       ],
       "credentialChain": [
         "agy-official-usage"
+      ],
+      "capabilities": [
+        "quota"
+      ],
+      "coverageMetricRules": [
+        "antigravity-gemini"
+      ],
+      "coverageMatch": "any"
+    },
+    {
+      "id": "antigravity-local-api",
+      "kind": "local-api",
+      "grade": "C",
+      "admission": "pending",
+      "approvalNote": "docs/providers/antigravity.md；local-api 仅 loopback、须 profile.allowLocalApi。CSRF/同账户进程本轮未验证，resolve=not-implemented。不在默认自动链。",
+      "endpointIds": [
+        "antigravity-server"
+      ],
+      "credentialChain": [
+        "antigravity-local-api"
       ],
       "capabilities": [
         "quota"
@@ -103,14 +146,25 @@
   "metricRules": [
     {
       "id": "antigravity-gemini",
-      "metricId": "gemini",
+      "metricId": "antigravity-gemini",
       "kind": "quota",
       "unit": "percent",
       "scope": "subscription",
       "period": "rolling",
       "derivations": [],
-      "description": "Gemini / non-Gemini pools as returned",
+      "description": "shared Gemini pool percent used as returned",
       "missingPolicy": "unknown"
+    },
+    {
+      "id": "antigravity-other",
+      "metricId": "antigravity-other",
+      "kind": "quota",
+      "unit": "percent",
+      "scope": "subscription",
+      "period": "rolling",
+      "derivations": [],
+      "description": "non-Gemini pool percent used as returned",
+      "missingPolicy": "omit-optional"
     }
   ],
   "primaryPreference": [
@@ -122,13 +176,15 @@
   "reasonCodes": [],
   "fixtureIds": [
     "antigravity-synthetic-normal",
+    "antigravity-synthetic-denied",
     "antigravity-synthetic-missing"
   ],
   "provenance": [],
   "login": {
     "mode": "guide",
-    "note": "启动 Antigravity app 或运行 agy 交互登录（--help 核实无非交互 login 子命令，UNVERIFIED）",
+    "note": "启动 Antigravity app 或运行 agy 交互登录（非交互 login 未验证）",
     "verified": false,
+    "url": "https://antigravity.google",
     "launchMode": "web-guide"
   }
 }

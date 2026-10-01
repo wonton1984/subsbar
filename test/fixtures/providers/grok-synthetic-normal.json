@@ -1,0 +1,9 @@
+{
+  "credits": {
+    "creditUsagePercent": 37,
+    "resets_at": "2031-10-05T00:00:00Z"
+  },
+  "onDemandCap": { "val": 2500 },
+  "onDemandUsed": { "val": 100 },
+  "plan": "pro"
+}

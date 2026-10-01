@@ -3,6 +3,8 @@
 // 不做 clamp/补 0（§1 v1 裁决），超额原值保留，缺失即 unknown。
 // 批次 C-D 的响应字段名未经真实账号验证 —— 状态 pending-verification，
 // manifest admission 保持 pending（refresh 拒绝执行），fixture 为乐观形状。
+import { execFile } from "child_process";
+import { existsSync, statSync } from "fs";
 import { fetchJson } from "./engine.mjs";
 import { normalizeQuota, usedPercentOf, iconFractionOf } from "../../runtime/report.mjs";
 import { diagnostic, safeText } from "../../defs.mjs";
@@ -321,8 +323,7 @@ export function mergeOpenRouterCredits(report, payload) {
 }
 
 // ---------------------------------------------------------------------------
-// 批次 B-D — 防御性解析（字段名未经真实账号验证；pending-verification）
-// 策略：探测多种已文档化形状的百分位/用量字段；一个都识别不出 → 无数据错误。
+// 批次 C — antigravity / devin / grok（字段名未经真实账号验证；admission 保持 pending）
 // ---------------------------------------------------------------------------
 
 function probePercentWindows(payload, candidates) {
@@ -330,7 +331,7 @@ function probePercentWindows(payload, candidates) {
   for (const c of candidates) {
     const o = asObject(c.pick ? c.pick(payload) : payload[c.key]);
     if (!o) continue;
-    const used = asNumber(o.creditUsagePercent) ?? asNumber(o.usedPercent) ?? asNumber(o.utilization) ?? asNumber(o.percentage) ?? asNumber(o.percent);
+    const used = usedPercentField(o);
     if (used === undefined) continue;
     const resetsAtMs = isoToMs(o.resets_at) ?? isoToMs(o.reset_at) ?? isoToMs(o.resetTime) ?? isoToMs(o.reset_time);
     const m = quotaOut(metric(RULE("def-" + c.id, c.id, "percent"), {
@@ -343,11 +344,65 @@ function probePercentWindows(payload, candidates) {
   return windows;
 }
 
-// — grok：cli-chat-proxy /v1/billing?format=credits（creditUsagePercent 已见于 CodexBar #3181）—
+/** 显式百分位优先；仅 fraction/remainingFraction 时按 0..1 换算。缺字段不补 0/100。 */
+function usedPercentField(o) {
+  const explicit = asNumber(o.creditUsagePercent) ?? asNumber(o.usedPercent) ?? asNumber(o.utilization)
+    ?? asNumber(o.percentage) ?? asNumber(o.percent);
+  if (explicit !== undefined) return explicit;
+  const usedFrac = asNumber(o.fraction) ?? asNumber(o.usageFraction) ?? asNumber(o.usedFraction);
+  if (usedFrac !== undefined && usedFrac <= 1) return usedFrac * 100;
+  const remainingFrac = asNumber(o.remainingFraction);
+  if (remainingFrac !== undefined && remainingFrac <= 1) return roundPercent((1 - remainingFrac) * 100);
+  const rem = asNumber(o.remaining);
+  if (rem !== undefined && rem <= 1) return roundPercent((1 - rem) * 100);
+  if (rem !== undefined && rem <= 100) return roundPercent(100 - rem);
+  return undefined;
+}
+
+function roundPercent(n) {
+  return Math.round(n * 1e6) / 1e6;
+}
+
+function deniedQuotaError(message, httpStatus = 403) {
+  const err = new Error(message);
+  err.httpStatus = httpStatus;
+  return err;
+}
+
+function isQuotaDenied(payload) {
+  const err = asObject(payload?.error) ?? payload?.error;
+  const text = typeof err === "string" ? err : (typeof err?.message === "string" ? err.message : typeof payload?.message === "string" ? payload.message : "");
+  const code = typeof err === "object" && err ? String(err.code ?? err.status ?? "") : String(payload?.code ?? payload?.status ?? "");
+  return /quota.?denied|quotas denied|permission.?denied/i.test(text) || /QUOTA.?DENIED/i.test(code);
+}
+
+function isNoOrganizations(message) {
+  return /no organizations found/i.test(String(message ?? ""));
+}
+
+function encodePathSegment(id) {
+  if (typeof id !== "string" || !id || id.length > 128) return undefined;
+  if (/[\\/]|:|\.\./.test(id)) return undefined;
+  return encodeURIComponent(id);
+}
+
+// — grok：cli-chat-proxy /v1/billing?format=credits。不写回 auth.json、不轮换借用 token、不承诺网页 gRPC/WKE。—
+export const GROK_BILLING_URL = "https://cli-chat-proxy.grok.com/v1/billing?format=credits";
+
+export function isGrokManagementKey(token) {
+  return typeof token === "string" && /^xai-/.test(token);
+}
+
 export async function fetchGrokBilling(token, extra = {}, ctx = {}) {
+  void extra;
+  if (isGrokManagementKey(token)) throw deniedQuotaError("Grok billing returned 403: management key is not a subscription token", 403);
   const payload = await fetchJson({
-    url: "https://cli-chat-proxy.grok.com/v1/billing?format=credits",
-    headers: { Authorization: `Bearer ${token}` },
+    url: GROK_BILLING_URL,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/json",
+      "x-xai-token-auth": "xai-grok-cli",
+    },
     description: "Grok billing",
     secrets: [token],
     signal: ctx.signal,
@@ -355,53 +410,260 @@ export async function fetchGrokBilling(token, extra = {}, ctx = {}) {
   return normalizeGrokBilling(payload, Date.now());
 }
 
-export function normalizeGrokBilling(payload, capturedAtMs) {
-  const credits = asObject(payload.credits) ?? asObject(payload.data?.credits) ?? payload;
-  const windows = probePercentWindows(credits, [
-    { id: "grok-weekly", label: "共享周窗", pick: (p) => p, primary: true },
-  ]);
-  const plan = typeof payload.plan === "string" ? payload.plan : undefined;
-  if (windows.length === 0) throw new Error("Grok billing 响应没有可识别的用量字段（pending-verification）。");
-  const report = buildReport("grok", "Grok", { capturedAtMs, windows, diagnostics: [diagnostic("pending-verification", "warning")] });
-  void plan; // plan 文本不进 report（§6.5），如需展示走注册 diagnostic
-  return report;
+function grokPeriodMeta(config, credits) {
+  const start = isoToMs(config?.currentPeriod?.start) ?? isoToMs(config?.billingPeriodStart) ?? isoToMs(credits?.period_start);
+  const end = isoToMs(config?.currentPeriod?.end) ?? isoToMs(config?.billingPeriodEnd) ?? isoToMs(credits?.resets_at)
+    ?? isoToMs(credits?.reset_at);
+  let kind = "unknown";
+  let id = "grok-weekly";
+  let label = "共享周窗";
+  let durationSeconds;
+  if (start !== undefined && end !== undefined && end > start) {
+    durationSeconds = Math.round((end - start) / 1000);
+    const days = durationSeconds / 86400;
+    if (days >= 25 && days <= 40) { kind = "calendar"; id = "grok-monthly"; label = "月窗口"; }
+    else if (days >= 5 && days <= 10) { kind = "rolling"; id = "grok-weekly"; label = "共享周窗"; }
+    else { kind = "unknown"; id = "grok-credits"; label = "额度窗口"; }
+  }
+  return { kind, id, label, durationSeconds, resetsAtMs: end, resetState: end ? "known" : "unknown" };
 }
 
-// — devin：app.devin.ai /api/{orgId}/billing/quota/usage（网页会话 + org ID，§2.5 高风险）—
+export function normalizeGrokBilling(payload, capturedAtMs) {
+  const credits = asObject(payload.credits) ?? asObject(payload.data?.credits) ?? asObject(payload.config) ?? payload;
+  const config = asObject(payload.config) ?? asObject(credits.config) ?? {};
+  const period = grokPeriodMeta(config, credits);
+  const used = usedPercentField(credits) ?? usedPercentField(config) ?? usedPercentField(payload);
+  const diagnostics = [diagnostic("pending-verification", "warning")];
+  const windows = [];
+  const metrics = [];
+  if (used !== undefined) {
+    const m = quotaOut(metric(RULE("grok-" + period.id, period.id, "percent"), {
+      unit: "percent", used,
+      period: { kind: period.kind, durationSeconds: period.durationSeconds, resetState: period.resetState, resetsAtMs: period.resetsAtMs },
+    }));
+    m.primary = true; m.label = period.label; m.id = period.id;
+    windows.push(m);
+  }
+  const cap = asNonNegative(payload.onDemandCap?.val) ?? asNonNegative(payload.onDemandCap) ?? asNonNegative(credits.onDemandCap);
+  const paygUsed = asNonNegative(payload.onDemandUsed?.val) ?? asNonNegative(payload.onDemandUsed);
+  if (cap === 0) diagnostics.push(diagnostic("grok-payg-disabled", "info"));
+  else if (cap !== undefined) {
+    metrics.push({
+      id: "payg-cap", ruleId: "payg-cap", label: "PAYG上限", kind: "quota",
+      unit: "credits", scope: "subscription", provenance: "reported", sourceEndpointIds: ["grok-billing"],
+      state: "known", ...(paygUsed !== undefined ? { used: paygUsed, remaining: Math.max(0, cap - paygUsed) } : {}),
+      limit: cap, diagnostics: [],
+    });
+  }
+  const plan = typeof payload.plan === "string" ? payload.plan : typeof payload.subscription_tier_display === "string" ? payload.subscription_tier_display : undefined;
+  void plan;
+  if (windows.length === 0 && metrics.length === 0) throw new Error("Grok billing 响应没有可识别的用量字段（pending-verification）。");
+  return buildReport("grok", "Grok", { capturedAtMs, windows, metrics, diagnostics });
+}
+
+// — devin：CLI/App 与 web-org 分流。禁止跨账户 fallback；daily 不贴成 weekly。—
+export const DEVIN_WEB_ORIGIN = "https://app.devin.ai";
+export const DEVIN_CLI_ORIGIN = "https://server.codeium.com";
+
+export function isDevinWebSource(extra = {}) {
+  const id = extra.dataSourceId ?? extra.source;
+  return id === "devin-web-org" || id === "web-org";
+}
+
 export async function fetchDevinQuota(token, extra = {}, ctx = {}) {
-  if (!extra.organizationId) throw new Error("Devin 网页 org quota 需要 organizationId。");
-  const payload = await fetchJson({
-    url: `https://app.devin.ai/api/${encodeURIComponent(extra.organizationId)}/billing/quota/usage`,
-    headers: { Authorization: `Bearer ${token}` },
-    description: "Devin quota",
-    secrets: [token],
-    signal: ctx.signal,
-  });
+  if (extra.payload && !isDevinWebSource(extra)) return normalizeDevinCliStatus(extra.payload, Date.now());
+  if (!isDevinWebSource(extra) && extra.dataSourceId === "devin-cli-app") {
+    const err = new Error("Devin CLI GetUserStatus Connect framing unverified this round");
+    err.transportKind = "unsupported";
+    throw err;
+  }
+  const org = extra.organizationId;
+  const enc = encodePathSegment(org);
+  if (!enc) throw new Error("Devin 网页 org quota 需要 organizationId。");
+  let payload;
+  try {
+    payload = await fetchJson({
+      url: `${DEVIN_WEB_ORIGIN}/api/${enc}/billing/quota/usage`,
+      headers: { Authorization: `Bearer ${token}`, "x-cog-org-id": org, Accept: "application/json" },
+      description: "Devin quota",
+      secrets: [token],
+      signal: ctx.signal,
+    });
+  } catch (e) {
+    if (isNoOrganizations(e?.message)) {
+      throw deniedQuotaError("Devin quota returned 403: No organizations found for auth1 user (check org ID / session)", 403);
+    }
+    throw e;
+  }
   return normalizeDevinQuota(payload, Date.now());
 }
 
+function addDevinWindow(windows, id, label, raw, primary) {
+  const o = asObject(raw);
+  if (!o) return;
+  const used = usedPercentField(o);
+  if (used === undefined) return;
+  const resetsAtMs = isoToMs(o.resets_at) ?? isoToMs(o.reset_at) ?? isoToMs(o.resetTime) ?? epochSecToMs(o.resetAt);
+  const m = quotaOut(metric(RULE("devin-" + id, id, "percent"), {
+    unit: "percent", used,
+    period: { kind: "rolling", resetState: resetsAtMs ? "known" : "unknown", resetsAtMs },
+  }));
+  m.primary = !!primary; m.label = label; m.id = id;
+  windows.push(m);
+}
+
 export function normalizeDevinQuota(payload, capturedAtMs) {
-  const windows = probePercentWindows(payload, [
-    { id: "devin-daily", label: "日额度", pick: (p) => p.daily ?? p, primary: true },
-    { id: "devin-weekly", label: "周额度", pick: (p) => p.weekly },
-  ]);
-  if (windows.length === 0) throw new Error("Devin quota 响应没有可识别的用量字段（pending-verification）。");
+  const hideDaily = payload.hide_daily_quota === true;
+  const windows = [];
+  if (!hideDaily) addDevinWindow(windows, "devin-daily", "日额度", payload.daily, true);
+  addDevinWindow(windows, "devin-weekly", "周额度", payload.weekly, hideDaily || windows.length === 0);
+  if (windows.length === 0 && !asObject(payload.weekly) && !asObject(payload.daily)) {
+    const fallback = probePercentWindows(payload, [
+      { id: "devin-daily", label: "日额度", pick: (p) => p.daily ?? p, primary: true },
+      { id: "devin-weekly", label: "周额度", pick: (p) => p.weekly },
+    ]);
+    windows.push(...fallback);
+  }
+  const metrics = [];
+  const extraBal = asNonNegative(payload.extra_balance) ?? asNonNegative(payload.extraBalance) ?? asNonNegative(asObject(payload.extra)?.balance);
+  if (extraBal !== undefined) {
+    metrics.push({
+      id: "extra-balance", ruleId: "extra-balance", label: "额外余额", kind: "balance",
+      unit: "currency", currency: "USD", scope: "organization", provenance: "reported",
+      sourceEndpointIds: ["devin-org-quota"], state: "known", value: extraBal, diagnostics: [],
+    });
+  }
+  if (windows.length === 0 && metrics.length === 0) throw new Error("Devin quota 响应没有可识别的用量字段（pending-verification）。");
+  return buildReport("devin", "Devin", { capturedAtMs, windows, metrics, diagnostics: [diagnostic("pending-verification", "warning")] });
+}
+
+/** CLI GetUserStatus 形状：remaining 百分位翻成已用；不得把 daily 写入 weekly。 */
+export function normalizeDevinCliStatus(payload, capturedAtMs) {
+  const root = asObject(payload) ?? {};
+  const windows = [];
+  addDevinWindow(windows, "devin-daily", "日额度", root.daily ?? root.dailyQuota, true);
+  addDevinWindow(windows, "devin-weekly", "周额度", root.weekly ?? root.weeklyQuota, windows.length === 0);
+  if (windows.length === 0) throw new Error("Devin CLI status 响应没有可识别的用量字段（pending-verification）。");
   return buildReport("devin", "Devin", { capturedAtMs, windows, diagnostics: [diagnostic("pending-verification", "warning")] });
 }
 
-// — antigravity：agy 官方 /usage 非交互 JSON（S26；本地 server RPC 不在 M2）—
+// — antigravity：已登录 agy 非交互 /usage；local-api 仅 loopback 且须显式 allowLocalApi。—
+export const AGY_USAGE_ARGV = ["-p", "/usage", "--output-format", "json"];
+export const AGY_USAGE_MAX_BYTES = 65536;
+export const AGY_USAGE_TIMEOUT_MS = 15_000;
+export const AGY_DEFAULT_EXECUTABLE = "/opt/homebrew/bin/agy";
+
+export function defaultAgyRun({ executable, argv, timeoutMs, maxBytes, signal }) {
+  return new Promise((resolve, reject) => {
+    if (typeof executable !== "string" || !executable || !existsSync(executable)) {
+      reject(Object.assign(new Error("Antigravity CLI executable missing"), { transportKind: "unsupported" }));
+      return;
+    }
+    try {
+      if (!statSync(executable).isFile()) {
+        reject(Object.assign(new Error("Antigravity CLI executable missing"), { transportKind: "unsupported" }));
+        return;
+      }
+    } catch {
+      reject(Object.assign(new Error("Antigravity CLI executable missing"), { transportKind: "unsupported" }));
+      return;
+    }
+    const child = execFile(executable, argv, {
+      timeout: timeoutMs ?? AGY_USAGE_TIMEOUT_MS,
+      maxBuffer: maxBytes ?? AGY_USAGE_MAX_BYTES,
+      encoding: "utf8",
+      windowsHide: true,
+      env: {
+        HOME: process.env.HOME,
+        PATH: "/usr/bin:/bin:/opt/homebrew/bin",
+        LANG: process.env.LANG,
+        LC_ALL: process.env.LC_ALL,
+      },
+    }, (err, stdout) => {
+      if (err) {
+        const e = new Error("Antigravity CLI usage failed");
+        e.transportKind = err.killed ? "timeout" : "network";
+        reject(e);
+        return;
+      }
+      resolve(typeof stdout === "string" ? stdout : String(stdout ?? ""));
+    });
+    if (signal) {
+      const onAbort = () => { try { child.kill("SIGTERM"); } catch { /* ignore */ } };
+      if (signal.aborted) onAbort();
+      else signal.addEventListener("abort", onAbort, { once: true });
+    }
+  });
+}
+
 export async function fetchAntigravityUsage(_token, extra = {}, ctx = {}) {
   void _token;
-  throw new Error("Antigravity v1 走官方 agy CLI 会话（capabilityId 路径），HTTP adapter 未启用（pending-verification）。");
+  if (extra.payload) {
+    if (isQuotaDenied(extra.payload)) throw deniedQuotaError("Antigravity usage returned 403: quotas denied", 403);
+    return normalizeAntigravityUsage(extra.payload, Date.now());
+  }
+  if (extra.localApi) {
+    const err = new Error("Antigravity local-api CSRF/loopback session unverified this round");
+    err.transportKind = "unsupported";
+    throw err;
+  }
+  const run = extra.runCommand ?? defaultAgyRun;
+  const stdout = await run({
+    executable: extra.executablePath ?? AGY_DEFAULT_EXECUTABLE,
+    argv: AGY_USAGE_ARGV,
+    timeoutMs: extra.timeoutMs ?? AGY_USAGE_TIMEOUT_MS,
+    maxBytes: AGY_USAGE_MAX_BYTES,
+    signal: ctx.signal,
+  });
+  let payload;
+  try { payload = JSON.parse(stdout); } catch { throw new Error("Antigravity CLI usage returned invalid JSON"); }
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("Antigravity CLI usage returned invalid JSON");
+  if (isQuotaDenied(payload)) throw deniedQuotaError("Antigravity usage returned 403: quotas denied", 403);
+  return normalizeAntigravityUsage(payload, Date.now());
+}
+
+function addAntigravityPool(windows, id, label, raw, primary) {
+  const o = asObject(raw);
+  if (!o) return;
+  const session = asObject(o.session) ?? asObject(o.five_hour) ?? asObject(o.fiveHour);
+  const weekly = asObject(o.weekly) ?? asObject(o.seven_day) ?? asObject(o.sevenDay);
+  if (session || weekly) {
+    if (session) addAntigravityWindow(windows, id, label, session, primary);
+    if (weekly) addAntigravityWindow(windows, id + "-weekly", label + "·周", weekly, false);
+    return;
+  }
+  addAntigravityWindow(windows, id, label, o, primary);
+}
+
+function addAntigravityWindow(windows, id, label, raw, primary) {
+  const o = asObject(raw);
+  if (!o) return;
+  const used = usedPercentField(o);
+  if (used === undefined) return;
+  const resetsAtMs = isoToMs(o.resets_at) ?? isoToMs(o.reset_at) ?? isoToMs(o.resetTime);
+  const m = quotaOut(metric(RULE("agy-" + id, id, "percent"), {
+    unit: "percent", used,
+    period: { kind: "rolling", resetState: resetsAtMs ? "known" : "unknown", resetsAtMs },
+  }));
+  m.primary = !!primary; m.label = label; m.id = id;
+  windows.push(m);
 }
 
 export function normalizeAntigravityUsage(payload, capturedAtMs) {
-  const quotaRoot = asObject(payload.quota) ?? asObject(payload.data?.quota) ?? payload;
-  const windows = probePercentWindows(quotaRoot, [
-    { id: "antigravity-gemini", label: "Gemini 池", pick: (p) => p.gemini ?? p, primary: true },
-    { id: "antigravity-other", label: "非 Gemini 池", pick: (p) => p.other },
-  ]);
+  if (isQuotaDenied(payload)) throw deniedQuotaError("Antigravity usage returned 403: quotas denied", 403);
+  const quotaRoot = asObject(payload.quota) ?? asObject(payload.data?.quota) ?? asObject(payload.quotas) ?? payload;
+  const windows = [];
+  addAntigravityPool(windows, "antigravity-gemini", "Gemini 池", quotaRoot.gemini ?? quotaRoot.session, true);
+  addAntigravityPool(windows, "antigravity-other", "非 Gemini 池", quotaRoot.other ?? quotaRoot.claude ?? quotaRoot.nonGemini);
+  if (windows.length === 0) {
+    const probed = probePercentWindows(quotaRoot, [
+      { id: "antigravity-gemini", label: "Gemini 池", pick: (p) => p.gemini ?? p, primary: true },
+      { id: "antigravity-other", label: "非 Gemini 池", pick: (p) => p.other },
+    ]);
+    windows.push(...probed);
+  }
   if (windows.length === 0) throw new Error("Antigravity usage 响应没有可识别的用量字段（pending-verification）。");
+  if (!windows.some((w) => w.primary) && windows[0]) windows[0].primary = true;
   return buildReport("antigravity", "Antigravity", { capturedAtMs, windows, diagnostics: [diagnostic("pending-verification", "warning")] });
 }
 

@@ -1,0 +1,6 @@
+{
+  "quota": {
+    "gemini": { "percentage": 66, "resets_at": "2031-10-05T00:00:00Z" },
+    "other": { "percentage": 12 }
+  }
+}

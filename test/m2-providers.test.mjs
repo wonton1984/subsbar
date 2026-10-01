@@ -12,10 +12,12 @@ import {
   normalizeClaudeUsage, normalizeCopilotUsage, normalizeZaiQuota, normalizeOpenRouterKey,
   normalizeGrokBilling, normalizeDevinQuota, normalizeAntigravityUsage, normalizeOllamaUsage,
   ZAI_REGION_ORIGINS, ZAI_QUOTA_PATH, fetchCopilotUsage, fetchZaiUsage, mergeOpenRouterCredits,
+  fetchAntigravityUsage, fetchDevinQuota, fetchGrokBilling, AGY_USAGE_ARGV, AGY_DEFAULT_EXECUTABLE,
+  GROK_BILLING_URL, DEVIN_WEB_ORIGIN, isGrokManagementKey, normalizeDevinCliStatus,
 } from "../core/providers/engine/m2-providers.mjs";
 import { fetchProviderSnapshot } from "../core/providers/adapters.mjs";
 import { ProviderRegistry } from "../core/providers/registry.mjs";
-import { isCopilotOauthToken, copilotAppsExtract, zaiEnvName, createCredentialStores } from "../core/credentials/stores.mjs";
+import { isCopilotOauthToken, copilotAppsExtract, zaiEnvName, createCredentialStores, parseDevinTomlKey, parseDevinTomlOrigin, grokAuthFilePath, agyExecutable } from "../core/credentials/stores.mjs";
 
 let ok = 0, fail = 0;
 const failures = [];
@@ -151,20 +153,96 @@ console.log("\n== A4. openrouter（key 限额 + spend metrics + 注册诊断）=
   check("无 managementToken 不打 /credits", /if \(!extra\.managementToken\) return report/.test(engineSrc));
 }
 
-console.log("\n== B-D. 防御性解析（乐观形状 fixture；真实字段名 pending-verification）==");
+console.log("\n== C. antigravity / devin / grok（来源分流；admission pending）==");
 {
-  const g = normalizeGrokBilling({ credits: { creditUsagePercent: 37, resets_at: "2031-10-05T00:00:00Z" }, plan: "pro" }, NOW);
+  const a = normalizeAntigravityUsage(fixture("antigravity-synthetic-normal.json"), NOW);
+  check("antigravity：gemini 池识别", a.windows[0].id === "antigravity-gemini" && a.windows[0].used === 66);
+  check("antigravity：非 Gemini 池独立", a.windows.some((w) => w.id === "antigravity-other" && w.used === 12));
+  check("antigravity：pending-verification", a.diagnostics.some((d) => d.code === "pending-verification"));
+  check("antigravity：无法识别 → 抛错", (() => { try { normalizeAntigravityUsage(fixture("antigravity-synthetic-missing.json"), NOW); return false; } catch { return true; } })());
+  let deniedStatus;
+  try { normalizeAntigravityUsage(fixture("antigravity-synthetic-denied.json"), NOW); } catch (e) { deniedStatus = e.httpStatus; }
+  check("antigravity：quotas denied → 403 不装满额度", deniedStatus === 403);
+  const nested = normalizeAntigravityUsage({ quota: { gemini: { session: { percentage: 10 }, weekly: { percentage: 80 } } } }, NOW);
+  check("antigravity：5h/周分窗且缺周不补 0", nested.windows.some((w) => w.id === "antigravity-gemini" && w.used === 10) && nested.windows.some((w) => w.id === "antigravity-gemini-weekly" && w.used === 80));
+  let seenArgv;
+  const report = await fetchAntigravityUsage("agy-usage", {
+    runCommand: async ({ executable, argv }) => {
+      seenArgv = { executable, argv };
+      return JSON.stringify(fixture("antigravity-synthetic-normal.json"));
+    },
+  }, {});
+  check("antigravity：固定 argv -p /usage --output-format json", JSON.stringify(seenArgv.argv) === JSON.stringify(AGY_USAGE_ARGV) && seenArgv.executable === AGY_DEFAULT_EXECUTABLE);
+  check("antigravity：注入 CLI JSON 可归一化", report.windows[0].id === "antigravity-gemini");
+  const engineSrc = readFileSync(join(here, "..", "core", "providers", "engine", "m2-providers.mjs"), "utf8");
+  check("antigravity：不发推理/onboarding 副作用", !/onboarding/i.test(engineSrc) && !/--prompt/.test(engineSrc));
+  const agyStores = createCredentialStores({ env: { ANTIGRAVITY_CLI_PATH: "" } });
+  check("空 ANTIGRAVITY_CLI_PATH 不扫 PATH", agyStores.discover("agy-official-usage", { reader: "agy-official-usage" }, {}).status === "missing");
+  check("agy 默认 executable", agyExecutable({}) === "/opt/homebrew/bin/agy");
+  const localOff = createCredentialStores({ env: {} });
+  check("local-api 默认 skipped", localOff.discover("localapi-generic", { reader: "antigravity-local-api" }, {}).status === "skipped");
+  check("local-api 显式允许仍 not-implemented", localOff.discover("localapi-generic", { reader: "antigravity-local-api" }, { allowLocalApi: true }).reasonCode === "not-implemented");
+  const agy = reg.get("antigravity");
+  check("antigravity 源均 pending", (agy.dataSources ?? []).every((s) => s.admission === "pending"));
+  check("antigravity CLI 链不含 local-api", JSON.stringify(agy.dataSources.find((s) => s.id === "antigravity-cli").credentialChain) === JSON.stringify(["agy-official-usage"]));
+
+  const d = normalizeDevinQuota(fixture("devin-synthetic-normal.json"), NOW);
+  check("devin：daily primary + weekly", d.windows.length === 2 && d.windows[0].primary === true && d.windows[1].id === "devin-weekly");
+  check("devin：extra balance 独立", d.metrics.some((m) => m.id === "extra-balance" && m.value === 25.5));
+  const hidden = normalizeDevinQuota(fixture("devin-synthetic-hide-daily.json"), NOW);
+  check("devin：hide_daily 不把 daily 贴成 weekly", hidden.windows.length === 1 && hidden.windows[0].id === "devin-weekly" && hidden.windows[0].used === 55);
+  check("devin：无法识别 → 抛错", (() => { try { normalizeDevinQuota(fixture("devin-synthetic-missing.json"), NOW); return false; } catch { return true; } })());
+  const cliStatus = normalizeDevinCliStatus({ daily: { remaining: 0.7 }, weekly: { remaining: 0.4 } }, NOW);
+  check("devin CLI remaining 翻成 used 且分窗", cliStatus.windows.find((w) => w.id === "devin-daily").used === 30 && cliStatus.windows.find((w) => w.id === "devin-weekly").used === 60);
+  check("toml 提取 windsurf_api_key", parseDevinTomlKey('windsurf_api_key = "synthetic-devin-windsurf-01"\n') === "synthetic-devin-windsurf-01");
+  check("toml 只允许 codeium origin", parseDevinTomlOrigin('api_server_url = "https://server.codeium.com"\n') === "https://server.codeium.com");
+  check("toml 拒绝任意 URL", (() => { try { parseDevinTomlOrigin('api_server_url = "https://example.invalid"\n'); return false; } catch (e) { return e.reasonCode === "invalid-config"; } })());
+  const tomlDir = mkdtempSync(join(tmpdir(), "devin-toml-"));
+  writeFileSync(join(tomlDir, "credentials.toml"), 'windsurf_api_key = "synthetic-devin-windsurf-01"\n');
+  try {
+    const tStores = createCredentialStores({ env: {} });
+    const tPath = join(tomlDir, "credentials.toml");
+    check("devin-toml discover", tStores.discover("devin-toml", { reader: "devin-credentials-toml", path: tPath }, {}).status === "resolved");
+    const got = tStores.resolve("devin-toml", { reader: "devin-credentials-toml", path: tPath }, {});
+    check("devin-toml 不是 JSON 解析", new TextDecoder().decode(got.bytes) === "synthetic-devin-windsurf-01");
+  } finally {
+    rmSync(tomlDir, { recursive: true, force: true });
+  }
+  let cliFetchKind;
+  try { await fetchDevinQuota("synthetic-devin-cli-key-01", { dataSourceId: "devin-cli-app" }, {}); } catch (e) { cliFetchKind = e.transportKind; }
+  check("devin CLI live fetch 诚实 not-implemented", cliFetchKind === "unsupported");
+  let orgErr;
+  try { await fetchDevinQuota("synthetic-devin-web-token-01", { dataSourceId: "devin-web-org" }, {}); } catch (e) { orgErr = String(e.message); }
+  check("devin web 缺 orgId 拒绝", /organizationId/.test(orgErr));
+  check("web URL 不含跨账户 fallback", engineSrc.includes("app.devin.ai") && engineSrc.includes("billing/quota/usage") && !/fallback account/i.test(engineSrc));
+  const browserOff = createCredentialStores({ env: {} });
+  check("browser 默认 skipped", browserOff.discover("browser-generic", { reader: "devin-browser-localstorage" }, {}).status === "skipped");
+  check("browser 显式允许仍 not-implemented", browserOff.discover("browser-generic", { reader: "devin-browser-localstorage" }, { allowBrowser: true }).reasonCode === "not-implemented");
+  const devin = reg.get("devin");
+  check("devin 两源 pending 且分流", devin.dataSources.find((s) => s.id === "devin-cli-app")?.admission === "pending" && devin.dataSources.find((s) => s.id === "devin-web-org")?.admission === "pending");
+  check("web 链只有 Keychain 会话", JSON.stringify(devin.dataSources.find((s) => s.id === "devin-web-org").credentialChain) === JSON.stringify(["devin-web-session"]));
+  check("cli 链不含 browser", !(devin.dataSources.find((s) => s.id === "devin-cli-app").credentialChain ?? []).includes("devin-browser-localstorage"));
+
+  const g = normalizeGrokBilling(fixture("grok-synthetic-normal.json"), NOW);
   check("grok：creditUsagePercent 识别", g.windows[0].used === 37 && g.windows[0].id === "grok-weekly");
   check("grok：pending-verification 诊断", g.diagnostics.some((d) => d.code === "pending-verification"));
-  check("grok：无法识别 → 抛错", (() => { try { normalizeGrokBilling({ credits: { unknown: 1 } }, NOW); return false; } catch { return true; } })());
+  check("grok：plan 不进 report", !JSON.stringify(g).includes('"pro"'));
+  check("grok：PAYG 不并入周窗", g.metrics.some((m) => m.id === "payg-cap" && m.limit === 2500) && g.windows.length === 1);
+  check("grok：无法识别 → 抛错", (() => { try { normalizeGrokBilling(fixture("grok-synthetic-missing.json"), NOW); return false; } catch { return true; } })());
+  const monthly = normalizeGrokBilling(fixture("grok-synthetic-monthly.json"), NOW);
+  check("grok：~30d 标月窗而非周窗", monthly.windows[0].id === "grok-monthly" && monthly.windows[0].used === 22);
+  check("grok：PAYG cap 0 诊断而非满额", monthly.diagnostics.some((d) => d.code === "grok-payg-disabled") && !monthly.windows.some((w) => w.limit === 0 && w.used === 0));
+  check("grok 管理 key 拒绝", isGrokManagementKey("xai-synthetic-management-key"));
+  check("GROK_HOME 默认 ~/.grok/auth.json", /\/\.grok\/auth\.json$/.test(grokAuthFilePath({})));
+  check("GROK_HOME 指定文件", grokAuthFilePath({ GROK_HOME: "/tmp/synthetic-grok-auth.json" }).endsWith("synthetic-grok-auth.json"));
+  check("billing URL 带 format=credits", GROK_BILLING_URL === "https://cli-chat-proxy.grok.com/v1/billing?format=credits");
+  check("不承诺 gRPC/WKE", !/grok\.com\/prod|grpc-web/i.test(engineSrc));
+  const grok = reg.get("grok");
+  check("grok 源 pending", (grok.dataSources ?? []).every((s) => s.admission === "pending"));
+}
 
-  const d = normalizeDevinQuota({ daily: { usedPercent: 12 }, weekly: { usedPercent: 40 } }, NOW);
-  check("devin：daily primary + weekly", d.windows.length === 2 && d.windows[0].primary === true && d.windows[1].id === "devin-weekly");
-  check("devin：无法识别 → 抛错", (() => { try { normalizeDevinQuota({ foo: 1 }, NOW); return false; } catch { return true; } })());
-
-  const a = normalizeAntigravityUsage({ quota: { gemini: { percentage: 66 } } }, NOW);
-  check("antigravity：gemini 池识别", a.windows[0].id === "antigravity-gemini" && a.windows[0].used === 66);
-
+console.log("\n== D. ollama 防御性解析（pending-verification）==");
+{
   const o = normalizeOllamaUsage({ monthly: { utilization: 25 } }, NOW);
   check("ollama：monthly 识别", o.windows[0].id === "ollama-monthly" && o.windows[0].used === 25);
 }

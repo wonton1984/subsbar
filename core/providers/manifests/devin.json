@@ -10,7 +10,7 @@
   ],
   "docsPath": "docs/providers/devin.md",
   "documentationUrls": [
-    "https://github.com/subsbar/subsbar#readme"
+    "https://app.devin.ai"
   ],
   "credentialReaders": [
     {
@@ -20,6 +20,23 @@
         "api-key"
       ],
       "implementationId": "devin-toml",
+      "configurable": [
+        "path"
+      ],
+      "requires": [],
+      "purposes": [
+        "primary"
+      ],
+      "owner": "external",
+      "renewMode": "none"
+    },
+    {
+      "id": "devin-app-db",
+      "kind": "file",
+      "credentialKinds": [
+        "api-key"
+      ],
+      "implementationId": "devin-app-db",
       "configurable": [
         "path"
       ],
@@ -43,8 +60,7 @@
         "keychainPath"
       ],
       "requires": [
-        "keychain",
-        "browser"
+        "keychain"
       ],
       "purposes": [
         "primary"
@@ -52,22 +68,29 @@
       "owner": "subsbar",
       "renewMode": "none",
       "credentialService": "SubsBar credential <providerId>"
+    },
+    {
+      "id": "devin-browser-localstorage",
+      "kind": "browser",
+      "credentialKinds": [
+        "cookie"
+      ],
+      "implementationId": "browser-generic",
+      "configurable": [
+        "browserProfile",
+        "origin"
+      ],
+      "requires": [
+        "browser"
+      ],
+      "purposes": [
+        "primary"
+      ],
+      "owner": "external",
+      "renewMode": "none"
     }
   ],
   "endpoints": [
-    {
-      "id": "devin-cli-usage",
-      "transport": "https",
-      "operation": "usage",
-      "readOnly": true,
-      "grade": "C",
-      "maxResponseBytes": 65536,
-      "authPurpose": "primary",
-      "documentationUrl": "https://github.com/subsbar/subsbar#readme",
-      "method": "GET",
-      "origin": "https://api.devin.ai",
-      "pathTemplate": "/v1/usage"
-    },
     {
       "id": "devin-org-quota",
       "transport": "https",
@@ -76,24 +99,23 @@
       "grade": "C",
       "maxResponseBytes": 65536,
       "authPurpose": "primary",
-      "documentationUrl": "https://github.com/subsbar/subsbar#readme",
+      "documentationUrl": "https://app.devin.ai",
       "method": "GET",
       "origin": "https://app.devin.ai",
-      "pathTemplate": "/api/organizations/{organizationId}/quota"
+      "pathTemplate": "/api/{organizationId}/billing/quota/usage"
     }
   ],
   "dataSources": [
     {
       "id": "devin-cli-app",
-      "kind": "official-api",
+      "kind": "community-api",
       "grade": "C",
       "admission": "pending",
-      "approvalNote": "pending-verification: 防御性解析已实现，响应字段名未经真实账号验证（本机网络无法核实开源实现细节）；真实账号冒烟前排程",
-      "endpointIds": [
-        "devin-cli-usage"
-      ],
+      "approvalNote": "docs/providers/devin.md；TOML windsurf_api_key 已实现。GetUserStatus Connect 帧本轮未验证，不登记未证实的 RPC path；live fetch=not-implemented。禁止跨账户 fallback。app DB not-implemented。",
+      "endpointIds": [],
       "credentialChain": [
-        "devin-credentials-toml"
+        "devin-credentials-toml",
+        "devin-app-db"
       ],
       "capabilities": [
         "quota"
@@ -108,7 +130,7 @@
       "kind": "community-api",
       "grade": "C",
       "admission": "pending",
-      "approvalNote": "pending-verification: 防御性解析已实现，响应字段名未经真实账号验证（本机网络无法核实开源实现细节）；真实账号冒烟前排程",
+      "approvalNote": "docs/providers/devin.md；网页 org quota 需手动 Keychain 会话 + organizationId。自动 localStorage 仅显式 allowBrowser，本轮 not-implemented。daily 不贴 weekly。",
       "endpointIds": [
         "devin-org-quota"
       ],
@@ -116,10 +138,12 @@
         "devin-web-session"
       ],
       "capabilities": [
-        "quota"
+        "quota",
+        "balance"
       ],
       "coverageMetricRules": [
-        "devin-daily"
+        "devin-daily",
+        "devin-weekly"
       ],
       "coverageMatch": "any",
       "organizationScoped": true
@@ -134,14 +158,37 @@
   "metricRules": [
     {
       "id": "devin-daily",
-      "metricId": "daily",
+      "metricId": "devin-daily",
       "kind": "quota",
-      "unit": "count",
+      "unit": "percent",
       "scope": "subscription",
       "period": "rolling",
       "derivations": [],
-      "description": "daily/weekly/extra balance by actual plan",
+      "description": "daily quota percent used; omitted when hide_daily_quota",
+      "missingPolicy": "omit-optional"
+    },
+    {
+      "id": "devin-weekly",
+      "metricId": "devin-weekly",
+      "kind": "quota",
+      "unit": "percent",
+      "scope": "subscription",
+      "period": "rolling",
+      "derivations": [],
+      "description": "weekly quota percent used; never copied from daily",
       "missingPolicy": "unknown"
+    },
+    {
+      "id": "devin-extra-balance",
+      "metricId": "extra-balance",
+      "kind": "balance",
+      "unit": "currency",
+      "currency": "USD",
+      "scope": "organization",
+      "period": "unknown",
+      "derivations": [],
+      "description": "extra/overage balance USD when present",
+      "missingPolicy": "omit-optional"
     }
   ],
   "primaryPreference": [
@@ -153,12 +200,13 @@
   "reasonCodes": [],
   "fixtureIds": [
     "devin-synthetic-normal",
+    "devin-synthetic-hide-daily",
     "devin-synthetic-missing"
   ],
   "provenance": [],
   "login": {
     "mode": "guide",
-    "note": "纯网页登录 app.devin.ai（无 CLI）；会话导入见 docs/providers/devin.md",
+    "note": "CLI `devin auth login` 或网页 app.devin.ai；会话导入见 docs/providers/devin.md（UNVERIFIED）",
     "verified": false,
     "url": "https://app.devin.ai",
     "launchMode": "web-guide"

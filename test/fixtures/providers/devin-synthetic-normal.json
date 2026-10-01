@@ -1,0 +1,5 @@
+{
+  "daily": { "usedPercent": 12, "resets_at": "2031-10-03T00:00:00Z" },
+  "weekly": { "usedPercent": 40, "resets_at": "2031-10-08T00:00:00Z" },
+  "extra_balance": 25.5
+}

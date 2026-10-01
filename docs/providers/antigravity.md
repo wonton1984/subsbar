@@ -1,25 +1,60 @@
 # antigravity
 
-> 状态：计划中（来源成熟度 C）。本文为 M0 占位草案，M2 验收后补全来源版本、已验证 CLI 版本、fixture 清单与人工验收记录。
+> Status: experimental (official CLI A, local-api C). Not enabled for
+> open-source first release until a later publish-round gate. Maintainer has
+> **not** exercised a real Antigravity / `agy` session this round — CLI version
+> and JSON shape are **unverified**.
 
-> **验证状态**：结构已防御性实现（解析器在本仓并有合成 fixture 测试）；维护者本机无此订阅，未经真实端点验证——字段名可能偏差。欢迎社区贡献者以真实账号验证并回馈字段级结论。
+| Field | Value |
+| --- | --- |
+| Product | Google Antigravity / Gemini quota pools |
+| Primary source | Logged-in `agy -p /usage --output-format json` (changelog v1.1.11 non-interactive print; command A) |
+| Optional | `local-api` language-server / loopback (C); Keychain OAuth only after admission |
+| Admission | All sources **pending**. Refresh refuses to run them. |
+| Verified CLI | **None this round.** Do not claim a specific `agy` version is supported. |
+| Last maintained | 2026-10-02 |
+| Maintainer | SubsBar Node core |
 
-## 数据来源
+## Threshold / ToS
 
-优先已登录 agy 官方 /usage；本地 language server（C）
+- Product: https://antigravity.google
+- Changelog (non-interactive `/usage`): https://antigravity.google/docs/changelog
+- Enabling a community local-api or Keychain OAuth path is the owner's choice; this project does not grant Google permission.
 
-## 凭证方式
+## Credentials
 
-agy CLI 输出 → 验证后本地 API；Keychain OAuth 仅准入后
+Default auto chain (once admitted) is **only** the official CLI session:
 
-## 口径说明（首发指标）
+1. `agy-official-usage` — discover a fixed executable (`ANTIGRAVITY_CLI_PATH` if set and non-empty, else `/opt/homebrew/bin/agy`). Resolve returns a capability handle, not a copied token. Empty `ANTIGRAVITY_CLI_PATH` skips the CLI (does not search PATH).
+2. `local-api` is **not** on the default chain. It requires `profile.allowLocalApi`. Loopback only; CSRF / same-account process checks are **unverified this round** and resolve is `not-implemented`.
+3. SubsBar Keychain OAuth is a separate pending source, not in the CLI chain.
 
-Gemini 与非 Gemini 池及服务端实际返回窗口
+Config cannot set an arbitrary URL or shell string. CLI argv is fixed: `-p /usage --output-format json`. Timeout 15s, stdout cap 64 KiB. The runner does not send a model prompt, does not start onboarding, and does not parse TUI output.
 
-## 风险与 403/异常处理
+## Quota semantics
 
-不触发 onboarding/推理副作用；403 保留错误不当作满额度
+| Pool | Metric | Notes |
+| --- | --- | --- |
+| Gemini (Pro/Flash shared) | `antigravity-gemini` | Percent used. Nested 5h / weekly become `antigravity-gemini` + `antigravity-gemini-weekly` when both are present |
+| Non-Gemini | `antigravity-other` | Only if the payload actually includes that pool |
+| Missing weekly | omitted | Old endpoints without weekly are **not** recorded as 0% |
 
-## 已知缺口
+Plan/tier strings are not copied into the report. Over-limit values are not clamped. Fractions in `0..1` are converted to percent; explicit percent fields are used as-is.
 
-- 见上；M2 验收时逐项登记未支持场景与未验证套餐。
+## 403 / errors
+
+- `quotas denied` / quota-denied → `permission-denied`. **Do not** fill windows at 100% from model availability.
+- Tokenless local requests on newer `agy` builds may 401 (CSRF). That is not treated as a full quota.
+- HTTP 401 on an admitted remote path → `reauth-required` / `relogin-owner` (per-provider).
+
+## Known gaps (this round, unverified)
+
+- **CLI version lock and live `/usage` JSON shape not exercised.** Print-mode argv follows public changelog + community notes; output fields may drift.
+- Local language-server port/CSRF/session binding **not implemented** (S-level evidence insufficient to ship a scanner).
+- Keychain OAuth / Cloud Code remote quota **not admitted**.
+- Local conversation spend / usage-trend **out of scope**.
+- Real-account Gemini vs non-Gemini window names **unverified**.
+
+## Synthetic fixtures
+
+`test/fixtures/providers/antigravity-synthetic-*.json`.

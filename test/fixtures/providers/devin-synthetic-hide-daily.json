@@ -1,0 +1,5 @@
+{
+  "hide_daily_quota": true,
+  "weekly": { "usedPercent": 55 },
+  "extra_balance": 1.25
+}
