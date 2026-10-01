@@ -10,6 +10,14 @@ public enum M2Suite {
             guard try condition() else { throw LocalFailure("FAIL M2: \(name)") }
             count += 1; print("PASS M2 \(name)")
         }
+        var renderGate = ValueChangeGate<String>()
+        try check("render initial appearance accepted", renderGate.accept("light:0.5:Cod"))
+        var duplicateRenders = 0
+        for _ in 0..<10000 { if renderGate.accept("light:0.5:Cod") { duplicateRenders += 1 } }
+        try check("appearance notifications do not redraw unchanged input", duplicateRenders == 0)
+        try check("real appearance switch redraws once", renderGate.accept("dark:0.5:Cod") && !renderGate.accept("dark:0.5:Cod"))
+        try check("quota change redraws", renderGate.accept("dark:0.6:Cod"))
+        try check("provider change redraws", renderGate.accept("dark:0.6:Kim"))
         for n in [0, 1, 3, 4, 5, 6, 14] {
             let layout = OverviewLayout(count: n)
             let ids = (0..<n).map(String.init)

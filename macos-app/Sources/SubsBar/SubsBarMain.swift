@@ -18,6 +18,15 @@ import Darwin
     private(set) var items: [NSStatusItem] = []
     private var anchorButton: NSStatusBarButton?
     private var stopped = false
+    private struct ButtonState: Equatable {
+        let fraction: Double?
+        let name: String
+        let title: String
+        let tooltip: String
+        let appearance: String
+    }
+    private var buttonStates: [Int: ValueChangeGate<ButtonState>] = [:]
+    private var updating = false
     private var segments: [MenuBarSegment] = []
     private var lastMenuIDs: [String]?
     let popover = NSPopover()
@@ -45,7 +54,9 @@ import Darwin
         NSApp.activate(ignoringOtherApps: true); settings?.makeKeyAndOrderFront(nil)
     }
     func update() {
-        guard !stopped else { return }
+        guard !stopped, !updating else { return }
+        updating = true
+        defer { updating = false }
         // The existing minute clock also invalidates stale data and reset descriptions.
         // No extra timer or network request is needed.
         segments = model.menuBarSegments
@@ -53,6 +64,7 @@ import Darwin
         if items.count != count {
             popover.performClose(nil); anchorButton = nil
             appearance?.invalidate()
+            buttonStates.removeAll()
             for item in items { NSStatusBar.system.removeStatusItem(item) }
             items = (0..<count).map { _ in
                 let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -65,6 +77,12 @@ import Darwin
         for (index, item) in items.enumerated() {
             guard let button = item.button else { continue }
             let segment = segments.indices.contains(index) ? segments[index] : nil
+            let state = ButtonState(fraction: segment?.fraction ?? (segments.isEmpty ? model.fraction : nil),
+                                    name: segment?.name ?? "", title: segment?.title ?? "",
+                                    tooltip: segment.map { $0.accessibilityTitle(fullName: model.name($0.providerID)) } ?? model.tooltip,
+                                    appearance: button.effectiveAppearance.name.rawValue)
+            // Commit the value before AppKit writes: appearance KVO may enqueue another update.
+            guard buttonStates[index, default: ValueChangeGate()].accept(state) else { continue }
             button.image = RingIconRenderer.draw(segment?.fraction ?? (segments.isEmpty ? model.fraction : nil), name: segment?.name ?? "", hasKnownAmount: !(segment?.title.isEmpty ?? true), appearance: button.effectiveAppearance)
             button.imagePosition = .imageLeading
             button.title = segment?.title ?? ""
@@ -80,7 +98,8 @@ import Darwin
         }
         let appearanceName = model.config["ui"]["appearance"].text
         let preferred: NSAppearance? = appearanceName == "dark" ? NSAppearance(named: .darkAqua) : appearanceName == "light" ? NSAppearance(named: .aqua) : nil
-        popover.appearance = preferred; settings?.appearance = preferred
+        if popover.appearance?.name != preferred?.name { popover.appearance = preferred }
+        if settings?.appearance?.name != preferred?.name { settings?.appearance = preferred }
         if popover.isShown { resize() }
     }
     private func resize() {
@@ -88,7 +107,8 @@ import Darwin
         let desiredHeight = ceil(model.detailsHeight ?? 250) + ceil(model.chromeHeight ?? PopoverLayout.fallbackChrome)
         let height = min(maxHeight, max(230, desiredHeight))
         if abs(model.height - height) > 0.5 { model.height = height }
-        popover.contentSize = NSSize(width: PopoverLayout.width(for: model), height: model.height)
+        let size = NSSize(width: PopoverLayout.width(for: model), height: model.height)
+        if popover.contentSize != size { popover.contentSize = size }
     }
     @objc func toggle(_ sender: Any? = nil) {
         if popover.isShown { popover.performClose(nil); return }
