@@ -79,9 +79,13 @@ imports from `scripts/`, and the bundled app ships `core/` + `schemas/` +
   `profileId` (usage projection would otherwise strip new windows as
   stale-foreign). Fetch failures classify `timeout`, `connect-refused`, and
   `http-5xx` separately; generic network errors are `network`, not `http-5xx`.
-- Backoff: `max(effectiveInterval, min(3600, 300·2^(n-1)·(1+jitter)))`
-  seconds, server `Retry-After` takes precedence, success resets the
-  failure counter. The batch deadline is 120 s.
+- Backoff milliseconds are ceiled so integer `*AtMs` gates still apply.
+  `nextEligibleAtMs` is the later of cache, local backoff, and server
+  `Retry-After`. `reason=manual` may skip local backoff (network-poor UX,
+  2026-10-01) but must still honor server `Retry-After` and a 30 s minimum
+  interval. Success clears the current error; `lastFailureAtMs` is kept.
+  Cancel does not add backoff or clear `Retry-After`. Partial success
+  resets the main failure counter only.
 - The cache write is atomic (temp file + rename). `exit 0` is *not* success
   evidence — consumers read the structured envelope and per-provider
   attempts.

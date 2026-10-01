@@ -4,7 +4,7 @@
  * 运行：node test/m1-scenarios.test.mjs ；退出码 0 = 全过。
  */
 import { mkdirSync, writeFileSync, rmSync, chmodSync, existsSync, readFileSync } from "fs";
-import { join } from "path";
+import { join, dirname } from "path";
 import { tmpdir } from "os";
 import { createCredentialStores } from "../core/credentials/stores.mjs";
 import { resolveChain } from "../core/credentials/resolver.mjs";
@@ -112,23 +112,22 @@ console.log("\n== C10. 跨进程锁：竞争/崩溃恢复/活锁不抢 ==");
 
 console.log("\n== C12/C13. 失败持久化与写失败 ==");
 {
-  const cacheFile = join(base, "usage-v1.json");
+  const cacheHome = join(base, "c12-cache");
+  const stateHome = join(base, "c12-state");
+  mkdirSync(cacheHome, { recursive: true, mode: 0o700 });
+  mkdirSync(stateHome, { recursive: true, mode: 0o700 });
+  const isolatedEnv = { ...process.env, XDG_CACHE_HOME: cacheHome, XDG_STATE_HOME: stateHome };
+  const coordinator = new RefreshCoordinator({ configPath: join(base, "no-config.json"), env: isolatedEnv });
+  const cacheFile = coordinator.dirs().usageCacheFile;
   const goodEnvelope = { schemaVersion: 1, kind: "usage", contextId: "c", generatedAtMs: 1, cacheRevision: 0, providers: [], diagnostics: [] };
-  // 正常写
-  const c1 = new RefreshCoordinator({ configPath: join(base, "no-config.json"), env: process.env });
-  // 让 persist 用指定目录：直接测内部原子行为——改为测 readUsageCache 往返
-  const coordinator = new RefreshCoordinator({ configPath: join(base, "no-config.json"), env: process.env });
-  // 无缓存 → null
   check("无缓存读取 null", coordinator.readUsageCache() === null);
-  // 损坏缓存 → null（C19 兜底）
+  mkdirSync(dirname(cacheFile), { recursive: true, mode: 0o700 });
   writeFileSync(cacheFile, "{{{", { mode: 0o600 });
   check("损坏缓存不抛错", coordinator.readUsageCache() === null);
   rmSync(cacheFile, { force: true });
-  // 重复键拒绝（C19）
   writeFileSync(cacheFile, '{"a":1,"a":2}', { mode: 0o600 });
   check("重复键缓存拒绝", coordinator.readUsageCache() === null);
   rmSync(cacheFile, { force: true });
-  // 不可写目录 → persist false（C13）
   const roDir = join(base, "readonly");
   mkdirSync(roDir, { recursive: true });
   writeFileSync(join(roDir, "blocker"), "x");
@@ -149,6 +148,110 @@ console.log("\n== C11. 退避与 Retry-After ==");
   check("Retry-After 非法 → undefined", parseRetryAfter("soon", 5_000) === undefined);
   const jittered = [computeBackoffMs(2, 300, { jitter: 0 }), computeBackoffMs(2, 300, { jitter: 0.1 })];
   check("抖动只增不减且 ≤10%（n=2 基线 600s）", jittered[0] === 600_000 && jittered[1] >= 600_000 && jittered[1] <= 660_000);
+}
+
+console.log("\n== C11b. 退避毫秒取整 / manual 门控 / runtime 语义 ==");
+{
+  const { isAtMs } = await import("../core/defs.mjs");
+  const {
+    ceilAtMs, laterEligibleAtMs, recordProviderRuntime, receiptOutcome, applyResult,
+    localDeadlineMs, serverDeadlineMs, MANUAL_MIN_INTERVAL_MS, ERROR_SUMMARY_ZH,
+  } = await import("../core/runtime/scheduler.mjs");
+  const now = 1_800_000_000_000;
+  const frac = computeBackoffMs(1, 300, { jitter: 0.012345 });
+  check("非整 jitter 向上取整为整数毫秒", Number.isInteger(frac) && frac === Math.ceil(300_000 * (1 + 0.012345)));
+  check("取整后 deadline 通过 isAtMs 门控", isAtMs(now + frac) && now < now + frac);
+  check("旧小数 deadline 向上取整仍保护", ceilAtMs(now + 303703.5) === now + 303704 && isAtMs(ceilAtMs(now + 303703.5)));
+  check("C11 较晚值取 max", laterEligibleAtMs(now + 100, now + 50.2, undefined) === now + 100);
+
+  const failedRt = recordProviderRuntime({}, {
+    kind: "failed",
+    error: { code: "timeout", reasonCode: "timeout", action: "retry-later" },
+    startedAtMs: now, finishedAtMs: now + 12, requestedAtMs: now,
+  }, { nowMs: now + 12, intervalSeconds: 300 });
+  check("失败写入 lastFailure/lastAttempt 且 lastError 脱敏", failedRt.lastFailureAtMs === now + 12 && failedRt.lastAttemptAtMs === now
+    && failedRt.lastError?.summary === ERROR_SUMMARY_ZH.timeout && failedRt.lastError?.code === "timeout"
+    && !JSON.stringify(failedRt.lastError).includes("Error") && Number.isInteger(failedRt.nextEligibleAtMs));
+  const deferredRt = recordProviderRuntime(failedRt, {
+    kind: "deferred", reason: "backoff", nextEligibleAtMs: failedRt.nextEligibleAtMs, requestedAtMs: now + 100,
+  }, { nowMs: now + 100, intervalSeconds: 300 });
+  check("deferred 不刷新失败时间", deferredRt.lastFailureAtMs === failedRt.lastFailureAtMs && deferredRt.lastAttemptAtMs === failedRt.lastAttemptAtMs
+    && deferredRt.lastDeferredAtMs === now + 100 && deferredRt.consecutiveFailures === failedRt.consecutiveFailures);
+  const cancelRt = recordProviderRuntime({ ...failedRt, serverRetryAtMs: now + 7_200_000 }, {
+    kind: "cancelled", startedAtMs: now + 50, finishedAtMs: now + 51, requestedAtMs: now + 50,
+  }, { nowMs: now + 51, intervalSeconds: 300 });
+  check("cancel 不加退避且保留 Retry-After", cancelRt.consecutiveFailures === failedRt.consecutiveFailures
+    && cancelRt.serverRetryAtMs === now + 7_200_000 && cancelRt.localBackoffAtMs === failedRt.localBackoffAtMs);
+  const partialRt = recordProviderRuntime({ ...failedRt, serverRetryAtMs: now + 7_200_000, consecutiveFailures: 3 }, {
+    kind: "partial", startedAtMs: now + 80, finishedAtMs: now + 81, requestedAtMs: now + 80,
+    report: { diagnostics: [{ code: "summary-unavailable", severity: "warning" }] },
+  }, { nowMs: now + 81, intervalSeconds: 300 });
+  check("partial 只清主失败计数、保留 server Retry-After", partialRt.consecutiveFailures === 0 && partialRt.localBackoffAtMs === undefined
+    && partialRt.serverRetryAtMs === now + 7_200_000 && partialRt.lastError?.code === "timeout");
+  const successRt = recordProviderRuntime(failedRt, {
+    kind: "success", startedAtMs: now + 90, finishedAtMs: now + 91, requestedAtMs: now + 90,
+  }, { nowMs: now + 91, intervalSeconds: 300 });
+  check("成功清除 lastError、保留历史 lastFailureAtMs", successRt.lastError === undefined && successRt.consecutiveFailures === 0
+    && successRt.lastFailureAtMs === failedRt.lastFailureAtMs);
+
+  const sixFailed = ["kimi", "opencode", "codex", "commandcode", "cursor", "droid"];
+  const providers = [
+    ...sixFailed.map((id) => ({ providerId: id, status: "error", attempt: { state: "failed" } })),
+    ...["claude", "copilot", "zai", "openrouter", "antigravity", "devin", "grok", "ollama"].map((id) => ({ providerId: id, status: "disabled", attempt: { state: "deferred", deferredReason: "backoff" } })),
+  ];
+  const results = new Map([
+    ...sixFailed.map((id) => [id, { kind: "failed" }]),
+    ...["claude", "copilot", "zai", "openrouter", "antigravity", "devin", "grok", "ollama"].map((id) => [id, { kind: "noop-disabled" }]),
+  ]);
+  check("六家失败+八家 disabled → failed 而非 deferred", receiptOutcome(providers, null, results) === "failed");
+
+  const entry = { providerId: "kimi", status: "error", attempt: { state: "never" } };
+  applyResult(entry, { kind: "deferred", reason: "batch-budget", nextEligibleAtMs: now + 1000 }, { nowMs: now, trigger: { reason: "timer" } });
+  check("batch-budget 透传 deferredReason", entry.attempt.deferredReason === "batch-budget");
+  applyResult(entry, { kind: "failed", error: { code: "timeout", reasonCode: "timeout", action: "retry-later" }, nextEligibleAtMs: now + 300_000, startedAtMs: now, finishedAtMs: now + 5 }, { nowMs: now + 5, trigger: { reason: "timer" } });
+  check("失败 nextEligibleAtMs 写入本批 entry", entry.nextEligibleAtMs === now + 300_000);
+
+  const coordinator = new RefreshCoordinator({ configPath: join(base, "c11b-config.json"), env: { ...process.env, XDG_CACHE_HOME: join(base, "c11b-cache"), XDG_STATE_HOME: join(base, "c11b-state") } });
+  const cfgLoaded = {
+    config: {
+      revision: 1,
+      runtime: { refreshIntervalSeconds: 300, maxConcurrency: 3 },
+      providers: {
+        kimi: {
+          enabled: true, dataSource: "auto", allowCommunityEndpoints: true, activeProfile: "synthetic",
+          profiles: [{ id: "synthetic", discovery: "only", sources: [{ id: "missing", kind: "env", reader: "kimi-env-key", purpose: "primary", envName: "SYNTHETIC_C11B_ABSENT" }] }],
+        },
+      },
+    },
+  };
+  const fracDeadline = now + 303703.5;
+  const timerBlocked = await coordinator.refreshProvider("kimi", {
+    cfgLoaded, runtime: { kimi: { nextEligibleAtMs: fracDeadline } }, auth: {},
+    broker: new SecretBroker(), stores: createCredentialStores({ env: process.env }),
+    nowMs: now, signal: new AbortController().signal, dirs: coordinator.dirs(), trigger: { reason: "timer" },
+  });
+  check("timer 对小数 deadline 仍门控", timerBlocked.kind === "deferred" && timerBlocked.reason === "backoff" && timerBlocked.nextEligibleAtMs === now + 303704);
+  const manualLocal = await coordinator.refreshProvider("kimi", {
+    cfgLoaded, runtime: { kimi: { localBackoffAtMs: now + 3_600_000, nextEligibleAtMs: now + 3_600_000, lastAttemptAtMs: now - 120_000 } },
+    auth: {}, broker: new SecretBroker(), stores: createCredentialStores({ env: process.env }),
+    nowMs: now, signal: new AbortController().signal, dirs: coordinator.dirs(), trigger: { reason: "manual" },
+  });
+  check("manual 绕过本地退避", manualLocal.kind !== "deferred");
+  const manualServer = await coordinator.refreshProvider("kimi", {
+    cfgLoaded, runtime: { kimi: { serverRetryAtMs: now + 7_200_000, lastError: { reasonCode: "http-429" } } },
+    auth: {}, broker: new SecretBroker(), stores: createCredentialStores({ env: process.env }),
+    nowMs: now, signal: new AbortController().signal, dirs: coordinator.dirs(), trigger: { reason: "manual" },
+  });
+  check("manual 不绕过 server Retry-After", manualServer.kind === "deferred" && manualServer.reason === "backoff" && manualServer.nextEligibleAtMs === now + 7_200_000);
+  const manualClick = await coordinator.refreshProvider("kimi", {
+    cfgLoaded, runtime: { kimi: { lastAttemptAtMs: now - 1_000 } },
+    auth: {}, broker: new SecretBroker(), stores: createCredentialStores({ env: process.env }),
+    nowMs: now, signal: new AbortController().signal, dirs: coordinator.dirs(), trigger: { reason: "manual" },
+  });
+  check("manual 连点受 30s 最小间隔", manualClick.kind === "deferred" && manualClick.reason === "not-due"
+    && manualClick.nextEligibleAtMs === now - 1_000 + MANUAL_MIN_INTERVAL_MS);
+  check("local/server deadline 拆分", localDeadlineMs({ localBackoffAtMs: now + 10 }) === now + 10
+    && serverDeadlineMs({ serverRetryAtMs: now + 20.2 }) === now + 21);
 }
 
 console.log("\n== R5. Keychain 命名约定（IPC freeze rev5）==");

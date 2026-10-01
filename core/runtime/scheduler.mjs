@@ -11,12 +11,170 @@ import { SecretBroker } from "../credentials/broker.mjs";
 import { createCredentialStores } from "../credentials/stores.mjs";
 import { ProviderRegistry } from "../providers/registry.mjs";
 import { v0ReadAuth, v0ResolveCredential, fetchProviderSnapshot, snapshotHasData } from "../providers/adapters.mjs";
-import { safeError, diagnostic, isAtMs } from "../defs.mjs";
+import { safeError, diagnostic, isAtMs, SAFE_ERROR_CODES, ACTION_CODES } from "../defs.mjs";
 import { legacyWindowToMetric } from "./report.mjs";
 import { parseStrictJson } from "./json-strict.mjs";
 
 const BATCH_LIMIT_MS = 120_000;
 const LOSER_WAIT_MS = 2_000;
+/** manual 绕过本地退避后仍防连点（总管 2026-10-01 裁决）。 */
+export const MANUAL_MIN_INTERVAL_MS = 30_000;
+
+const DEFERRED_REASONS = new Set(["busy", "not-due", "backoff", "batch-budget", "auth-wait"]);
+
+/** 最近错误白名单中文简述：只按注册码映射，永不收录异常原文/路径/凭证。 */
+export const ERROR_SUMMARY_ZH = {
+  timeout: "请求超时",
+  "connect-refused": "无法连接",
+  network: "网络错误",
+  "http-5xx": "服务暂时不可用",
+  "http-429": "请求过于频繁",
+  "http-401": "需要重新登录",
+  "http-403": "权限不足",
+  "io-error": "本地读写失败",
+  "invalid-response": "响应无效",
+  "empty-response": "响应为空",
+  "not-configured": "尚未配置",
+  "invalid-credential": "凭证无效",
+  "credential-expired": "凭证已过期",
+  "permission-denied": "权限不足",
+  "invalid-config": "配置无效",
+  "account-mismatch": "账号不匹配",
+  "interaction-required": "需要在设置中连接",
+  unsupported: "当前来源不可用",
+  cancelled: "已取消",
+  "rate-limited": "请求过于频繁",
+  "cache-write-failed": "缓存写入失败",
+  "config-conflict": "配置冲突",
+  "schema-unsupported": "协议不受支持",
+  "reader-unavailable": "读取器不可用",
+  "not-implemented": "尚未实现",
+};
+
+/** 小数 deadline 向上取整后仍须通过 isAtMs，避免门控被跳过；非法值丢弃。 */
+export function ceilAtMs(v) {
+  if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) return undefined;
+  const n = Math.ceil(v);
+  return isAtMs(n) ? n : undefined;
+}
+
+/** C11：cache / runtime 本地退避 / 服务端 Retry-After 取有效较晚值。 */
+export function laterEligibleAtMs(...vals) {
+  let max;
+  for (const v of vals) {
+    const n = ceilAtMs(v);
+    if (n === undefined) continue;
+    if (max === undefined || n > max) max = n;
+  }
+  return max;
+}
+
+export function serverDeadlineMs(st) {
+  if (!st || typeof st !== "object") return undefined;
+  const direct = ceilAtMs(st.serverRetryAtMs);
+  if (direct) return direct;
+  const fromErr = ceilAtMs(st.lastError?.retryAtMs);
+  if (fromErr) return fromErr;
+  if (st.lastError?.reasonCode === "http-429") return ceilAtMs(st.nextEligibleAtMs);
+  return undefined;
+}
+
+export function localDeadlineMs(st) {
+  if (!st || typeof st !== "object") return undefined;
+  const local = ceilAtMs(st.localBackoffAtMs);
+  if (local) return local;
+  if (serverDeadlineMs(st) !== undefined) return undefined;
+  return ceilAtMs(st.nextEligibleAtMs);
+}
+
+function lastErrorRecord(error, failedAtMs) {
+  if (!error || typeof error !== "object") return undefined;
+  const code = SAFE_ERROR_CODES.includes(error.code) ? error.code : "network";
+  const rawReason = String(error.reasonCode ?? "network").slice(0, 64);
+  const reasonCode = /^[a-z0-9-]{1,64}$/.test(rawReason) ? rawReason : "network";
+  const action = ACTION_CODES.includes(error.action) ? error.action : "retry-later";
+  const rec = {
+    code,
+    reasonCode,
+    action,
+    summary: ERROR_SUMMARY_ZH[reasonCode] ?? ERROR_SUMMARY_ZH[code] ?? "请求失败",
+    failedAtMs: ceilAtMs(failedAtMs),
+  };
+  if (Number.isInteger(error.httpStatus) && error.httpStatus >= 100 && error.httpStatus <= 599) {
+    rec.httpStatus = error.httpStatus;
+  }
+  const retryAt = ceilAtMs(error.retryAtMs);
+  if (retryAt) rec.retryAtMs = retryAt;
+  return rec;
+}
+
+function deferredReasonOf(r) {
+  if (r.kind !== "deferred") return undefined;
+  const reason = r.reason;
+  if (typeof reason === "string" && DEFERRED_REASONS.has(reason)) return reason;
+  return undefined;
+}
+
+/**
+ * 将一次 refreshProvider 结果写入 runtime。deferred 不碰失败时间；
+ * cancel 不加退避也不清 server Retry-After；partial 只清主失败计数。
+ */
+export function recordProviderRuntime(prev = {}, r, { nowMs, intervalSeconds }) {
+  if (!r || r.kind === "noop-disabled") return { ...prev };
+  const next = { ...prev };
+  next.lastRequestedAtMs = ceilAtMs(r.requestedAtMs) ?? nowMs;
+
+  if (r.kind === "deferred") {
+    next.lastDeferredAtMs = nowMs;
+    const eligible = laterEligibleAtMs(r.nextEligibleAtMs, next.localBackoffAtMs, next.serverRetryAtMs, next.nextEligibleAtMs);
+    if (eligible !== undefined) next.nextEligibleAtMs = eligible;
+    return next;
+  }
+
+  if (r.kind === "cancelled") {
+    if (r.startedAtMs) next.lastAttemptAtMs = ceilAtMs(r.startedAtMs) ?? next.lastAttemptAtMs;
+    if (r.finishedAtMs) next.lastFinishedAtMs = ceilAtMs(r.finishedAtMs) ?? next.lastFinishedAtMs;
+    next.nextEligibleAtMs = laterEligibleAtMs(next.localBackoffAtMs, next.serverRetryAtMs);
+    return next;
+  }
+
+  if (r.kind === "failed") {
+    const failures = (prev.consecutiveFailures ?? 0) + 1;
+    next.consecutiveFailures = failures;
+    const failedAt = ceilAtMs(r.finishedAtMs) ?? nowMs;
+    next.lastAttemptAtMs = ceilAtMs(r.startedAtMs) ?? failedAt;
+    next.lastFinishedAtMs = failedAt;
+    next.lastFailureAtMs = failedAt;
+    next.localBackoffAtMs = failedAt + computeBackoffMs(failures, intervalSeconds);
+    const serverAt = ceilAtMs(r.error?.retryAtMs);
+    if (serverAt) next.serverRetryAtMs = laterEligibleAtMs(prev.serverRetryAtMs, serverAt);
+    next.nextEligibleAtMs = laterEligibleAtMs(next.localBackoffAtMs, next.serverRetryAtMs);
+    next.lastError = lastErrorRecord(r.error, failedAt);
+    return next;
+  }
+
+  if (r.kind === "success") {
+    next.consecutiveFailures = 0;
+    next.localBackoffAtMs = undefined;
+    next.serverRetryAtMs = undefined;
+    next.nextEligibleAtMs = undefined;
+    next.lastAttemptAtMs = ceilAtMs(r.startedAtMs) ?? nowMs;
+    next.lastFinishedAtMs = ceilAtMs(r.finishedAtMs) ?? nowMs;
+    next.lastError = undefined;
+    return next;
+  }
+
+  if (r.kind === "partial") {
+    next.consecutiveFailures = 0;
+    next.localBackoffAtMs = undefined;
+    next.lastAttemptAtMs = ceilAtMs(r.startedAtMs) ?? nowMs;
+    next.lastFinishedAtMs = ceilAtMs(r.finishedAtMs) ?? nowMs;
+    next.nextEligibleAtMs = laterEligibleAtMs(next.serverRetryAtMs);
+    return next;
+  }
+
+  return next;
+}
 
 export class RefreshCoordinator {
   constructor({ configPath, env = process.env }) {
@@ -113,7 +271,8 @@ export class RefreshCoordinator {
 
     const targets = this.registry.order.filter((id) => {
       if (requested && !requested.includes(id)) return false;
-      return true;
+      const pcfg = cfgLoaded?.config?.providers?.[id];
+      return !!pcfg?.enabled;
     });
 
     const results = new Map();
@@ -140,24 +299,21 @@ export class RefreshCoordinator {
     const envelope = this.buildEnvelope({ nowMs: Date.now(), config: cfgLoaded, runtime });
     for (const entry of envelope.providers) {
       const r = results.get(entry.providerId);
-      if (!r) continue;
+      if (!r || r.kind === "noop-disabled") continue;
       completed.push(entry.providerId);
-      applyResult(entry, r, { nowMs: Date.now(), trigger, configRevision: cfgLoaded?.config?.revision ?? 0 });
-      // 退避状态持久化
       const prev = runtimeByProvider[entry.providerId] ?? {};
-      let nextEligibleAtMs = r.nextEligibleAtMs;
-      if (r.kind === "failed") {
-        const failures = (prev.consecutiveFailures ?? 0) + 1;
-        const interval = Math.max(cfgLoaded?.config?.runtime?.refreshIntervalSeconds ?? 300, this.registry.get(entry.providerId)?.refresh?.minimumIntervalSeconds ?? 60);
-        const backoffAt = Date.now() + computeBackoffMs(failures, interval);
-        const serverAt = r.error?.retryAtMs;
-        nextEligibleAtMs = typeof serverAt === "number" ? Math.max(backoffAt, serverAt) : backoffAt;
-        runtimeByProvider[entry.providerId] = { ...prev, consecutiveFailures: failures, nextEligibleAtMs, lastAttemptAtMs: Date.now() };
-      } else if (r.kind === "success" || r.kind === "partial") {
-        runtimeByProvider[entry.providerId] = { ...prev, consecutiveFailures: 0, nextEligibleAtMs: undefined, lastAttemptAtMs: Date.now() };
-      } else {
-        runtimeByProvider[entry.providerId] = { ...prev, nextEligibleAtMs, lastAttemptAtMs: Date.now() };
-      }
+      const interval = Math.max(
+        cfgLoaded?.config?.runtime?.refreshIntervalSeconds ?? 300,
+        this.registry.get(entry.providerId)?.refresh?.minimumIntervalSeconds ?? 60,
+      );
+      const stamp = Date.now();
+      const next = recordProviderRuntime(prev, r, { nowMs: stamp, intervalSeconds: interval });
+      runtimeByProvider[entry.providerId] = next;
+      r.nextEligibleAtMs = laterEligibleAtMs(r.nextEligibleAtMs, next.nextEligibleAtMs, next.serverRetryAtMs);
+      applyResult(entry, r, { nowMs: stamp, trigger, configRevision: cfgLoaded?.config?.revision ?? 0 });
+      const projected = laterEligibleAtMs(entry.nextEligibleAtMs, next.nextEligibleAtMs, next.serverRetryAtMs);
+      if (projected !== undefined) entry.nextEligibleAtMs = projected;
+      else delete entry.nextEligibleAtMs;
     }
     envelope.request = {
       requestId,
@@ -183,12 +339,31 @@ export class RefreshCoordinator {
     if (!dataSource) return { kind: "failed", error: safeError("unsupported", "insufficient-scope", "contact-maintainer"), retainLastGood: true, profileId };
     if (dataSource.admission !== "approved") return { kind: "failed", error: safeError("unsupported", "insufficient-scope", "contact-maintainer"), retainLastGood: true, profileId };
 
-    // 退避/Retry-After 检查（§5.3）：点击不绕过。deferred 不 stamp profileId，避免 last-good 改挂到新 profile。
-    const st = runtime[providerId];
-    const nextEligible = st?.nextEligibleAtMs;
-    if (isAtMs(nextEligible) && nowMs < nextEligible) {
-      return { kind: "deferred", reason: "backoff", nextEligibleAtMs: nextEligible, retainLastGood: true };
+    const st = runtime?.[providerId];
+    const serverAt = serverDeadlineMs(st);
+    const localAt = localDeadlineMs(st);
+    const lastAttempt = ceilAtMs(st?.lastAttemptAtMs);
+    if (serverAt && nowMs < serverAt) {
+      return { kind: "deferred", reason: "backoff", nextEligibleAtMs: serverAt, retainLastGood: true, requestedAtMs: nowMs };
     }
+    if (trigger.reason === "manual") {
+      if (lastAttempt && nowMs < lastAttempt + MANUAL_MIN_INTERVAL_MS) {
+        return {
+          kind: "deferred", reason: "not-due",
+          nextEligibleAtMs: lastAttempt + MANUAL_MIN_INTERVAL_MS,
+          retainLastGood: true, requestedAtMs: nowMs,
+        };
+      }
+    } else if (localAt && nowMs < localAt) {
+      return {
+        kind: "deferred", reason: "backoff",
+        nextEligibleAtMs: laterEligibleAtMs(localAt, serverAt),
+        retainLastGood: true, requestedAtMs: nowMs,
+      };
+    }
+
+    const startedAtMs = Date.now();
+    const requestedAtMs = nowMs;
 
     const profile = (provCfg.profiles ?? []).find((p) => p.id === provCfg.activeProfile) ?? { id: profileId ?? "default", discovery: "auto", sources: [] };
     const chain = buildChain(manifest, dataSource);
@@ -201,10 +376,10 @@ export class RefreshCoordinator {
     try {
       resolved = await resolveChain(providerId, profile, chain, ctx);
     } catch {
-      return { kind: "failed", error: safeError("io-error", "io-error", "retry-later"), retainLastGood: true, profileId: profile.id };
+      return { kind: "failed", error: safeError("io-error", "io-error", "retry-later"), retainLastGood: true, profileId: profile.id, startedAtMs, finishedAtMs: Date.now(), requestedAtMs };
     }
     if (resolved.status !== "resolved") {
-      return { kind: "failed", error: resolveErrorToSafe(resolved), retainLastGood: true, profileId: profile.id };
+      return { kind: "failed", error: resolveErrorToSafe(resolved), retainLastGood: true, profileId: profile.id, startedAtMs, finishedAtMs: Date.now(), requestedAtMs };
     }
 
     // v0 桥接 fetch：lease token → v0 fetcher → v0 report → SnapshotReport
@@ -214,14 +389,14 @@ export class RefreshCoordinator {
       const extra = { region: profile.region, organizationId: profile.organizationId ?? provCfg?.profiles?.find((p) => p.id === profile.id)?.organizationId };
       report = await withTimeout(fetchProviderSnapshot(providerId, token, extra, { signal }), manifest.refresh.taskTimeoutSeconds * 1000, signal);
     } catch (e) {
-      if (signal.aborted) return { kind: "cancelled", retainLastGood: true, profileId: profile.id };
-      return { kind: "failed", error: fetchErrorToSafe(e), retainLastGood: true, profileId: profile.id };
+      if (signal.aborted) return { kind: "cancelled", retainLastGood: true, profileId: profile.id, startedAtMs, finishedAtMs: Date.now(), requestedAtMs };
+      return { kind: "failed", error: fetchErrorToSafe(e), retainLastGood: true, profileId: profile.id, startedAtMs, finishedAtMs: Date.now(), requestedAtMs };
     } finally {
       broker.drop(resolved.lease.access);
     }
 
     if (!snapshotHasData(report)) {
-      return { kind: "failed", error: safeError("invalid-response", "empty-response", "retry-later"), retainLastGood: true, report, profileId: profile.id };
+      return { kind: "failed", error: safeError("invalid-response", "empty-response", "retry-later"), retainLastGood: true, report, profileId: profile.id, startedAtMs, finishedAtMs: Date.now(), requestedAtMs };
     }
     const partial = (report.diagnostics ?? []).length > 0;
     return {
@@ -233,6 +408,9 @@ export class RefreshCoordinator {
       reader: resolved.lease.source.reader,
       credentialSourceId: resolved.lease.source.id,
       identityAssurance: resolved.lease.identity.assurance,
+      startedAtMs,
+      finishedAtMs: Date.now(),
+      requestedAtMs,
     };
   }
 
@@ -259,7 +437,12 @@ export class RefreshCoordinator {
       // 未执行本次 attempt 时：投影上次持久化条目（保留其 report/status/last-good）
       const source = prev;
       if (source && source.status !== "disabled") {
-        providers.push({ ...source, attempt: { ...source.attempt } });
+        const projected = laterEligibleAtMs(source.nextEligibleAtMs, st?.nextEligibleAtMs, st?.serverRetryAtMs);
+        providers.push({
+          ...source,
+          attempt: { ...source.attempt },
+          ...(projected !== undefined ? { nextEligibleAtMs: projected } : {}),
+        });
         continue;
       }
       providers.push({
@@ -305,16 +488,26 @@ function fsPair() { return { writeFileSync: globalThis.__m1w.writeFileSync, rena
 import { writeFileSync as _w2, renameSync as _r2 } from "fs";
 globalThis.__m1w = { writeFileSync: _w2, renameSync: _r2 };
 
-function receiptOutcome(providers, requested, results) {
-  const relevant = providers.filter((p) => !requested || requested.includes(p.providerId));
-  if (relevant.every((p) => p.status === "disabled")) return "no-op";
-  const deferred = relevant.some((p) => p.attempt?.state === "deferred");
-  const cancelled = [...results.values()].some((r) => r.kind === "cancelled");
-  const failed = [...results.values()].some((r) => r.kind === "failed");
-  const partial = [...results.values()].some((r) => r.kind === "partial");
-  const success = [...results.values()].some((r) => r.kind === "success");
-  if (cancelled) return "cancelled";
-  if (deferred) return "deferred";
+export function receiptOutcome(providers, requested, results) {
+  const kinds = [];
+  for (const [id, r] of results) {
+    if (requested && !requested.includes(id)) continue;
+    if (!r || r.kind === "noop-disabled") continue;
+    kinds.push(r.kind);
+  }
+  const relevant = providers.filter((p) => {
+    if (requested && !requested.includes(p.providerId)) return false;
+    if (p.status === "disabled") return false;
+    const r = results.get(p.providerId);
+    if (r?.kind === "noop-disabled") return false;
+    return true;
+  });
+  if (kinds.length === 0 || relevant.every((p) => p.status === "disabled")) return "no-op";
+  if (kinds.includes("cancelled")) return "cancelled";
+  if (kinds.includes("deferred")) return "deferred";
+  const failed = kinds.includes("failed");
+  const partial = kinds.includes("partial");
+  const success = kinds.includes("success");
   if (success && (failed || partial)) return "partial";
   if (success && !failed && !partial) return "updated";
   if (failed) return "failed";
@@ -322,14 +515,19 @@ function receiptOutcome(providers, requested, results) {
 }
 
 export function applyResult(entry, r, { nowMs, trigger, configRevision = 0 }) {
+  if (r.kind === "noop-disabled") return;
   r.configRevision = configRevision;
+  const startedAtMs = ceilAtMs(r.startedAtMs);
+  const finishedAtMs = ceilAtMs(r.finishedAtMs) ?? nowMs;
   entry.attempt = {
     state: r.kind === "success" ? "succeeded" : r.kind === "partial" ? "partial"
       : r.kind === "failed" ? "failed" : r.kind === "cancelled" ? "cancelled" : "deferred",
-    id: undefined, startedAtMs: nowMs, finishedAtMs: nowMs, reason: trigger.reason,
-    deferredReason: r.kind === "deferred" ? (r.reason === "busy" ? "busy" : r.reason === "cancelled" ? undefined : "backoff") : undefined,
+    id: undefined, startedAtMs: startedAtMs ?? (r.kind === "deferred" ? nowMs : nowMs), finishedAtMs, reason: trigger.reason,
+    deferredReason: deferredReasonOf(r),
   };
-  entry.lastAttemptAtMs = nowMs;
+  if (r.kind === "success" || r.kind === "partial" || r.kind === "failed") {
+    entry.lastAttemptAtMs = startedAtMs ?? nowMs;
+  }
   entry.configRevision = r.configRevision;
   const sampledProfile = r.profileId;
   if (sampledProfile && (r.kind === "success" || r.kind === "partial" || r.kind === "failed" || r.kind === "cancelled")) {
@@ -358,6 +556,8 @@ export function applyResult(entry, r, { nowMs, trigger, configRevision = 0 }) {
     delete entry.error;
   } else if (r.kind === "failed") {
     entry.error = r.error;
+    const eligible = ceilAtMs(r.nextEligibleAtMs);
+    if (eligible !== undefined) entry.nextEligibleAtMs = eligible;
     if (r.retainLastGood && entry.report) {
       entry.status = entry.status === "not-configured" ? "error" : entry.status; // 保留原 status/last-good
       entry.dataDisposition = "last-good";
@@ -367,7 +567,8 @@ export function applyResult(entry, r, { nowMs, trigger, configRevision = 0 }) {
       entry.dataDisposition = "none";
     }
   } else if (r.kind === "deferred") {
-    entry.nextEligibleAtMs = r.nextEligibleAtMs;
+    const eligible = ceilAtMs(r.nextEligibleAtMs);
+    if (eligible !== undefined) entry.nextEligibleAtMs = eligible;
   }
 }
 
@@ -497,7 +698,7 @@ export function tolerateUnknown(envelope) {
 export function computeBackoffMs(consecutiveFailures, effectiveIntervalSeconds, { jitter = Math.random() * 0.1, nowMs = Date.now() } = {}) {
   const n = Math.max(1, Math.floor(consecutiveFailures));
   const exp = Math.min(3600, 300 * Math.pow(2, n - 1) * (1 + jitter));
-  return (Math.max(effectiveIntervalSeconds, exp)) * 1000;
+  return Math.ceil(Math.max(effectiveIntervalSeconds, exp) * 1000);
 }
 
 /** Retry-After 解析：秒数或 HTTP date；非法/缺失 → undefined（§5.3）。 */
@@ -506,10 +707,11 @@ export function parseRetryAfter(value, nowMs = Date.now()) {
   const v = typeof value === "string" ? value.trim() : value;
   if (/^\d+$/.test(String(v))) {
     const sec = parseInt(v, 10);
-    return sec >= 0 ? nowMs + sec * 1000 : undefined;
+    return sec >= 0 ? ceilAtMs(nowMs + sec * 1000) : undefined;
   }
   const t = Date.parse(String(v));
-  return Number.isFinite(t) && t > 0 ? t : undefined;
+  const parsed = Number.isFinite(t) && t > 0 ? t : undefined;
+  return ceilAtMs(parsed);
 }
 
 
