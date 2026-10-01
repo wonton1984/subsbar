@@ -99,6 +99,32 @@ public enum M2Suite {
         try check("menu missing unknown", MenuBarSegment(providerID: "codex", name: "Codex", provider: nil, now: now).value == "…")
         try check("menu unknown primary not substituted", MenuBarSegment(providerID: "claude", name: "Claude", provider: menuUsage.providers.first { $0.id == "claude" }, now: now).value == "…")
 
+        for (fraction, degrees) in [(0.0, 0.0), (0.25, 90.0), (0.5, 180.0), (1.0, 360.0), (-0.2, 0.0), (1.2, 360.0)] {
+            let ring = RingGauge(fraction)
+            try check("ring sweep \(fraction)", ring.sweepDegrees == degrees && ring.endDegrees == 90 - degrees && !ring.dashed)
+        }
+        try check("ring unknown gray dashed", RingGauge(nil).dashed && RingGauge(nil).band == .gray)
+        try check("ring nonfinite unknown", RingGauge(.nan).dashed && RingGauge(.infinity).dashed)
+        try check("ring green above half", RingGauge(0.5001).band == .green)
+        try check("ring orange boundaries", RingGauge(0.5).band == .orange && RingGauge(0.2).band == .orange)
+        try check("ring red below fifth", RingGauge(0.1999).band == .red && RingGauge(0).band == .red)
+        let codexSegment = MenuBarSegment(providerID: "codex", name: "Codex", provider: codexMenu, now: now)
+        try check("ring quota has no external text", codexSegment.title.isEmpty)
+        let resetSegment = MenuBarSegment(providerID: "codex", name: "Codex", provider: try SyntheticScenes.usage(normalized, decorated: true).providers.first { $0.id == "codex" }, now: now)
+        try check("ring accessibility includes reset", resetSegment.accessibilityTitle(fullName: "Codex") == "Codex 剩余 100%（2时13分后重置）")
+        try check("ring balance keeps amount title", cursorMenu.title == "$42.00")
+        try check("ring known balance solid gray", !RingGauge(nil, hasKnownAmount: true).dashed && RingGauge(nil, hasKnownAmount: true).band == .gray)
+        let unknownSegment = MenuBarSegment(providerID: "codex", name: "Codex", provider: nil, now: now)
+        try check("ring unknown has no external text", unknownSegment.title.isEmpty && unknownSegment.accessibilityTitle(fullName: "Codex") == "Codex 剩余 未知")
+
+        let remainingRow = menuUsage.providers.first { $0.id == "commandcode" }!
+        let remainingMetric = remainingRow.windows[0].raw.setting("limit", .number(50)).setting("state", .string("known"))
+        let limitedRow = V1Provider(remainingRow.raw.setting("report", remainingRow.report.setting("windows", .array([remainingMetric]))))
+        let limitedSegment = MenuBarSegment(providerID: "commandcode", name: "CommandCode", provider: limitedRow, now: now)
+        try check("ring remaining with explicit limit", limitedSegment.fraction == 0.25 && limitedSegment.title.isEmpty)
+        let exhaustedSegment = MenuBarSegment(providerID: "kimi", name: "Kimi", provider: menuUsage.providers.first { $0.id == "kimi" }, now: now)
+        try check("ring exceeded stays empty red", exhaustedSegment.fraction == 0 && RingGauge(exhaustedSegment.fraction).band == .red)
+
         let usage = try SyntheticScenes.usage(normalized, decorated: true)
         let config = SyntheticScenes.config(base, enabled: SyntheticScenes.enabledIDs)
         func card(_ config: Wire, _ id: String, expanded: Bool) -> CardModel { CardModel(providerID: id, name: id, config: config, usage: usage, now: now, expanded: expanded) }

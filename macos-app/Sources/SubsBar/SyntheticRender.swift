@@ -46,24 +46,32 @@ import SubsCore
             try popover("M10-grid-\(count)-light.png", maxHeight: 1600)
             try popover("M10-grid-\(count)-dark.png", maxHeight: 1600, dark: true)
         }
-        for count in [0, 1, 3] {
-            try scene(enabled: SyntheticScenes.enabledIDs, ui: ["menuBarProviders": .strings(Array(["codex", "kimi", "commandcode"].prefix(count))), "menuBarLimit": .number(Double(count))], decorated: false)
-            for dark in [false, true] {
-                let appearance = NSAppearance(named: dark ? .darkAqua : .aqua)!
-                let segments = model.menuBarSegments
-                let strip = HStack(spacing: 14) {
-                    if segments.isEmpty { Image(nsImage: PieIconRenderer.draw(model.fraction, appearance: appearance)) }
-                    ForEach(segments, id: \.providerID) { segment in
-                        HStack(spacing: 3) {
-                            Image(nsImage: PieIconRenderer.draw(segment.fraction, appearance: appearance))
-                            Text(segment.text).font(.system(size: 11)).monospacedDigit()
+        for state in ["ok", "unknown", "exceeded"] {
+            for count in 0...4 {
+                for dark in [false, true] {
+                    let appearance = NSAppearance(named: dark ? .darkAqua : .aqua)!
+                    let names = ["Cod", "Kim", "OC", "CC"]
+                    let fractions: [Double?] = state == "unknown" ? [nil, nil, nil, nil] : state == "exceeded" ? [0, 0, 0, 0] : [0.82, 0.5, 0.2, 0.07]
+                    let strip = HStack(spacing: 8) {
+                        ForEach(0..<max(1, count), id: \.self) { index in
+                            Image(nsImage: RingIconRenderer.draw(fractions[index], name: count == 0 ? "" : names[index], appearance: appearance))
                         }
-                    }
-                }.padding(.horizontal, 8)
-                let name = "M11-menubar-\(count)-\(dark ? "dark" : "light").png"
-                try render(strip, size: NSSize(width: max(40, count * 112), height: 28), to: output.appendingPathComponent(name), dark: dark)
-                outputs.append(name)
+                    }.padding(.horizontal, 6)
+                    let name = "M12-ring-\(state)-\(count)-\(dark ? "dark" : "light").png"
+                    try render(strip, size: NSSize(width: max(1, count) * 28 + 4, height: 24), to: output.appendingPathComponent(name), dark: dark)
+                    outputs.append(name)
+                }
             }
+        }
+        for dark in [false, true] {
+            let appearance = NSAppearance(named: dark ? .darkAqua : .aqua)!
+            let strip = HStack(spacing: 3) {
+                Image(nsImage: RingIconRenderer.draw(nil, name: "Cur", hasKnownAmount: true, appearance: appearance))
+                Text("$42.00").font(.system(size: 11)).monospacedDigit()
+            }
+            let name = "M12-ring-balance-\(dark ? "dark" : "light").png"
+            try render(strip, size: NSSize(width: 76, height: 24), to: output.appendingPathComponent(name), dark: dark)
+            outputs.append(name)
         }
         try scene(enabled: SyntheticScenes.enabledIDs, ui: ["menuBarProviders": .strings(["codex", "kimi", "commandcode"]), "menuBarLimit": .number(3)])
         for dark in [false, true] {

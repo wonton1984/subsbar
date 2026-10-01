@@ -18,7 +18,6 @@ import Darwin
     private(set) var items: [NSStatusItem] = []
     private var anchorButton: NSStatusBarButton?
     private var stopped = false
-    private var menuInputs: Wire = .null
     private var segments: [MenuBarSegment] = []
     let popover = NSPopover()
     private var settings: NSWindow?
@@ -46,11 +45,9 @@ import Darwin
     }
     func update() {
         guard !stopped else { return }
-        let inputs = Wire.array([model.config, model.registry, model.usage?.raw ?? .null])
-        if inputs != menuInputs {
-            menuInputs = inputs
-            segments = model.menuBarSegments
-        }
+        // The existing minute clock also invalidates stale data and reset descriptions.
+        // No extra timer or network request is needed.
+        segments = model.menuBarSegments
         let count = max(1, segments.count)
         if items.count != count {
             popover.performClose(nil); anchorButton = nil
@@ -67,11 +64,12 @@ import Darwin
         for (index, item) in items.enumerated() {
             guard let button = item.button else { continue }
             let segment = segments.indices.contains(index) ? segments[index] : nil
-            button.image = PieIconRenderer.draw(segment?.fraction ?? (segments.isEmpty ? model.fraction : nil), appearance: button.effectiveAppearance)
+            button.image = RingIconRenderer.draw(segment?.fraction ?? (segments.isEmpty ? model.fraction : nil), name: segment?.name ?? "", hasKnownAmount: !(segment?.title.isEmpty ?? true), appearance: button.effectiveAppearance)
             button.imagePosition = .imageLeading
-            button.title = segment.map { " " + $0.text } ?? ""
+            button.title = segment?.title ?? ""
             button.font = NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize(for: .small), weight: .regular)
-            button.toolTip = segment.map { model.name($0.providerID) + " · 剩余 " + $0.value } ?? model.tooltip
+            button.toolTip = segment.map { $0.accessibilityTitle(fullName: model.name($0.providerID)) } ?? model.tooltip
+            button.setAccessibilityTitle(button.toolTip ?? "SubsBar")
             button.setAccessibilityLabel(button.toolTip ?? "SubsBar")
         }
         let appearanceName = model.config["ui"]["appearance"].text
@@ -160,7 +158,7 @@ import Darwin
 @main struct SubsBarMain {
     @MainActor static func main() {
         if CommandLine.arguments.count == 3 && CommandLine.arguments[1] == "--verify-icons" {
-            do { try PieIconRenderer.verify(at: URL(fileURLWithPath: CommandLine.arguments[2])) }
+            do { try RingIconRenderer.verify(at: URL(fileURLWithPath: CommandLine.arguments[2])) }
             catch { print("Icon verification failed"); exit(1) }
             return
         }

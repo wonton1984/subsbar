@@ -342,7 +342,7 @@ struct PreferencesEditor: View {
             Picker("外观", selection: choice("appearance")) { Text("跟随系统").tag("system"); Text("浅色").tag("light"); Text("深色").tag("dark") }
             Picker("密度", selection: choice("density")) { Text("紧凑").tag("compact"); Text("宽松").tag("comfortable") }
             Toggle("显示账户别名", isOn: flag("showAccountLabel"))
-            Picker("饼图订阅", selection: Binding(get: { ui["selectedProvider"].text }, set: { ui = ui.setting("selectedProvider", $0.isEmpty ? .null : .string($0)) })) {
+            Picker("默认仪表订阅", selection: Binding(get: { ui["selectedProvider"].text }, set: { ui = ui.setting("selectedProvider", $0.isEmpty ? .null : .string($0)) })) {
                 Text("未选择").tag("")
                 ForEach(Array(model.providers.enumerated()), id: \.offset) { _, row in Text(model.name(row["providerId"].text)).tag(row["providerId"].text) }
             }
@@ -437,7 +437,7 @@ struct MenuBarEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("菜单栏显示").font(.headline)
-            Text("每家一个图标和剩余额度；顺序跟随下方订阅排序。未选择或上限为 0 时，仅保留一个饼图入口。").font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Text("每家一个圆环仪表：中心是名称缩写，外圈是剩余额度；顺序跟随下方订阅排序。未选择或上限为 0 时，仅保留一个无文字圆环入口。").font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             Picker("显示家数上限", selection: Binding(get: { Int(ui["menuBarLimit"].number ?? 1) }, set: { limit in
                 let retained = Array(selected.prefix(limit))
                 ui = ui.setting("menuBarLimit", .number(Double(limit)))

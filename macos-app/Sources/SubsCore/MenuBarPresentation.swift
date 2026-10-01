@@ -5,6 +5,11 @@ public struct MenuBarSegment: Equatable, Sendable {
     public let providerID: String
     public let name: String
     public let fraction: Double?
+    public private(set) var resetDescription: String? = nil
+    public var title: String { fraction == nil && value != "…" ? value : "" }
+    public func accessibilityTitle(fullName: String) -> String {
+        Presentation.text(fullName) + " 剩余 " + (value == "…" ? "未知" : value) + (resetDescription.map { "（" + $0 + "）" } ?? "")
+    }
     public let value: String
     public var text: String { name + " " + value }
     public init(providerID: String, name: String, provider: V1Provider?, now: Date) {
@@ -25,8 +30,13 @@ public struct MenuBarSegment: Equatable, Sendable {
             metric = provider.metrics.first { $0.kind == "balance" }
         }
         guard let metric, metric.valid else { fraction = nil; value = "…"; return }
-        fraction = metric.fraction
-        if let fraction = metric.fraction { value = Cache.format(fraction * 100) + "%" }
+        resetDescription = metric.kind == "quota" ? MetricDisplay.shortReset(metric, now: now) : nil
+        // Explicit remaining + limit is sufficient; never invent a denominator for balances.
+        let ratio = metric.fraction ?? metric.remaining.flatMap { remaining in
+            metric.limit.flatMap { $0 > 0 ? max(0, min(1, remaining / $0)) : nil }
+        }
+        fraction = ratio
+        if let fraction = ratio { value = Cache.format(fraction * 100) + "%" }
         else if let remaining = metric.remaining { value = Self.amount(remaining, currency: metric.currency) }
         else if metric.kind == "balance", let amount = metric.raw["value"].number { value = Self.amount(amount, currency: metric.currency) }
         else { value = "…" }
@@ -46,4 +56,18 @@ public enum MenuBarSelection {
     public static func visible(ui: Wire, ordered: [String], enabled: [String]) -> [String] {
         Array(selected(ui: ui, ordered: ordered, enabled: enabled).prefix(min(4, Int(ui["menuBarLimit"].number ?? 1))))
     }
+}
+
+/// Geometry used by the AppKit renderer. Clockwise from twelve o'clock.
+public struct RingGauge: Equatable, Sendable {
+    public let fraction: Double?
+    public let hasKnownAmount: Bool
+    public init(_ fraction: Double?, hasKnownAmount: Bool = false) {
+        self.hasKnownAmount = hasKnownAmount
+        self.fraction = fraction.flatMap { $0.isFinite ? max(0, min(1, $0)) : nil }
+    }
+    public var sweepDegrees: Double { (fraction ?? 0) * 360 }
+    public var endDegrees: Double { 90 - sweepDegrees }
+    public var dashed: Bool { fraction == nil && !hasKnownAmount }
+    public var band: Band { Cache.band(fraction) }
 }

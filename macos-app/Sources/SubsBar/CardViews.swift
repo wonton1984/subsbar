@@ -213,7 +213,7 @@ struct ProviderCardView: View {
         let actions = compact ? AnyLayout(VStackLayout(alignment: .leading, spacing: 6)) : AnyLayout(HStackLayout(spacing: 6))
         actions {
             Button(card.needsRepair ? "修复连接" : "连接设置") { model.openSettings?(card.providerID) }
-            if model.selected != card.providerID { Button("用于菜单栏饼图") { model.choose(card.providerID) } }
+            if model.selected != card.providerID { Button("用于默认菜单栏仪表") { model.choose(card.providerID) } }
             Spacer()
 
         }.controlSize(.small)
