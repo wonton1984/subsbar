@@ -361,6 +361,28 @@ export function createCredentialStores({ env = process.env } = {}) {
   for (const a of fileAliases) impls.set(a, impls.get("json-file-generic"));
   for (const a of piAliases) impls.set(a, impls.get("pi-generic"));
 
+  // Copilot 社区源：只接受 Copilot OAuth（gho_/ghu_）；PAT 不得打 copilot_internal。
+  const keychainGeneric = impls.get("keychain-generic");
+  impls.set("copilot-gh-keychain", {
+    discover(spec, ctx) { return keychainGeneric.discover(spec, ctx); },
+    resolve(spec, ctx) {
+      const out = keychainGeneric.resolve(spec, ctx);
+      const token = new TextDecoder().decode(out.bytes);
+      if (!isCopilotOauthToken(token)) throw new ReaderOutcome("rejected", "invalid");
+      return out;
+    },
+  });
+  const piGeneric = impls.get("pi-generic");
+  impls.set("github-copilot", {
+    discover(spec, ctx) { return piGeneric.discover(spec, ctx); },
+    resolve(spec, ctx) {
+      const out = piGeneric.resolve(spec, ctx);
+      const token = new TextDecoder().decode(out.bytes);
+      if (!isCopilotOauthToken(token)) throw new ReaderOutcome("rejected", "invalid");
+      return out;
+    },
+  });
+
   // 各 reader 的默认路径/pi 键/默认可执行登记（manifest 的 implementationId → 元数据）
   const defaults = new Map([
     ["codex-auth-file", { path: join(env.CODEX_HOME ? expand(env.CODEX_HOME) : "", "auth.json"), extract: codexAuthExtract }],
@@ -411,12 +433,20 @@ function opencodeAuthExtract(json) {
   throw new ReaderOutcome("rejected", "file-malformed");
 }
 
-function copilotAppsExtract(json) {
-  // github-copilot apps.json：{"github.com":{"oauth_token":"gho_…"}}
+/** Copilot OAuth（apps.json / GitHub App user token）。PAT 不是 Copilot 会话。 */
+export function isCopilotOauthToken(token) {
+  if (typeof token !== "string" || token.length < 16) return false;
+  if (/^(ghp_|github_pat_|ghs_|ghr_)/.test(token)) return false;
+  return /^(gho_|ghu_)/.test(token);
+}
+
+export function copilotAppsExtract(json) {
+  // github-copilot apps.json：{"github.com":{"oauth_token":"gho_…"}}；拒绝 PAT。
   const entry = json?.["github.com"];
   const token = entry?.oauth_token;
-  if (typeof token === "string" && token.length >= 16) return { bytes: new TextEncoder().encode(token) };
-  throw new ReaderOutcome("rejected", "file-malformed");
+  if (typeof token !== "string" || token.length < 16) throw new ReaderOutcome("rejected", "file-malformed");
+  if (!isCopilotOauthToken(token)) throw new ReaderOutcome("rejected", "invalid");
+  return { bytes: new TextEncoder().encode(token) };
 }
 
 function grokAuthExtract(json) {

@@ -10,7 +10,9 @@
   ],
   "docsPath": "docs/providers/copilot.md",
   "documentationUrls": [
-    "https://github.com/subsbar/subsbar#readme"
+    "https://docs.github.com/en/copilot",
+    "https://docs.github.com/en/copilot/how-tos/copilot-sdk/features/usage-and-billing",
+    "https://docs.github.com/en/site-policy/github-terms/github-terms-of-service"
   ],
   "credentialReaders": [
     {
@@ -36,7 +38,7 @@
       "credentialKinds": [
         "oauth"
       ],
-      "implementationId": "json-file-generic",
+      "implementationId": "copilot-apps-json",
       "configurable": [
         "path"
       ],
@@ -135,7 +137,7 @@
       "kind": "official-cli",
       "grade": "A",
       "admission": "pending",
-      "approvalNote": "docs/providers/copilot.md",
+      "approvalNote": "docs/providers/copilot.md；官方 Copilot CLI 会话优先，但本轮未桥接 account.getQuota（admission 保持 pending，refresh 拒绝执行）",
       "endpointIds": [
         "copilot-cli-usage"
       ],
@@ -176,7 +178,7 @@
       "kind": "community-api",
       "grade": "C",
       "admission": "approved",
-      "approvalNote": "docs/providers/copilot.md；copilot_internal/user 社区来源（C），个人配额；组织汇总需管理员另验",
+      "approvalNote": "docs/providers/copilot.md；copilot_internal/user 社区来源（C）。只接受 Copilot OAuth（gho_/ghu_），拒绝 PAT。个人配额；组织 billing 需管理员另验，403 不得拿个人 quota 冒充组织额度。本轮未实测真实端点。",
       "endpointIds": [
         "copilot-internal"
       ],
@@ -269,7 +271,10 @@
   ],
   "reasonCodes": [],
   "fixtureIds": [
-    "copilot-synthetic-normal",
+    "copilot-synthetic-premium-requests",
+    "copilot-synthetic-ai-credits",
+    "copilot-synthetic-unlimited",
+    "copilot-synthetic-legacy-chat",
     "copilot-synthetic-missing"
   ],
   "provenance": [],

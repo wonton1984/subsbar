@@ -1,0 +1,11 @@
+{
+  "quota_snapshots": {
+    "premium_interactions": {
+      "entitlement": 300,
+      "remaining": 220,
+      "overage_count": 5,
+      "token_based_billing": false
+    }
+  },
+  "quota_reset_date": "2031-11-01T00:00:00Z"
+}

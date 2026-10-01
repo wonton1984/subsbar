@@ -4,13 +4,17 @@
  * 断言基于 pi-subs 上游语义（MIT，移植不改数值口径）+ §6.3 v1 语义。
  * 运行：node test/m2-providers.test.mjs ；退出码 0 = 全过。
  */
+import { readFileSync } from "fs";
+import { dirname, join } from "path";
+import { fileURLToPath } from "url";
 import {
   normalizeClaudeUsage, normalizeCopilotUsage, normalizeZaiQuota, normalizeOpenRouterKey,
   normalizeGrokBilling, normalizeDevinQuota, normalizeAntigravityUsage, normalizeOllamaUsage,
-  ZAI_REGION_ORIGINS,
+  ZAI_REGION_ORIGINS, fetchCopilotUsage,
 } from "../core/providers/engine/m2-providers.mjs";
 import { fetchProviderSnapshot } from "../core/providers/adapters.mjs";
 import { ProviderRegistry } from "../core/providers/registry.mjs";
+import { isCopilotOauthToken, copilotAppsExtract } from "../core/credentials/stores.mjs";
 
 let ok = 0, fail = 0;
 const failures = [];
@@ -20,6 +24,8 @@ function check(name, cond, detail = "") {
 }
 const NOW = 1800000000000;
 const reg = new ProviderRegistry();
+const here = dirname(fileURLToPath(import.meta.url));
+const fixture = (name) => JSON.parse(readFileSync(join(here, "fixtures", "providers", name), "utf8"));
 
 console.log("== A1. claude（five_hour/seven_day/opus，ISO reset，超额不 clamp）==");
 {
@@ -38,24 +44,42 @@ console.log("== A1. claude（five_hour/seven_day/opus，ISO reset，超额不 cl
   check("全空 → 抛错", (() => { try { normalizeClaudeUsage({}, NOW); return false; } catch { return true; } })());
 }
 
-console.log("\n== A2. copilot（premium_interactions / unlimited / 旧版 chat 形状）==");
+console.log("\n== A2. copilot（premium / AI credits / OAuth 门禁 / 403 不打组织）==");
 {
-  const r = normalizeCopilotUsage({
-    quota_snapshots: { premium_interactions: { entitlement: 300, remaining: 220, overage_count: 5, token_based_billing: false } },
-    quota_reset_date: "2031-11-01T00:00:00Z", copilot_plan: "pro",
-  }, NOW);
+  const r = normalizeCopilotUsage(fixture("copilot-synthetic-premium-requests.json"), NOW);
   const w = r.windows[0];
   check("premium-requests：used=80/limit=300", w.id === "premium-requests" && w.used === 80 && w.limit === 300);
   check("超额 metric 5", r.metrics.some((m) => m.id === "overage-used" && m.value === 5));
-  check("plan 文本不进 report（§6.5）", !JSON.stringify(r).includes('"pro"') && !JSON.stringify(r).includes("套餐"));
+  const withPlan = normalizeCopilotUsage({ ...fixture("copilot-synthetic-premium-requests.json"), copilot_plan: "pro" }, NOW);
+  check("plan 文本不进 report（§6.5）", !JSON.stringify(withPlan).includes('"pro"') && !JSON.stringify(withPlan).includes("套餐"));
 
-  const r2 = normalizeCopilotUsage({ quota_snapshots: { premium_interactions: { unlimited: true, token_based_billing: true } } }, NOW);
-  check("unlimited → status valueCode", r2.windows.length === 0 && r2.metrics[0].valueCode === "unlimited");
+  const credits = normalizeCopilotUsage(fixture("copilot-synthetic-ai-credits.json"), NOW);
+  check("token_based_billing → ai-credits", credits.windows[0].id === "ai-credits" && credits.windows[0].used === 250 && credits.windows[0].limit === 1000);
 
-  const r3 = normalizeCopilotUsage({ limited_user_quotas: { chat: 30 }, monthly_quotas: { chat: 100 } }, NOW);
+  const r2 = normalizeCopilotUsage(fixture("copilot-synthetic-unlimited.json"), NOW);
+  check("unlimited → status valueCode", r2.windows.length === 0 && r2.metrics[0].valueCode === "unlimited" && r2.metrics[0].id === "ai-credits");
+
+  const r3 = normalizeCopilotUsage(fixture("copilot-synthetic-legacy-chat.json"), NOW);
   check("旧版 chat：used=70/limit=100", r3.windows[0].id === "chat-requests" && r3.windows[0].used === 70);
 
-  check("数据不完整 → 抛错", (() => { try { normalizeCopilotUsage({ quota_snapshots: { premium_interactions: { entitlement: 10 } } }, NOW); return false; } catch { return true; } })());
+  check("数据不完整 → 抛错", (() => { try { normalizeCopilotUsage(fixture("copilot-synthetic-missing.json"), NOW); return false; } catch { return true; } })());
+
+  const oauth = ["gho", "synthetic00000000"].join("_");
+  const pat = ["ghp", "synthetic00000000"].join("_");
+  const fine = ["github", "pat", "synthetic00000000"].join("_");
+  check("OAuth gho_ 接受", isCopilotOauthToken(oauth));
+  check("PAT ghp_ 拒绝", !isCopilotOauthToken(pat) && !isCopilotOauthToken(fine));
+  const extracted = copilotAppsExtract({ "github.com": { oauth_token: oauth } });
+  check("apps.json OAuth 可提取", extracted.bytes.length >= 16);
+  check("apps.json PAT 拒绝", (() => { try { copilotAppsExtract({ "github.com": { oauth_token: pat } }); return false; } catch (e) { return e.reasonCode === "invalid"; } })());
+  let patFetchCode;
+  try { await fetchCopilotUsage(pat, {}, {}); } catch (e) { patFetchCode = e.httpStatus; }
+  check("PAT 未发网即 403", patFetchCode === 403);
+  const src = readFileSync(join(here, "..", "core", "providers", "engine", "m2-providers.mjs"), "utf8");
+  check("Copilot fetch 不打组织 billing", src.includes("copilot_internal/user") && !/api\.github\.com\/orgs\//.test(src) && !/settings\/billing/.test(src));
+  const copilot = reg.get("copilot");
+  check("官方 CLI 源保持 pending", copilot.dataSources.find((s) => s.id === "copilot-official-cli")?.admission === "pending");
+  check("社区 copilot-internal 为 approved", copilot.dataSources.find((s) => s.id === "copilot-internal")?.admission === "approved");
 }
 
 console.log("\n== A3. zai（TIME_LIMIT/TOKENS unit3/unit6，region origin）==");

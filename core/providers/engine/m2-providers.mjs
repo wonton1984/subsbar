@@ -1,11 +1,12 @@
-// M2 新增 provider 引擎（批次 A 移植自 pi-subs MIT；批次 B-D 防御性解析）。
+// M2 新增 provider 引擎（批次 A 移植自 pi-subs MIT；批次 B 起逐家接入）。
 // 全部输出 SnapshotReport（contracts §6.2），经 normalizeQuota 归一化：
 // 不做 clamp/补 0（§1 v1 裁决），超额原值保留，缺失即 unknown。
-// 批次 B-D 的响应字段名未经真实账号验证 —— 状态 pending-verification，
+// 批次 C-D 的响应字段名未经真实账号验证 —— 状态 pending-verification，
 // manifest admission 保持 pending（refresh 拒绝执行），fixture 为乐观形状。
 import { fetchJson } from "./engine.mjs";
 import { normalizeQuota, usedPercentOf, iconFractionOf } from "../../runtime/report.mjs";
 import { diagnostic, safeText } from "../../defs.mjs";
+import { isCopilotOauthToken } from "../../credentials/stores.mjs";
 
 // ---------------------------------------------------------------------------
 // 共用小工具
@@ -89,12 +90,21 @@ export function normalizeClaudeUsage(payload, capturedAtMs) {
 }
 
 // ---------------------------------------------------------------------------
-// 批次 A — copilot（copilot_internal/user 社区来源；官方 SDK 能力未桥接，见 manifest）
+// 批次 B — copilot：社区 copilot_internal/user 只接受 Copilot OAuth；
+// 官方 CLI 会话另有 pending 源。403 不得改打组织 billing。
 // ---------------------------------------------------------------------------
 
+export const COPILOT_USAGE_URL = "https://api.github.com/copilot_internal/user";
+
 export async function fetchCopilotUsage(token, extra = {}, ctx = {}) {
+  void extra;
+  if (!isCopilotOauthToken(token)) {
+    const err = new Error("Copilot usage returned 403: credential is not Copilot OAuth");
+    err.httpStatus = 403;
+    throw err;
+  }
   const payload = await fetchJson({
-    url: "https://api.github.com/copilot_internal/user",
+    url: COPILOT_USAGE_URL,
     headers: {
       Authorization: `Bearer ${token}`, Accept: "application/json",
       "Editor-Version": "SubsBar/0.1", "Editor-Plugin-Version": "subsbar", "User-Agent": "SubsBar",

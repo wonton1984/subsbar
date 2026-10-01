@@ -1,25 +1,61 @@
 # copilot
 
-> 状态：计划中（来源成熟度 B/C）。本文为 M0 占位草案，M2 验收后补全来源版本、已验证 CLI 版本、fixture 清单与人工验收记录。
+> Status: experimental (community source C). Not enabled for open-source first
+> release until a later publish-round gate. Maintainer has **not** exercised a
+> real Copilot subscription this round — field names may drift.
 
-> **验证状态**：结构已防御性实现（解析器在本仓并有合成 fixture 测试）；维护者本机无此订阅，未经真实端点验证——字段名可能偏差。欢迎社区贡献者以真实账号验证并回馈字段级结论。
+| Field | Value |
+| --- | --- |
+| Product / plan | GitHub Copilot (individual). Org billing is out of scope. |
+| Source grade | A pending official CLI; C `GET https://api.github.com/copilot_internal/user` |
+| Admission | `copilot-official-cli` **pending**; `copilot-internal` approved for the candidate tree only |
+| Region | GitHub.com (no regional origin table) |
+| Verified CLI / adapter | Copilot CLI `account.getQuota` **not bridged this round**. Community parser transplanted from pi-subs (MIT) + synthetic fixtures |
+| Last maintained | 2026-10-02 |
+| Maintainer | SubsBar Node core |
 
-## 数据来源
+## Threshold / ToS
 
-官方 Copilot 能力优先；copilot_internal/user（社区）
+- GitHub Terms of Service: https://docs.github.com/en/site-policy/github-terms/github-terms-of-service
+- Copilot product docs: https://docs.github.com/en/copilot
+- Usage/billing (official SDK, **not used this round**): https://docs.github.com/en/copilot/how-tos/copilot-sdk/features/usage-and-billing
+- Community `copilot_internal/user` is an undocumented editor interface. Enabling it is the owner's choice; this project does not grant GitHub permission.
 
-## 凭证方式
+## Credentials and permissions
 
-已登录 Copilot CLI 会话；或用户显式配置有权限的 GitHub token
+Preferred order (explicit `sources` replace the whole chain):
 
-## 口径说明（首发指标）
+1. Official logged-in Copilot CLI session (`copilot-official`) — discover-only this round; resolve is `not-implemented`. Selecting this data source yields `unsupported`.
+2. Community OAuth from `~/.config/github-copilot/apps.json` (`oauth_token`).
+3. Named Keychain item / explicit pi `github-copilot`.
 
-AI credits / legacy premium requests 分类
+**OAuth type gate:** only GitHub App / OAuth user tokens (`gho_` / `ghu_`). Classic PAT (`ghp_`), fine-grained PAT (`github_pat_`), and App server tokens are rejected as `invalid` and are never sent to `copilot_internal`. `GH_TOKEN` is not a default Copilot credential.
 
-## 风险与 403/异常处理
+## Quota semantics
 
-组织汇总需管理员；403 不拿个人 quota 伪装组织额度
+| Shape | Metric | Notes |
+| --- | --- | --- |
+| `quota_snapshots.premium_interactions.token_based_billing=true` | `ai-credits` | New AI credits counter |
+| same, `token_based_billing` false/absent | `premium-requests` | Legacy premium requests |
+| `unlimited: true` | status `unlimited` | No invented numeric window |
+| `limited_user_quotas.chat` + `monthly_quotas.chat` | `chat-requests` | Older editor shape |
 
-## 已知缺口
+Overage is a separate counter. Plan strings (`copilot_plan`) are not copied into the report. Over-limit values are not clamped.
 
-- 见上；M2 验收时逐项登记未支持场景与未验证套餐。
+## 403 / errors
+
+- HTTP 403 on the personal endpoint → `permission-denied`. **No fallback** to org `/orgs/{org}/settings/billing/usage` or similar. Individual quota must not be labelled as organization quota.
+- HTTP 401 → `reauth-required` / `relogin-owner` (per-provider; does not abort the batch).
+- Non-OAuth credential → treated as 403 before any network call.
+
+## Known gaps (this round, unverified)
+
+- Official Copilot CLI `account.getQuota` not bridged.
+- `hosts.json` / `gh` hosts.yml / default `gh:github.com` Keychain names **not verified**.
+- Organization Copilot billing (admin token) **not implemented**.
+- Dollar credits that exist only on the web UI **not in v0.1**.
+- Real-account field names **unverified**.
+
+## Synthetic fixtures
+
+`test/fixtures/providers/copilot-synthetic-*.json` (fake entitlements, no live tokens).

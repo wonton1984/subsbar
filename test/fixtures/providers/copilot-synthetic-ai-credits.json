@@ -1,0 +1,11 @@
+{
+  "quota_snapshots": {
+    "premium_interactions": {
+      "entitlement": 1000,
+      "remaining": 750,
+      "credits_used": 250,
+      "token_based_billing": true
+    }
+  },
+  "quota_reset_date_utc": "2031-11-01T00:00:00Z"
+}

@@ -1,0 +1,8 @@
+{
+  "quota_snapshots": {
+    "premium_interactions": {
+      "unlimited": true,
+      "token_based_billing": true
+    }
+  }
+}

@@ -1,0 +1,4 @@
+{
+  "limited_user_quotas": { "chat": 30 },
+  "monthly_quotas": { "chat": 100 }
+}

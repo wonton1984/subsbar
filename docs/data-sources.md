@@ -34,7 +34,7 @@ execution after admission review (`admission: approved` in its data source).
 | droid | Factory organization usage | C | approved | verified |
 | cursor | IDE state.vscdb + usage-summary | C | approved | verified |
 | claude | `api.anthropic.com/api/oauth/usage` | C | approved (policy admission **UNVERIFIED**) | unverified |
-| copilot | `copilot_internal/user` (community) | C | approved | unverified |
+| copilot | `copilot_internal/user` (community; Copilot OAuth only). Official CLI pending. | C/A | approved (community) / pending (CLI) | unverified |
 | zai | quota/limit (region-scoped origins) | B | approved | unverified |
 | openrouter | `/api/v1/key` (official) | A | approved | unverified |
 | antigravity | `agy` CLI usage | A | pending-verification | unverified |
