@@ -91,9 +91,6 @@ struct MetricRowView: View {
     let metric: MetricDisplay
     var detailed = false
     var dimmed = false
-    var pinned = false
-    var canPin = true
-    var onPin: (() -> Void)?
     var remainingText: String {
         guard metric.valid else { return "" }
         return metric.fraction.map { "剩余 " + Cache.format($0 * 100) + "%" } ?? "比例未知"
@@ -110,12 +107,7 @@ struct MetricRowView: View {
                 } else if !metric.showsBar && metric.valid {
                     Text(metric.summary).fontWeight(.semibold).monospacedDigit()
                 }
-                if let onPin {
-                    Button(action: onPin) { Image(systemName: pinned ? "pin.fill" : "pin") }
-                        .buttonStyle(.plain).foregroundStyle(pinned ? Color.accentColor : .secondary)
-                        .disabled(!pinned && !canPin).opacity(!pinned && !canPin ? 0.35 : 1)
-                        .help(pinned ? "从菜单栏移除" : canPin ? "固定到菜单栏（最多两个）" : "已固定两个指标，先移除一个")
-                }
+
             }
             if metric.showsBar {
                 QuotaBar(fraction: metric.fraction, band: metric.band, dimmed: dimmed)
@@ -148,10 +140,7 @@ struct ProviderCardView: View {
             if !card.metrics.isEmpty {
                 VStack(alignment: .leading, spacing: 9) {
                     ForEach(card.displayedMetrics(compact: compact)) { metric in
-                        MetricRowView(metric: metric, detailed: card.expanded, dimmed: dimmed,
-                                      pinned: model.pinIndex(provider: card.providerID, metric: metric.id) != nil,
-                                      canPin: model.pins.count < PinnedMetric.limit && !model.saving,
-                                      onPin: card.expanded && metric.valid ? { model.togglePin(provider: card.providerID, metric: metric) } : nil)
+                        MetricRowView(metric: metric, detailed: card.expanded, dimmed: dimmed)
                     }
                 }
             }
@@ -226,7 +215,7 @@ struct ProviderCardView: View {
             Button(card.needsRepair ? "修复连接" : "连接设置") { model.openSettings?(card.providerID) }
             if model.selected != card.providerID { Button("用于菜单栏饼图") { model.choose(card.providerID) } }
             Spacer()
-            if card.hasReport { Text("固定 \(model.pins.count)/\(PinnedMetric.limit)").foregroundStyle(.secondary) }
+
         }.controlSize(.small)
     }
 }

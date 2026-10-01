@@ -46,6 +46,31 @@ import SubsCore
             try popover("M10-grid-\(count)-light.png", maxHeight: 1600)
             try popover("M10-grid-\(count)-dark.png", maxHeight: 1600, dark: true)
         }
+        for count in [0, 1, 3] {
+            try scene(enabled: SyntheticScenes.enabledIDs, ui: ["menuBarProviders": .strings(Array(["codex", "kimi", "commandcode"].prefix(count))), "menuBarLimit": .number(Double(count))], decorated: false)
+            for dark in [false, true] {
+                let appearance = NSAppearance(named: dark ? .darkAqua : .aqua)!
+                let segments = model.menuBarSegments
+                let strip = HStack(spacing: 14) {
+                    if segments.isEmpty { Image(nsImage: PieIconRenderer.draw(model.fraction, appearance: appearance)) }
+                    ForEach(segments, id: \.providerID) { segment in
+                        HStack(spacing: 3) {
+                            Image(nsImage: PieIconRenderer.draw(segment.fraction, appearance: appearance))
+                            Text(segment.text).font(.system(size: 11)).monospacedDigit()
+                        }
+                    }
+                }.padding(.horizontal, 8)
+                let name = "M11-menubar-\(count)-\(dark ? "dark" : "light").png"
+                try render(strip, size: NSSize(width: max(40, count * 112), height: 28), to: output.appendingPathComponent(name), dark: dark)
+                outputs.append(name)
+            }
+        }
+        try scene(enabled: SyntheticScenes.enabledIDs, ui: ["menuBarProviders": .strings(["codex", "kimi", "commandcode"]), "menuBarLimit": .number(3)])
+        for dark in [false, true] {
+            let name = "M11-settings-\(dark ? "dark" : "light").png"
+            try render(MenuBarEditor(model: model, ui: .constant(model.config["ui"])).padding(16).frame(width: 460, height: 550, alignment: .topLeading), size: NSSize(width: 460, height: 550), to: output.appendingPathComponent(name), dark: dark)
+            outputs.append(name)
+        }
         try scene(enabled: ["codex", "commandcode", "cursor", "claude"])
         try popover("M2-cards-default.png", maxHeight: 1200)
         try popover("M2-cards-default-dark.png", maxHeight: 1200, dark: true)
@@ -55,13 +80,9 @@ import SubsCore
         try scene(enabled: SyntheticScenes.enabledIDs)
         try popover("M2-cards-all-scroll.png", maxHeight: 640)
         try popover("M2-cards-all-full.png", maxHeight: 4000)
-        try scene(enabled: SyntheticScenes.enabledIDs, ui: ["pinnedMetrics": .array([
-            .object(["providerId": .string("codex"), "profileId": .string("personal"), "metricId": .string("quota-percent"), "field": .string("remaining-percent"), "style": .string("mini-bar")]),
-            .object(["providerId": .string("commandcode"), "profileId": .string("personal"), "metricId": .string("monthly-credits"), "field": .string("remaining"), "style": .string("text")])
-        ]), "menuBarMode": .string("pinned")])
+        try scene(enabled: SyntheticScenes.enabledIDs, ui: ["menuBarProviders": .strings(["codex", "commandcode"]), "menuBarLimit": .number(2)])
         for id in SyntheticScenes.enabledIDs { model.expandedOverrides[id] = true }
         try popover("M2-cards-expanded-full.png", maxHeight: 6000)
-        try renderMenuBar(model, to: output.appendingPathComponent("M2-menubar-pinned.png")); outputs.append("M2-menubar-pinned.png")
         for id in ["codex", "commandcode", "claude", "devin"] {
             try scene(enabled: SyntheticScenes.enabledIDs, ui: ["overviewMode": .string("single"), "selectedProvider": .string(id)])
             try popover("M2-compact-\(id).png")
@@ -107,34 +128,6 @@ import SubsCore
         let natural = ceil(model.detailsHeight ?? 250) + ceil(model.chromeHeight ?? PopoverLayout.fallbackChrome)
         model.height = min(maxHeight, max(230, natural))
         try render(view, size: NSSize(width: PopoverLayout.width(for: model), height: model.height), to: destination, dark: dark)
-    }
-    private static func renderMenuBar(_ model: AppModel, to destination: URL) throws {
-        var images: [NSImage] = []
-        for name in [NSAppearance.Name.aqua, .darkAqua] {
-            let appearance = NSAppearance(named: name)!
-            let title = StatusController.pinnedTitle(model: model, appearance: appearance)
-            let field = NSTextField(labelWithAttributedString: title.text)
-            field.appearance = appearance; field.font = NSFont.menuBarFont(ofSize: 0)
-            field.sizeToFit()
-            let size = NSSize(width: field.frame.width + 16, height: 24)
-            let image = NSImage(size: size, flipped: false) { bounds in
-                appearance.performAsCurrentDrawingAppearance {
-                    (name == .aqua ? NSColor(white: 0.93, alpha: 1) : NSColor(white: 0.16, alpha: 1)).setFill(); bounds.fill()
-                    title.text.draw(at: NSPoint(x: 8, y: (bounds.height - field.frame.height) / 2))
-                }
-                return true
-            }
-            images.append(image)
-        }
-        let width = images.map(\.size.width).max() ?? 100
-        let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(width * 2), pixelsHigh: 96, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
-        bitmap.size = NSSize(width: width, height: 48)
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
-        for (index, image) in images.enumerated() { image.draw(at: NSPoint(x: 0, y: CGFloat(1 - index) * 24), from: .zero, operation: .sourceOver, fraction: 1) }
-        NSGraphicsContext.restoreGraphicsState()
-        guard let png = bitmap.representation(using: .png, properties: [:]) else { throw LocalFailure("render-failed") }
-        try png.write(to: destination)
     }
     private static func render<Content: View>(_ content: Content, size: NSSize, to destination: URL, dark: Bool = false) throws {
         let hosting = NSHostingView(rootView: content.background(Color(nsColor: .windowBackgroundColor)).environment(\.colorScheme, dark ? .dark : .light))

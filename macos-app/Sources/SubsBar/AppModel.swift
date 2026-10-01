@@ -114,22 +114,11 @@ import SubsCore
     func card(_ id: String, single: Bool) -> CardModel {
         CardModel(providerID: id, name: name(id), config: config, usage: usage, now: now, expanded: single || isExpanded(id))
     }
-    var pins: [Wire] { config["ui"]["pinnedMetrics"].array }
-    func pinIndex(provider: String, metric: String) -> Int? {
-        let profile = usage?.providers.first { $0.id == provider }?.profile
-        return pins.firstIndex { $0["providerId"].text == provider && $0["metricId"].text == metric && $0["profileId"].text == profile }
+    var menuBarIDs: [String] {
+        MenuBarSelection.visible(ui: config["ui"], ordered: providers.map { $0["providerId"].text }, enabled: enabled.map { $0["providerId"].text })
     }
-    func togglePin(provider: String, metric: MetricDisplay) {
-        var next = pins
-        if let index = pinIndex(provider: provider, metric: metric.id) {
-            next.remove(at: index)
-            patchUI(.object(["pinnedMetrics": .array(next)]))
-            return
-        }
-        guard next.count < PinnedMetric.limit, let profile = usage?.providers.first(where: { $0.id == provider })?.profile else { return }
-        let field = metric.kind != "quota" ? "value" : metric.usedPercent != nil ? "remaining-percent" : "remaining"
-        next.append(.object(["providerId": .string(provider), "profileId": .string(profile), "metricId": .string(metric.id), "field": .string(field), "style": .string("text")]))
-        patchUI(.object(["pinnedMetrics": .array(next), "menuBarMode": .string("pinned")]))
+    var menuBarSegments: [MenuBarSegment] {
+        menuBarIDs.map { id in MenuBarSegment(providerID: id, name: name(id), provider: usage?.providers.first { $0.id == id }, now: now) }
     }
     func measureDetails(_ value: CGFloat) {
         guard value.isFinite, value > 0, abs((detailsHeight ?? 0) - value) > 0.5 else { return }

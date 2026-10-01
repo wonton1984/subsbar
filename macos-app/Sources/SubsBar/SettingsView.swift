@@ -339,10 +339,8 @@ struct PreferencesEditor: View {
     var body: some View {
         ScrollView { Form {
             Picker("首页", selection: choice("overviewMode")) { Text("订阅卡片").tag("cards"); Text("单个订阅").tag("single") }
-            Picker("菜单栏", selection: choice("menuBarMode")) { Text("选中订阅饼图").tag("single-pie"); Text("固定指标").tag("pinned") }
             Picker("外观", selection: choice("appearance")) { Text("跟随系统").tag("system"); Text("浅色").tag("light"); Text("深色").tag("dark") }
             Picker("密度", selection: choice("density")) { Text("紧凑").tag("compact"); Text("宽松").tag("comfortable") }
-            Toggle("菜单栏显示百分比", isOn: flag("showMenuBarPercent"))
             Toggle("显示账户别名", isOn: flag("showAccountLabel"))
             Picker("饼图订阅", selection: Binding(get: { ui["selectedProvider"].text }, set: { ui = ui.setting("selectedProvider", $0.isEmpty ? .null : .string($0)) })) {
                 Text("未选择").tag("")
@@ -364,6 +362,8 @@ struct PreferencesEditor: View {
                 }
             }
             Divider()
+            MenuBarEditor(model: model, ui: $ui)
+            Divider()
             LayoutEditor(model: model, ui: $ui)
             Button("保存显示与刷新设置") {
                 model.save(base: base, patch: .object(["ui": ui, "runtime": runtime, "privacy": privacy, "compatibility": compatibility])) { saved = $0 }
@@ -376,16 +376,11 @@ struct PreferencesEditor: View {
 struct LayoutEditor: View {
     @ObservedObject var model: AppModel
     @Binding var ui: Wire
-    @State private var metricProvider = ""
-    @State private var metricID = ""
-    @State private var pinField = "remaining-percent"
-    @State private var pinStyle = "text"
     var order: [String] {
         let declared = model.providers.map { $0["providerId"].text }
         let configured = ui["providerOrder"].array.map(\.text)
         return configured + declared.filter { !configured.contains($0) }
     }
-    var entry: V1Provider? { model.usage?.providers.first { $0.id == metricProvider } }
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("卡片顺序与内容").font(.headline)
@@ -415,34 +410,7 @@ struct LayoutEditor: View {
                     }
                 }
             }
-            Divider()
-            Text("固定指标（最多两个）").font(.headline)
-            ForEach(Array(ui["pinnedMetrics"].array.enumerated()), id: \.offset) { index, pin in
-                HStack {
-                    Text(model.name(pin["providerId"].text) + " · " + Presentation.text(pin["metricId"].text) + " · " + pin["field"].text)
-                    Spacer()
-                    Button("移除") { var pins = ui["pinnedMetrics"].array; pins.remove(at: index); ui = ui.setting("pinnedMetrics", .array(pins)) }
-                }
-            }
-            Picker("订阅", selection: $metricProvider) {
-                Text("选择订阅").tag("")
-                ForEach(Array(model.providers.enumerated()), id: \.offset) { _, provider in Text(model.name(provider["providerId"].text)).tag(provider["providerId"].text) }
-            }.onChange(of: metricProvider) { _ in metricID = "" }
-            Picker("指标", selection: $metricID) {
-                Text("选择已采集指标").tag("")
-                ForEach((entry?.windows ?? []) + (entry?.metrics ?? [])) { metric in Text(metric.label).tag(metric.id) }
-            }
-            Picker("数值", selection: $pinField) {
-                Text("剩余百分比").tag("remaining-percent"); Text("已用百分比").tag("used-percent")
-                Text("剩余额度").tag("remaining"); Text("已用额度").tag("used"); Text("数值").tag("value")
-            }
-            Picker("样式", selection: $pinStyle) { Text("文字").tag("text"); Text("迷你进度条").tag("mini-bar") }
-            Button("固定所选指标") {
-                guard let entry else { return }
-                let pin = Wire.object(["providerId": .string(metricProvider), "profileId": .string(entry.profile), "metricId": .string(metricID), "field": .string(pinField), "style": .string(pinStyle)])
-                ui = ui.setting("pinnedMetrics", .array(ui["pinnedMetrics"].array + [pin]))
-            }.disabled(metricID.isEmpty || ui["pinnedMetrics"].array.count >= 2)
-            Text("固定指标停用、失效或缺失时显示未知，不自动替换。隐藏与固定冲突时，请按保存提示调整。").font(.caption).foregroundStyle(.secondary)
+
         }
     }
     func orderedMetrics(_ provider: V1Provider) -> [V1Metric] {
@@ -454,5 +422,38 @@ struct LayoutEditor: View {
     }
     func cardFlag(_ id: String, _ key: String) -> Binding<Bool> {
         Binding(get: { ui["cards"][id][key].bool }, set: { setCard(id, key, .bool($0)) })
+    }
+}
+
+struct MenuBarEditor: View {
+    @ObservedObject var model: AppModel
+    @Binding var ui: Wire
+    var ordered: [String] {
+        let declared = model.providers.map { $0["providerId"].text }
+        let configured = ui["providerOrder"].array.map(\.text)
+        return configured.filter { declared.contains($0) } + declared.filter { !configured.contains($0) }
+    }
+    var selected: [String] { MenuBarSelection.selected(ui: ui, ordered: ordered, enabled: ordered.filter { model.config["providers"][$0]["enabled"].bool }) }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("菜单栏显示").font(.headline)
+            Text("每家一个图标和剩余额度；顺序跟随下方订阅排序。未选择或上限为 0 时，仅保留一个饼图入口。").font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Picker("显示家数上限", selection: Binding(get: { Int(ui["menuBarLimit"].number ?? 1) }, set: { limit in
+                let retained = Array(selected.prefix(limit))
+                ui = ui.setting("menuBarLimit", .number(Double(limit)))
+                if ui["menuBarProviders"].isArray || limit == 0 { ui = ui.setting("menuBarProviders", .strings(retained)) }
+            })) {
+                ForEach(0..<5) { Text("\($0) 家").tag($0) }
+            }
+            ForEach(ordered, id: \.self) { id in
+                Toggle(model.name(id) + (model.config["providers"][id]["enabled"].bool ? "" : "（未启用）"), isOn: Binding(get: { selected.contains(id) }, set: { on in
+                    var next = selected.filter { $0 != id }
+                    if on { next.append(id) }
+                    ui = ui.setting("menuBarProviders", .strings(ordered.filter { next.contains($0) }))
+                })).disabled(!selected.contains(id) && selected.count >= Int(ui["menuBarLimit"].number ?? 1))
+            }
+            Text("降低上限会按订阅顺序保留前面的选择；已停用订阅显示未知。").font(.caption).foregroundStyle(.secondary)
+            Button("恢复默认：第一家已启用订阅") { ui = ui.setting("menuBarProviders", .null).setting("menuBarLimit", .number(1)) }
+        }
     }
 }

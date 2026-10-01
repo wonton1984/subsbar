@@ -197,6 +197,39 @@ public enum M1Suite {
         try cached.setting("providers", .array([row.setting("profileId", .string("other")).setting("configRevision", .number(999))])).encoded().write(to: cacheURL)
         let foreign = try bridge.call(["usage", "--json"]).value["providers"].array[0]
         try check("foreign profile strips report even at newer revision", foreign["profileId"].text == "personal" && foreign["status"].text == "not-configured" && !foreign["report"].isObject && foreign["scopeKey"].string == nil)
+        let menuIDs = ["codex", "kimi", "commandcode", "cursor"]
+        for n in [0, 1, 2, 4] {
+            let base = try ConfigDocument(emptyBridge.call(["config", "read", "--json"]).value)
+            let input = base.submission(patch: .object(["ui": .object(["menuBarProviders": .strings(Array(menuIDs.prefix(n))), "menuBarLimit": .number(Double(n))])]))
+            let result = try emptyBridge.call(["config", "set", "--stdin"], input: input)
+            let stored = try ConfigDocument(emptyBridge.call(["config", "read", "--json"]).value)
+            try check("menu CAS \(n) providers", result.exitCode == 0 && stored.config["ui"]["menuBarProviders"].array.map(\.text) == Array(menuIDs.prefix(n)) && stored.config["ui"]["menuBarLimit"].number == Double(n))
+            let conflict = try emptyBridge.call(["config", "set", "--stdin"], input: input)
+            try check("menu CAS \(n) conflict", conflict.exitCode == 2 && conflict.errorCode == "config-conflict")
+        }
+        let menuBase = try ConfigDocument(emptyBridge.call(["config", "read", "--json"]).value)
+        let rejectedMenu = try emptyBridge.call(["config", "set", "--stdin"], input: menuBase.submission(patch: .object(["ui": .object(["menuBarProviders": .strings(menuIDs), "menuBarLimit": .number(1)])])))
+        try check("menu over limit rejected by Node", rejectedMenu.exitCode == 2)
+        let restoredMenu = try emptyBridge.call(["config", "set", "--stdin"], input: menuBase.submission(patch: .object(["ui": .object(["menuBarProviders": .null, "menuBarLimit": .number(1)])])))
+        let menuDefault = try ConfigDocument(emptyBridge.call(["config", "read", "--json"]).value)
+        try check("menu null default restores", restoredMenu.exitCode == 0 && menuDefault.config["ui"]["menuBarProviders"] == .null && menuDefault.config["ui"]["menuBarLimit"].number == 1)
+        try check("menu legacy switches not emitted", menuDefault.config["ui"].object["pinnedMetrics"] == nil && menuDefault.config["ui"].object["menuBarMode"] == nil)
+        let legacyURL = temporary.appendingPathComponent("legacy-menu.json")
+        let legacyBridge = NodeBridge(node: node, root: root, configPath: legacyURL.path, environment: environment)
+        for ids in [["commandcode", "codex"], ["codex", "codex"], []] {
+            var ui = fixture["config"]["ui"].object
+            ui.removeValue(forKey: "menuBarProviders"); ui.removeValue(forKey: "menuBarLimit")
+            ui["menuBarMode"] = .string("pinned")
+            ui["pinnedMetrics"] = .array(ids.map { .object(["providerId": .string($0), "profileId": .string("personal"), "metricId": .string("synthetic-primary"), "field": .string("remaining-percent"), "style": .string("text")]) })
+            try fixture["config"].setting("ui", .object(ui)).encoded().write(to: legacyURL)
+            let migrated = try ConfigDocument(legacyBridge.call(["config", "read", "--json"]).value)
+            var unique: [String] = []; for id in ids where !unique.contains(id) { unique.append(id) }
+            try check("menu legacy migration \(ids)", migrated.config["ui"]["menuBarProviders"].array.map(\.text) == unique && migrated.config["ui"]["menuBarLimit"].number == Double(ids.isEmpty ? 1 : min(ids.count, 4)))
+            let saved = try legacyBridge.call(["config", "set", "--stdin"], input: migrated.submission(patch: .object(["ui": .object(["menuBarProviders": migrated.config["ui"]["menuBarProviders"], "menuBarLimit": migrated.config["ui"]["menuBarLimit"]])])))
+            let disk = try Wire.parse(Data(contentsOf: legacyURL))
+            try check("menu legacy write strips fields \(ids)", saved.exitCode == 0 && disk["ui"].object["pinnedMetrics"] == nil && disk["ui"].object["menuBarMode"] == nil)
+        }
+
         return count
     }
 

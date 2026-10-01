@@ -15,9 +15,12 @@ import Darwin
 }
 @MainActor final class StatusController: NSObject, NSPopoverDelegate {
     let model: AppModel
-    let item: NSStatusItem
+    private(set) var items: [NSStatusItem] = []
+    private var anchorButton: NSStatusBarButton?
+    private var stopped = false
+    private var menuInputs: Wire = .null
+    private var segments: [MenuBarSegment] = []
     let popover = NSPopover()
-    private var iconKey = ""
     private var settings: NSWindow?
     private var local: Any?
     private var global: Any?
@@ -25,14 +28,9 @@ import Darwin
     private var screenObserver: NSObjectProtocol?
     init(model: AppModel) {
         self.model = model
-        item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         super.init()
-        item.menu = nil
-        item.button?.target = self; item.button?.action = #selector(toggle)
-        item.button?.sendAction(on: .leftMouseUp)
         popover.behavior = .transient; popover.delegate = self
         popover.contentViewController = NSHostingController(rootView: PopoverView(model: model))
-        appearance = item.button?.observe(\.effectiveAppearance, options: [.new]) { [weak self] _, _ in Task { @MainActor in self?.update() } }
         screenObserver = NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in Task { @MainActor in self?.update() } }
         model.changed = { [weak self] in self?.update() }
         model.openSettings = { [weak self] provider in self?.showSettings(provider) }
@@ -47,62 +45,51 @@ import Darwin
         NSApp.activate(ignoringOtherApps: true); settings?.makeKeyAndOrderFront(nil)
     }
     func update() {
-        guard let button = item.button else { return }
-        let key = "\(model.fraction.map { String($0) } ?? "unknown")|\(button.effectiveAppearance.name.rawValue)|\(button.window?.backingScaleFactor ?? 2)"
-        if key != iconKey {
-            iconKey = key
-            button.image = PieIconRenderer.draw(model.fraction, appearance: button.effectiveAppearance)
+        guard !stopped else { return }
+        let inputs = Wire.array([model.config, model.registry, model.usage?.raw ?? .null])
+        if inputs != menuInputs {
+            menuInputs = inputs
+            segments = model.menuBarSegments
         }
-        button.toolTip = model.tooltip; button.setAccessibilityLabel(model.tooltip)
-        if model.config["ui"]["menuBarMode"].text == "pinned" {
-            let pinned = Self.pinnedTitle(model: model, appearance: button.effectiveAppearance)
-            button.toolTip = pinned.tooltip; button.setAccessibilityLabel(pinned.tooltip)
-            button.image = nil
-            button.attributedTitle = pinned.text
-            iconKey = ""
-        } else {
-            button.title = model.config["ui"]["showMenuBarPercent"].bool ? " " + (model.fraction.map { Cache.format($0 * 100) + "%" } ?? "—") : ""
+        let count = max(1, segments.count)
+        if items.count != count {
+            popover.performClose(nil); anchorButton = nil
+            appearance?.invalidate()
+            for item in items { NSStatusBar.system.removeStatusItem(item) }
+            items = (0..<count).map { _ in
+                let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+                item.button?.target = self; item.button?.action = #selector(toggle(_:))
+                item.button?.sendAction(on: .leftMouseUp)
+                return item
+            }
+            appearance = items.first?.button?.observe(\.effectiveAppearance, options: [.new]) { [weak self] _, _ in Task { @MainActor in self?.update() } }
+        }
+        for (index, item) in items.enumerated() {
+            guard let button = item.button else { continue }
+            let segment = segments.indices.contains(index) ? segments[index] : nil
+            button.image = PieIconRenderer.draw(segment?.fraction ?? (segments.isEmpty ? model.fraction : nil), appearance: button.effectiveAppearance)
+            button.imagePosition = .imageLeading
+            button.title = segment.map { " " + $0.text } ?? ""
+            button.font = NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize(for: .small), weight: .regular)
+            button.toolTip = segment.map { model.name($0.providerID) + " · 剩余 " + $0.value } ?? model.tooltip
+            button.setAccessibilityLabel(button.toolTip ?? "SubsBar")
         }
         let appearanceName = model.config["ui"]["appearance"].text
         let preferred: NSAppearance? = appearanceName == "dark" ? NSAppearance(named: .darkAqua) : appearanceName == "light" ? NSAppearance(named: .aqua) : nil
         popover.appearance = preferred; settings?.appearance = preferred
         if popover.isShown { resize() }
     }
-    static func pinnedTitle(model: AppModel, appearance: NSAppearance) -> (text: NSAttributedString, tooltip: String) {
-        let declared = Array(model.pins.prefix(PinnedMetric.limit))
-        let pins = declared.map {
-            PinnedMetric(pin: $0, usage: model.usage, enabled: model.config["providers"][$0["providerId"].text]["enabled"].bool, now: model.now)
-        }
-        let summary = zip(declared, pins).map { pin, value in
-            let label = model.usage?.providers.first { $0.id == pin["providerId"].text }.flatMap { provider in (provider.windows + provider.metrics).first { $0.id == pin["metricId"].text }?.label }
-            return model.name(pin["providerId"].text) + " · " + (label ?? Presentation.text(pin["metricId"].text)) + " " + value.text
-        }
-        let title = NSMutableAttributedString()
-        for (index, pin) in pins.enumerated() {
-            if index > 0 { title.append(NSAttributedString(string: " · ")) }
-            if pin.style == "mini-bar" {
-                let attachment = NSTextAttachment()
-                attachment.image = PieIconRenderer.miniBar(pin.fraction, appearance: appearance)
-                title.append(NSAttributedString(attachment: attachment))
-                title.append(NSAttributedString(string: " "))
-            }
-            title.append(NSAttributedString(string: pin.text))
-        }
-        if pins.isEmpty { title.append(NSAttributedString(string: "—")) }
-        let font = NSFont.menuBarFont(ofSize: 0)
-        title.addAttributes([.font: font, .foregroundColor: NSColor.labelColor], range: NSRange(location: 0, length: title.length))
-        return (title, "SubsBar · " + (summary.isEmpty ? "未固定指标" : summary.joined(separator: "；")))
-    }
     private func resize() {
-        let maxHeight = max(230, (item.button?.window?.screen?.visibleFrame.height ?? 700) - 40)
+        let maxHeight = max(230, ((anchorButton ?? items.first?.button)?.window?.screen?.visibleFrame.height ?? 700) - 40)
         let desiredHeight = ceil(model.detailsHeight ?? 250) + ceil(model.chromeHeight ?? PopoverLayout.fallbackChrome)
         let height = min(maxHeight, max(230, desiredHeight))
         if abs(model.height - height) > 0.5 { model.height = height }
         popover.contentSize = NSSize(width: PopoverLayout.width(for: model), height: model.height)
     }
-    @objc func toggle() {
+    @objc func toggle(_ sender: Any? = nil) {
         if popover.isShown { popover.performClose(nil); return }
-        guard let button = item.button, button.window != nil else { return }
+        guard let button = (sender as? NSStatusBarButton) ?? items.first?.button, button.window != nil else { return }
+        anchorButton = button
         model.setVisible(true); resize()
         NSApp.activate(ignoringOtherApps: true)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
@@ -120,7 +107,7 @@ import Darwin
                 guard let self else { return false }
                 if event.type == .keyDown {
                     if event.keyCode == 53 { self.popover.performClose(nil); return true }
-                } else if event.window !== self.popover.contentViewController?.view.window && event.window !== self.item.button?.window {
+                } else if event.window !== self.popover.contentViewController?.view.window && event.window !== self.anchorButton?.window {
                     self.popover.performClose(nil)
                 }
                 return false
@@ -134,13 +121,14 @@ import Darwin
     }
     func popoverShouldDetach(_ popover: NSPopover) -> Bool { false }
     func popoverWillClose(_ notification: Notification) {
-        removeMonitors(); model.setVisible(false); item.button?.highlight(false)
+        removeMonitors(); model.setVisible(false); items.forEach { $0.button?.highlight(false) }
         record("popover closed monitors=0 countdown=stopped")
     }
     func stop() {
+        stopped = true
         popover.performClose(nil); removeMonitors(); appearance?.invalidate()
         if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
-        NSStatusBar.system.removeStatusItem(item)
+        for item in items { NSStatusBar.system.removeStatusItem(item) }; items = []
     }
 }
 @MainActor final class AppDelegate: NSObject, NSApplicationDelegate {

@@ -77,6 +77,26 @@ public enum M2Suite {
             try check("\(tag) disabled provider stripped", !cards("ollama").enabled && cards("ollama").allMetrics.isEmpty && cards("ollama").status == "disabled")
         }
 
+        let menuUsage = try SyntheticScenes.usage(normalized, decorated: false)
+        let orderedMenu = ["codex", "opencode", "kimi", "commandcode"]
+        let selectedMenu = Wire.object(["menuBarProviders": .strings(orderedMenu)])
+        try check("menu default one first enabled", MenuBarSelection.visible(ui: .null, ordered: orderedMenu, enabled: ["kimi", "commandcode"]) == ["kimi"])
+        try check("menu explicit empty means icon only", MenuBarSelection.visible(ui: .object(["menuBarProviders": .array([])]), ordered: orderedMenu, enabled: orderedMenu).isEmpty)
+        for n in [0, 1, 2, 4] {
+            let ids = MenuBarSelection.visible(ui: selectedMenu.setting("menuBarLimit", .number(Double(n))), ordered: orderedMenu, enabled: orderedMenu)
+            let segments = ids.map { id in MenuBarSegment(providerID: id, name: id.capitalized, provider: menuUsage.providers.first { $0.id == id }, now: now) }
+            try check("menu \(n) count", segments.count == n)
+            try check("menu \(n) text", segments.map(\.text) == Array(["Cod 100%", "Ope 70%", "Kim 0%", "Com $12.50"].prefix(n)))
+        }
+        try check("menu provider order wins", MenuBarSelection.visible(ui: selectedMenu.setting("menuBarLimit", .number(2)), ordered: orderedMenu.reversed(), enabled: orderedMenu) == ["commandcode", "kimi"])
+        let cursorMenu = MenuBarSegment(providerID: "cursor", name: "Cursor", provider: menuUsage.providers.first { $0.id == "cursor" }, now: now)
+        try check("menu balance preserved", cursorMenu.value == "$42.00" && cursorMenu.fraction == nil)
+        let codexMenu = menuUsage.providers.first { $0.id == "codex" }!
+        try check("menu stale time unknown", MenuBarSegment(providerID: "codex", name: "Codex", provider: codexMenu, now: now.addingTimeInterval(1000)).value == "…")
+        try check("menu stale status unknown", MenuBarSegment(providerID: "codex", name: "Codex", provider: V1Provider(codexMenu.raw.setting("status", .string("stale"))), now: now).value == "…")
+        try check("menu missing unknown", MenuBarSegment(providerID: "codex", name: "Codex", provider: nil, now: now).value == "…")
+        try check("menu unknown primary not substituted", MenuBarSegment(providerID: "claude", name: "Claude", provider: menuUsage.providers.first { $0.id == "claude" }, now: now).value == "…")
+
         let usage = try SyntheticScenes.usage(normalized, decorated: true)
         let config = SyntheticScenes.config(base, enabled: SyntheticScenes.enabledIDs)
         func card(_ config: Wire, _ id: String, expanded: Bool) -> CardModel { CardModel(providerID: id, name: id, config: config, usage: usage, now: now, expanded: expanded) }
