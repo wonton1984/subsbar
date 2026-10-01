@@ -482,6 +482,8 @@ console.log("\n== S3. fetch 错误分类（timeout ≠ http-5xx）==");
   check("服务端 5xx 带 httpStatus", s503.code === "network" && s503.reasonCode === "http-5xx" && s503.httpStatus === 503);
   const generic = fetchErrorToSafe(new Error("socket hang up"));
   check("其它网络错误不是 http-5xx", generic.code === "network" && generic.reasonCode === "network");
+  const e401 = fetchErrorToSafe(Object.assign(new Error("usage-summary returned 401"), { httpStatus: 401 }));
+  check("HTTP 401 → invalid-credential 不抛", e401.code === "invalid-credential" && e401.reasonCode === "http-401" && e401.action === "relogin-owner");
   check("timeout/connect-refused/network 已注册", ["timeout", "connect-refused", "network"].every((c) => CORE_REASON_CODES.includes(c)));
   const { ProviderRegistry } = await import("../core/providers/registry.mjs");
   const cc = new ProviderRegistry().get("commandcode");
@@ -559,6 +561,145 @@ console.log("\n== S5. 菜单栏 menuBarProviders / menuBarLimit 迁移与校验 
   const disk = JSON.parse(readFileSync(cfgPath, "utf8"));
   check("落盘无旧字段", disk.ui.menuBarMode === undefined && disk.ui.pinnedMetrics === undefined);
   check("落盘为迁移后新字段", JSON.stringify(disk.ui.menuBarProviders) === JSON.stringify(["commandcode", "codex"]) && disk.ui.menuBarLimit === 2);
+}
+
+console.log("\n== C06b. resolveErrorToSafe 封闭；单家 reauth-required 不击落批次 ==");
+{
+  const {
+    CREDENTIAL_ERROR_CODES, SAFE_ERROR_CODES, RESOLVE_TO_ENTRY, ACTION_CODES, CORE_REASON_CODES, PROVIDER_STATUSES,
+  } = await import("../core/defs.mjs");
+  const { resolveErrorToSafe, applyResult, receiptOutcome, providerStatusForFailure } = await import("../core/runtime/scheduler.mjs");
+  const { validateConfig } = await import("../core/config/schema.mjs");
+
+  const closed = [];
+  for (const code of CREDENTIAL_ERROR_CODES) {
+    let err;
+    let thrown = null;
+    try { err = resolveErrorToSafe({ status: "failed", code }); }
+    catch (e) { thrown = e; }
+    const expected = RESOLVE_TO_ENTRY[code]?.code;
+    closed.push(!thrown && SAFE_ERROR_CODES.includes(err?.code) && err.code === expected && ACTION_CODES.includes(err.action));
+  }
+  check("全部 CREDENTIAL_ERROR_CODES 映射不抛且 SafeError.code∈白名单", closed.length === CREDENTIAL_ERROR_CODES.length && closed.every(Boolean), closed.map((v, i) => v ? "" : CREDENTIAL_ERROR_CODES[i]).filter(Boolean).join(","));
+
+  const reasonClosed = [];
+  for (const reasonCode of CORE_REASON_CODES) {
+    let err;
+    let thrown = null;
+    try { err = resolveErrorToSafe({ status: "failed", code: "expired", reasonCode, action: "relogin-owner" }); }
+    catch (e) { thrown = e; }
+    reasonClosed.push(!thrown && err?.code === "credential-expired" && err.reasonCode === reasonCode);
+  }
+  check("全部 CORE_REASON_CODES 作 reason 透传不抛", reasonClosed.length === CORE_REASON_CODES.length && reasonClosed.every(Boolean));
+
+  let unknownThrown = false;
+  let unknownErr;
+  try { unknownErr = resolveErrorToSafe({ code: "reauth-required" }); }
+  catch { unknownThrown = true; }
+  check("未知/status 码回退 io-error 不抛", !unknownThrown && unknownErr.code === "io-error" && unknownErr.action === "retry-later");
+
+  const expired = resolveErrorToSafe({ code: "expired", reasonCode: "credential-expired", action: "relogin-owner" });
+  check("expired → error.code=credential-expired（不是 reauth-required）", expired.code === "credential-expired" && expired.action === "relogin-owner");
+  check("expired → provider status=reauth-required", providerStatusForFailure(expired) === "reauth-required" && PROVIDER_STATUSES.includes("reauth-required"));
+  const invalid = resolveErrorToSafe({ code: "invalid" });
+  const interact = resolveErrorToSafe({ code: "interaction-required" });
+  check("invalid/interaction-required 同映 reauth-required status", providerStatusForFailure(invalid) === "reauth-required" && providerStatusForFailure(interact) === "reauth-required");
+
+  const fetch401 = fetchErrorToSafe(Object.assign(new Error("returned 401"), { httpStatus: 401 }));
+  check("fetch 401 SafeError.code 合法", SAFE_ERROR_CODES.includes(fetch401.code) && fetch401.code === "invalid-credential" && providerStatusForFailure(fetch401) === "reauth-required");
+  const fetch403 = fetchErrorToSafe(Object.assign(new Error("returned 403"), { httpStatus: 403 }));
+  const fetch429 = fetchErrorToSafe(Object.assign(new Error("returned 429"), { httpStatus: 429 }));
+  check("fetch 403/429 不抛", fetch403.code === "permission-denied" && fetch429.code === "rate-limited");
+
+  const reauthEntry = { providerId: "droid", status: "ok" };
+  applyResult(reauthEntry, {
+    kind: "failed", error: expired, retainLastGood: true, profileId: "synthetic",
+    startedAtMs: 1_800_000_000_000, finishedAtMs: 1_800_000_000_010,
+  }, { nowMs: 1_800_000_000_010, trigger: { reason: "manual" } });
+  check("无 last-good 时 status=reauth-required + relogin-owner", reauthEntry.status === "reauth-required" && reauthEntry.error?.action === "relogin-owner" && reauthEntry.error?.code === "credential-expired");
+
+  const lastGoodEntry = {
+    providerId: "droid", status: "ok", report: { windows: [{ id: "w" }] }, freshness: "fresh", dataDisposition: "current",
+  };
+  applyResult(lastGoodEntry, {
+    kind: "failed", error: expired, retainLastGood: true, profileId: "synthetic",
+  }, { nowMs: 1_800_000_000_010, trigger: { reason: "timer" } });
+  check("有 last-good 仍盖 status=reauth-required 并保留 report", lastGoodEntry.status === "reauth-required" && lastGoodEntry.dataDisposition === "last-good" && lastGoodEntry.report?.windows?.length === 1);
+
+  const six = ["kimi", "opencode", "codex", "commandcode", "cursor", "droid"];
+  const providersCfg = {};
+  for (const id of six) {
+    providersCfg[id] = {
+      enabled: true, dataSource: "auto", allowCommunityEndpoints: true, activeProfile: "synthetic",
+      profiles: [{ id: "synthetic", discovery: "auto", sources: [] }],
+    };
+  }
+  const cfg = validateConfig({ schemaVersion: 1, runtime: { maxConcurrency: 6, refreshIntervalSeconds: 300 }, providers: providersCfg });
+  const cfgPath = join(base, "c06b-config.json");
+  mkdirSync(join(base, "c06b-cache"), { recursive: true, mode: 0o700 });
+  mkdirSync(join(base, "c06b-state"), { recursive: true, mode: 0o700 });
+  writeFileSync(cfgPath, JSON.stringify(cfg), { mode: 0o600 });
+  const isolatedEnv = { ...process.env, XDG_CACHE_HOME: join(base, "c06b-cache"), XDG_STATE_HOME: join(base, "c06b-state") };
+  const okReport = {
+    name: "synthetic", capturedAtMs: 1_800_000_000_000, observationBasis: "remote-response",
+    windows: [{
+      id: "monthly-credits", ruleId: "monthly-credits", label: "monthly", kind: "quota", state: "known",
+      unit: "percent", used: 0, limit: 100, scope: "subscription", provenance: "reported",
+      sourceEndpointIds: [], quotaState: "within-limit", derivations: [],
+      period: { kind: "unknown", resetState: "unknown" }, diagnostics: [],
+    }],
+    metrics: [], primaryMetricId: "monthly-credits", diagnostics: [],
+  };
+  const coordinator = new RefreshCoordinator({ configPath: cfgPath, env: isolatedEnv });
+  coordinator.refreshProvider = async (id) => {
+    if (id === "droid") {
+      return {
+        kind: "failed",
+        error: resolveErrorToSafe({ code: "expired", reasonCode: "credential-expired", action: "relogin-owner" }),
+        retainLastGood: true, profileId: "synthetic",
+        startedAtMs: Date.now(), finishedAtMs: Date.now(), requestedAtMs: Date.now(),
+      };
+    }
+    return {
+      kind: "success", report: okReport, profileId: "synthetic",
+      dataSourceId: `${id}-alpha`, credentialSourceId: "synthetic", reader: "env-generic",
+      identityAssurance: "verified",
+      startedAtMs: Date.now(), finishedAtMs: Date.now(), requestedAtMs: Date.now(),
+    };
+  };
+  let envelope;
+  let batchThrown = null;
+  try { envelope = await coordinator.refresh({ reason: "manual", interaction: "user-connect" }); }
+  catch (e) { batchThrown = e; }
+  const droid = envelope?.providers?.find((p) => p.providerId === "droid");
+  const others = six.filter((id) => id !== "droid").map((id) => envelope?.providers?.find((p) => p.providerId === id));
+  check("六启用+一 expired 不抛出批次", batchThrown === null && envelope?.kind === "usage");
+  check("droid status=reauth-required 且 action=relogin-owner", droid?.status === "reauth-required" && droid?.error?.code === "credential-expired" && droid?.error?.action === "relogin-owner");
+  check("其余五家 ok 收据", others.length === 5 && others.every((p) => p?.status === "ok" && p?.attempt?.state === "succeeded"));
+  check("request.outcome=partial", envelope?.request?.outcome === "partial");
+  const kinds = new Map(six.map((id) => {
+    const p = envelope.providers.find((x) => x.providerId === id);
+    return [id, p.status === "ok" ? { kind: "success" } : { kind: "failed" }];
+  }));
+  check("receiptOutcome(六家) = partial", receiptOutcome(envelope.providers, null, kinds) === "partial");
+
+  const throwCoord = new RefreshCoordinator({ configPath: cfgPath, env: isolatedEnv });
+  throwCoord.refreshProvider = async (id) => {
+    if (id === "droid") throw new Error("unsafe error code reauth-required");
+    return {
+      kind: "success", report: okReport, profileId: "synthetic",
+      dataSourceId: `${id}-alpha`, credentialSourceId: "synthetic", reader: "env-generic",
+      identityAssurance: "verified",
+      startedAtMs: Date.now(), finishedAtMs: Date.now(), requestedAtMs: Date.now(),
+    };
+  };
+  let thrownEnv;
+  let thrownErr = null;
+  try { thrownEnv = await throwCoord.refresh({ reason: "manual", interaction: "user-connect" }); }
+  catch (e) { thrownErr = e; }
+  const thrownDroid = thrownEnv?.providers?.find((p) => p.providerId === "droid");
+  check("worker 捕获 unsafe throw 仍返回 usage envelope", thrownErr === null && thrownEnv?.kind === "usage" && thrownEnv?.request?.outcome === "partial");
+  check("抛出的一家收敛为 failed/io-error，不污染其余", thrownDroid?.status === "error" && thrownDroid?.error?.code === "io-error" && six.filter((id) => id !== "droid").every((id) => thrownEnv.providers.find((p) => p.providerId === id)?.status === "ok"));
 }
 
 console.log("\n== C19. 严格 JSON ==");

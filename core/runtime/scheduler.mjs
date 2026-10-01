@@ -11,7 +11,7 @@ import { SecretBroker } from "../credentials/broker.mjs";
 import { createCredentialStores } from "../credentials/stores.mjs";
 import { ProviderRegistry } from "../providers/registry.mjs";
 import { v0ReadAuth, v0ResolveCredential, fetchProviderSnapshot, snapshotHasData } from "../providers/adapters.mjs";
-import { safeError, diagnostic, isAtMs, SAFE_ERROR_CODES, ACTION_CODES } from "../defs.mjs";
+import { safeError, diagnostic, isAtMs, SAFE_ERROR_CODES, ACTION_CODES, RESOLVE_TO_ENTRY, RESOLVE_TO_ACTION, CREDENTIAL_ERROR_CODES } from "../defs.mjs";
 import { legacyWindowToMetric } from "./report.mjs";
 import { parseStrictJson } from "./json-strict.mjs";
 
@@ -290,7 +290,12 @@ export class RefreshCoordinator {
           results.set(providerId, { kind: "deferred", reason: signal.aborted ? "cancelled" : "batch-budget" });
           continue;
         }
-        results.set(providerId, await this.refreshProvider(providerId, { cfgLoaded, runtime: runtimeByProvider, auth, broker, stores, nowMs, signal, dirs, trigger }));
+        try {
+          results.set(providerId, await this.refreshProvider(providerId, { cfgLoaded, runtime: runtimeByProvider, auth, broker, stores, nowMs, signal, dirs, trigger }));
+        } catch {
+          // C06：单家任何未收敛异常不得击落 Promise.all 整批。
+          results.set(providerId, { kind: "failed", error: safeError("io-error", "io-error", "retry-later"), retainLastGood: true });
+        }
       }
     };
     await Promise.all(Array.from({ length: Math.min(concurrency, Math.max(1, targets.length)) }, worker));
@@ -327,7 +332,15 @@ export class RefreshCoordinator {
   }
 
   /** 单 provider 任务边界：resolve → fetch → normalize；异常按家收敛（§5.1）。 */
-  async refreshProvider(providerId, { cfgLoaded, runtime, auth, broker, stores, nowMs, signal, dirs, trigger }) {
+  async refreshProvider(providerId, ctx) {
+    try {
+      return await this.refreshProviderTask(providerId, ctx);
+    } catch {
+      return { kind: "failed", error: safeError("io-error", "io-error", "retry-later"), retainLastGood: true };
+    }
+  }
+
+  async refreshProviderTask(providerId, { cfgLoaded, runtime, auth, broker, stores, nowMs, signal, dirs, trigger }) {
     void dirs;
     const manifest = this.registry.get(providerId);
     const provCfg = cfgLoaded?.config?.providers?.[providerId];
@@ -558,13 +571,20 @@ export function applyResult(entry, r, { nowMs, trigger, configRevision = 0 }) {
     entry.error = r.error;
     const eligible = ceilAtMs(r.nextEligibleAtMs);
     if (eligible !== undefined) entry.nextEligibleAtMs = eligible;
+    const mapped = providerStatusForFailure(r.error);
     if (r.retainLastGood && entry.report) {
-      entry.status = entry.status === "not-configured" ? "error" : entry.status; // 保留原 status/last-good
+      // 凭证类失败必须盖成 reauth-required 等，UI 才能渲染重新登录卡片；
+      // 普通运输失败保留原 status（last-good 数字仍可见）。
+      entry.status = mapped === "error"
+        ? (entry.status === "not-configured" ? "error" : entry.status)
+        : mapped;
       entry.dataDisposition = "last-good";
     } else {
-      entry.status = "error";
-      entry.freshness = "none";
-      entry.dataDisposition = "none";
+      entry.status = mapped;
+      if (!entry.report) {
+        entry.freshness = "none";
+        entry.dataDisposition = "none";
+      }
     }
   } else if (r.kind === "deferred") {
     const eligible = ceilAtMs(r.nextEligibleAtMs);
@@ -572,21 +592,48 @@ export function applyResult(entry, r, { nowMs, trigger, configRevision = 0 }) {
   }
 }
 
-function resolveErrorToSafe(resolved) {
-  const map = {
-    "not-configured": ["not-configured", "not-configured", "configure-source"],
-    "invalid": ["reauth-required", "invalid-credential", "relogin-owner"],
-    "expired": ["reauth-required", "credential-expired", "relogin-owner"],
-    "permission-denied": ["permission-denied", "keychain-denied", "check-permission"],
-    "interaction-required": ["reauth-required", "interaction-required", "allow-source"],
-    "account-mismatch": ["permission-denied", "account-mismatch", "select-profile"],
-    "unsupported": ["unsupported", "reader-unavailable", "contact-maintainer"],
-    "invalid-config": ["invalid-config", "invalid-config", "configure-source"],
-    "io-error": ["io-error", "io-error", "retry-later"],
-    "cancelled": ["cancelled", "cancelled", "none"],
-  };
-  const [code, reasonCode, action] = map[resolved.code] ?? ["error", "io-error", "retry-later"];
-  return safeError(code, resolved.reasonCode ?? reasonCode, resolved.action ?? action);
+/** resolver 失败码 → SafeError.code（contracts §2.3）；status 由 applyResult 另映。 */
+const RESOLVE_REASON_FALLBACK = {
+  "not-configured": "not-configured",
+  "invalid": "invalid-credential",
+  "expired": "credential-expired",
+  "permission-denied": "keychain-denied",
+  "interaction-required": "interaction-required",
+  "account-mismatch": "account-mismatch",
+  "unsupported": "reader-unavailable",
+  "invalid-config": "invalid-config",
+  "io-error": "io-error",
+  "cancelled": "cancelled",
+};
+
+/** SafeError.code → ProviderEntry.status。reauth-required 是 status，不是 error.code。 */
+const STATUS_FROM_SAFE_ERROR = {
+  "not-configured": "not-configured",
+  "invalid-credential": "reauth-required",
+  "credential-expired": "reauth-required",
+  "interaction-required": "reauth-required",
+  "permission-denied": "permission-denied",
+  "account-mismatch": "permission-denied",
+  "unsupported": "unsupported",
+  "rate-limited": "rate-limited",
+};
+
+export function providerStatusForFailure(error) {
+  return STATUS_FROM_SAFE_ERROR[error?.code] ?? "error";
+}
+
+export function resolveErrorToSafe(resolved) {
+  try {
+    const resolverCode = CREDENTIAL_ERROR_CODES.includes(resolved?.code) ? resolved.code : undefined;
+    const mapped = resolverCode ? RESOLVE_TO_ENTRY[resolverCode] : undefined;
+    const errorCode = SAFE_ERROR_CODES.includes(mapped?.code) ? mapped.code : "io-error";
+    const reasonCode = resolved?.reasonCode ?? (resolverCode ? RESOLVE_REASON_FALLBACK[resolverCode] : "io-error") ?? "io-error";
+    const actionRaw = resolved?.action ?? RESOLVE_TO_ACTION[resolverCode] ?? "retry-later";
+    const action = ACTION_CODES.includes(actionRaw) ? actionRaw : "retry-later";
+    return safeError(errorCode, reasonCode, action);
+  } catch {
+    return safeError("io-error", "io-error", "retry-later");
+  }
 }
 
 const CONNECT_REFUSED_CODES = new Set(["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "EHOSTUNREACH", "ENETUNREACH"]);
@@ -597,13 +644,21 @@ function transportCauseCode(e) {
 }
 
 export function fetchErrorToSafe(e) {
+  try {
+    return classifyFetchError(e);
+  } catch {
+    return safeError("network", "network", "retry-later");
+  }
+}
+
+function classifyFetchError(e) {
   const msg = String(e?.message ?? e);
   const kind = e?.transportKind;
   const causeCode = transportCauseCode(e);
   const retryAfter = e?.retryAfterHeader;
   const statusFromMsg = msg.match(/returned (\d{3})/);
   const httpStatus = Number.isInteger(e?.httpStatus) ? e.httpStatus : (statusFromMsg ? parseInt(statusFromMsg[1], 10) : undefined);
-  if (httpStatus === 401 || /returned 401/.test(msg)) return safeError("reauth-required", "http-401", "relogin-owner");
+  if (httpStatus === 401 || /returned 401/.test(msg)) return safeError("invalid-credential", "http-401", "relogin-owner", { httpStatus: 401 });
   if (httpStatus === 403 || /returned 403/.test(msg)) return safeError("permission-denied", "http-403", "check-plan-region");
   if (httpStatus === 429 || /returned 429/.test(msg)) {
     const retryAtMs = parseRetryAfter(retryAfter);
