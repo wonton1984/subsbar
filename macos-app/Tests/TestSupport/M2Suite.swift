@@ -89,6 +89,8 @@ public enum M2Suite {
             try check("menu \(n) text", segments.map(\.text) == Array(["Cod 100%", "Ope 70%", "Kim 0%", "Com $12.50"].prefix(n)))
         }
         try check("menu provider order wins", MenuBarSelection.visible(ui: selectedMenu.setting("menuBarLimit", .number(2)), ordered: orderedMenu.reversed(), enabled: orderedMenu) == ["commandcode", "kimi"])
+        try check("menu OpenCode short name distinct", MenuBarSegment(providerID: "opencode", name: "OpenCode", provider: nil, now: now).name == "OC")
+        try check("menu OpenRouter short name distinct", MenuBarSegment(providerID: "openrouter", name: "OpenRouter", provider: nil, now: now).name == "OR")
         let cursorMenu = MenuBarSegment(providerID: "cursor", name: "Cursor", provider: menuUsage.providers.first { $0.id == "cursor" }, now: now)
         try check("menu balance preserved", cursorMenu.value == "$42.00" && cursorMenu.fraction == nil)
         let codexMenu = menuUsage.providers.first { $0.id == "codex" }!

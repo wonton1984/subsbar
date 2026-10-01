@@ -9,7 +9,9 @@ public struct MenuBarSegment: Equatable, Sendable {
     public var text: String { name + " " + value }
     public init(providerID: String, name: String, provider: V1Provider?, now: Date) {
         self.providerID = providerID
-        self.name = String(Presentation.text(name).prefix(3))
+        let safeName = Presentation.text(name)
+        let initials = safeName.filter(\.isUppercase)
+        self.name = initials.count >= 2 ? String(initials.prefix(3)) : String(safeName.prefix(3)).capitalized
         guard let provider, !provider.invalid, ["ok", "partial", "rate-limited"].contains(provider.status),
               provider.freshness(at: now) == "fresh", provider.raw["dataDisposition"].text == "current" else {
             fraction = nil; value = "…"; return
