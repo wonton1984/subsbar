@@ -90,6 +90,9 @@ public enum M1Suite {
         try check("backoff expiry invites manual retry", try notice([blocked], at: now.addingTimeInterval(61)) == "退避等待已结束，可点击刷新重试")
         try check("backoff missing deadline stays honest", try notice([blocked.setting("nextEligibleAtMs", .null)])?.contains("未知") == true)
         try check("busy not mislabeled backoff", try notice([blocked.setting("attempt", .object(["state": .string("deferred"), "deferredReason": .string("busy")]))]) == nil)
+        for reason in ["not-due", "batch-budget"] {
+            try check("\(reason) is not a full backoff notice", try notice([blocked.setting("attempt", .object(["state": .string("deferred"), "deferredReason": .string(reason)]))]) == nil)
+        }
         try check("successful request clears backoff notice", try notice([blocked], request: blockedRequest.setting("outcome", .string("updated"))) == nil)
         try check("missing target not called fully blocked", try notice([blocked], request: blockedRequest.setting("requestedProviderIds", .strings(["synthetic", "missing"])), enabled: ["synthetic", "missing"]) == nil)
         try check("disabled targets excluded from backoff", try notice([blocked], enabled: []) == nil)
@@ -278,6 +281,33 @@ public enum M1Suite {
             let disk = try Wire.parse(Data(contentsOf: legacyURL))
             try check("menu legacy write strips fields \(ids)", saved.exitCode == 0 && disk["ui"].object["pinnedMetrics"] == nil && disk["ui"].object["menuBarMode"] == nil)
         }
+
+        // Rev8 integration through the real CLI; missing synthetic source prevents any network request.
+        let retryPath = temporary.appendingPathComponent("retry-config.json")
+        let retryBridge = NodeBridge(node: node, root: root, configPath: retryPath.path, environment: environment)
+        let retryBase = try ConfigDocument(retryBridge.call(["config", "read", "--json"]).value)
+        let retrySource = Wire.object(["id": .string("missing"), "kind": .string("env"), "reader": .string("kimi-env-key"), "purpose": .string("primary"), "envName": .string("SUBSBAR_SYNTHETIC_ABSENT")])
+        let retryProfile = Wire.object(["id": .string("synthetic"), "discovery": .string("only"), "sources": .array([retrySource])])
+        let retryProvider = Wire.object(["enabled": .bool(true), "allowCommunityEndpoints": .bool(true), "activeProfile": .string("synthetic"), "profiles": .array([retryProfile])])
+        let retryWrite = try retryBridge.call(["config", "set", "--stdin"], input: retryBase.submission(patch: .object(["providers": .object(["kimi": retryProvider])])))
+        try check("retry integration synthetic config CAS", retryWrite.exitCode == 0)
+        let retryState = temporary.appendingPathComponent("state/subsbar/runtime-v1.json")
+        let retryCache = temporary.appendingPathComponent("cache/subsbar/usage-v1.json")
+        let stamp = floor(Date().timeIntervalSince1970 * 1000)
+        func seededRefresh(_ state: Wire, reason: String) throws -> UsageV1 {
+            try? FileManager.default.removeItem(at: retryCache)
+            try Wire.object(["providers": .object(["kimi": state])]).encoded().write(to: retryState)
+            return try UsageV1(retryBridge.call(["refresh", "--json", "--reason", reason]).value)
+        }
+        let localRetry = Wire.object(["lastAttemptAtMs": .number(stamp - 60_000), "consecutiveFailures": .number(2), "localBackoffAtMs": .number(stamp + 600_000.5), "nextEligibleAtMs": .number(stamp + 600_000.5)])
+        let timerDeferred = try seededRefresh(localRetry, reason: "timer")
+        try check("timer respects fractional legacy local backoff and Swift displays deadline", timerDeferred.backoffNotice(at: Date(), enabledIDs: ["kimi"]) != nil && timerDeferred.providers.first(where: { $0.id == "kimi" })?.raw["nextEligibleAtMs"].number == stamp + 600_001)
+        let manualRetry = try seededRefresh(localRetry, reason: "manual")
+        try check("manual bypasses local backoff and disabled rows do not mask failure", manualRetry.raw["request"]["outcome"].text == "failed" && manualRetry.providers.first(where: { $0.id == "kimi" })?.raw["attempt"]["state"].text == "failed" && manualRetry.backoffNotice(at: Date(), enabledIDs: ["kimi"]) == nil)
+        let serverDeferred = try seededRefresh(localRetry.setting("serverRetryAtMs", .number(stamp + 7_200_000)), reason: "manual")
+        try check("manual retains server Retry-After and native notice", serverDeferred.backoffNotice(at: Date(), enabledIDs: ["kimi"]) != nil && serverDeferred.providers.first(where: { $0.id == "kimi" })?.raw["nextEligibleAtMs"].number == stamp + 7_200_000)
+        let rapid = try seededRefresh(localRetry.setting("lastAttemptAtMs", .number(floor(Date().timeIntervalSince1970 * 1000))), reason: "manual")
+        try check("manual 30s floor stays not-due not backoff", rapid.providers.first(where: { $0.id == "kimi" })?.raw["attempt"]["deferredReason"].text == "not-due" && rapid.backoffNotice(at: Date(), enabledIDs: ["kimi"]) == nil)
 
         return count
     }
