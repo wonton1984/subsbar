@@ -15,9 +15,11 @@ const RUNTIME_DEFAULTS = { nodePath: "auto", refreshIntervalSeconds: 300, timeou
 const PRIVACY_DEFAULTS = { allowBrowserDiscovery: false, diagnostics: "local-redacted" };
 const UI_DEFAULTS = {
   locale: "system", appearance: "system", density: "compact", overviewMode: "cards",
-  menuBarMode: "single-pie", selectedProvider: null, showMenuBarPercent: true, showAccountLabel: false,
-  providerOrder: [], pinnedMetrics: [], cards: {},
+  selectedProvider: null, showMenuBarPercent: true, showAccountLabel: false,
+  providerOrder: [], cards: {}, menuBarProviders: null, menuBarLimit: 1,
 };
+/** 读入接受、写出剥离（rev7：菜单栏改为独立槽位，不再写 menuBarMode/pinnedMetrics）。 */
+const UI_LEGACY_KEYS = ["menuBarMode", "pinnedMetrics"];
 const COMPAT_DEFAULTS = { pi: { enabled: false, agentDir: undefined }, legacyCache: { import: "never", path: undefined } };
 
 const ENUMS = {
@@ -132,6 +134,52 @@ function validatePin(raw, where) {
   return { ...raw, style: raw.style ?? "text" };
 }
 
+function uniqueProviderIds(ids, where) {
+  if (!Array.isArray(ids)) reject(where);
+  const seen = new Set();
+  const out = [];
+  for (const id of ids) {
+    if (typeof id !== "string" || !ID_RE.test(id)) reject(`${where}.id`);
+    if (seen.has(id)) reject(`${where} 重复`);
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
+}
+
+/**
+ * 菜单栏字段：新字段优先；否则 menuBarMode=pinned 从 pins 去重迁移；无旧字段 → null/1。
+ * 旧字段不进入返回值（写出剥离）。
+ */
+function migrateMenuBar(rui) {
+  if (rui.menuBarLimit !== undefined) intRange("ui.menuBarLimit", rui.menuBarLimit, 0, 4);
+  const hasNew = Object.prototype.hasOwnProperty.call(rui, "menuBarProviders");
+  if (hasNew) {
+    const raw = rui.menuBarProviders;
+    if (raw !== null && !Array.isArray(raw)) reject("ui.menuBarProviders");
+    const providers = raw === null ? null : uniqueProviderIds(raw, "ui.menuBarProviders");
+    const limit = rui.menuBarLimit ?? UI_DEFAULTS.menuBarLimit;
+    if (providers !== null && providers.length > limit) reject("ui.menuBarProviders");
+    return { menuBarProviders: providers, menuBarLimit: limit };
+  }
+  if (rui.menuBarMode === "pinned") {
+    const pins = Array.isArray(rui.pinnedMetrics) ? rui.pinnedMetrics : [];
+    const ids = [];
+    const seen = new Set();
+    for (const pin of pins) {
+      const id = pin?.providerId;
+      if (typeof id === "string" && ID_RE.test(id) && !seen.has(id)) {
+        seen.add(id);
+        ids.push(id);
+      }
+    }
+    const limit = rui.menuBarLimit ?? (pins.length === 0 ? 1 : Math.min(pins.length, 4));
+    if (ids.length > limit) reject("ui.menuBarProviders");
+    return { menuBarProviders: ids, menuBarLimit: limit };
+  }
+  return { menuBarProviders: null, menuBarLimit: rui.menuBarLimit ?? UI_DEFAULTS.menuBarLimit };
+}
+
 /**
  * 校验并规范化 config 根对象。未知字段/类型错误抛 {code:"invalid-config"}。
  * 返回带默认补全的规范化副本（不修改输入）。
@@ -145,7 +193,7 @@ export function validateConfig(raw) {
     revision: raw.revision ?? 0,
     runtime: { ...RUNTIME_DEFAULTS },
     privacy: { ...PRIVACY_DEFAULTS },
-    ui: { ...UI_DEFAULTS, pinnedMetrics: [], providerOrder: [], cards: {} },
+    ui: { ...UI_DEFAULTS, providerOrder: [], cards: {} },
     providers: {},
     compatibility: structuredClone(COMPAT_DEFAULTS),
   };
@@ -172,22 +220,18 @@ export function validateConfig(raw) {
   }
   if (raw.ui !== undefined) {
     const rui = raw.ui;
-    checkUnknown(rui, [...Object.keys(UI_DEFAULTS)], "ui");
-    for (const k of ["locale", "appearance", "density", "overviewMode", "menuBarMode"]) {
+    checkUnknown(rui, [...Object.keys(UI_DEFAULTS), ...UI_LEGACY_KEYS], "ui");
+    for (const k of ["locale", "appearance", "density", "overviewMode"]) {
       if (rui[k] !== undefined) enumCheck(`ui.${k}`, rui[k], `ui.${k}`);
     }
+    if (rui.menuBarMode !== undefined) enumCheck("ui.menuBarMode", rui.menuBarMode, "ui.menuBarMode");
     for (const k of ["showMenuBarPercent", "showAccountLabel"]) {
       if (rui[k] !== undefined && typeof rui[k] !== "boolean") reject(`ui.${k}`);
     }
     if (rui.selectedProvider !== undefined && rui.selectedProvider !== null && typeof rui.selectedProvider !== "string") reject("ui.selectedProvider");
     if (rui.providerOrder !== undefined) {
       if (!Array.isArray(rui.providerOrder)) reject("ui.providerOrder");
-      const seen = new Set();
-      for (const id of rui.providerOrder) {
-        if (typeof id !== "string" || !ID_RE.test(id)) reject("ui.providerOrder.id");
-        if (seen.has(id)) reject("ui.providerOrder 重复");
-        seen.add(id);
-      }
+      uniqueProviderIds(rui.providerOrder, "ui.providerOrder");
     }
     if (rui.pinnedMetrics !== undefined) {
       if (!Array.isArray(rui.pinnedMetrics) || rui.pinnedMetrics.length > 2) reject("ui.pinnedMetrics");
@@ -200,7 +244,20 @@ export function validateConfig(raw) {
         checkUnknown(card, ["expanded", "favorite", "metricOrder", "hiddenMetricIds"], `ui.cards.${pid}`);
       }
     }
-    out.ui = { ...UI_DEFAULTS, ...rui, pinnedMetrics: rui.pinnedMetrics ?? [], providerOrder: rui.providerOrder ?? [], cards: rui.cards ?? {} };
+    const menuBar = migrateMenuBar(rui);
+    out.ui = {
+      locale: rui.locale ?? UI_DEFAULTS.locale,
+      appearance: rui.appearance ?? UI_DEFAULTS.appearance,
+      density: rui.density ?? UI_DEFAULTS.density,
+      overviewMode: rui.overviewMode ?? UI_DEFAULTS.overviewMode,
+      selectedProvider: rui.selectedProvider === undefined ? UI_DEFAULTS.selectedProvider : rui.selectedProvider,
+      showMenuBarPercent: rui.showMenuBarPercent ?? UI_DEFAULTS.showMenuBarPercent,
+      showAccountLabel: rui.showAccountLabel ?? UI_DEFAULTS.showAccountLabel,
+      providerOrder: rui.providerOrder ?? [],
+      cards: rui.cards ?? {},
+      menuBarProviders: menuBar.menuBarProviders,
+      menuBarLimit: menuBar.menuBarLimit,
+    };
   }
   if (raw.providers !== undefined) {
     if (!isPlainObject(raw.providers)) reject("providers");

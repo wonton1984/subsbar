@@ -10,10 +10,9 @@
     "privacy": { "allowBrowserDiscovery": false, "diagnostics": "local-redacted" },
     "ui": {
       "locale": "zh-Hans", "appearance": "system", "density": "compact",
-      "overviewMode": "cards", "menuBarMode": "single-pie", "selectedProvider": "commandcode",
+      "overviewMode": "cards", "menuBarProviders": null, "menuBarLimit": 1, "selectedProvider": "commandcode",
       "showMenuBarPercent": true, "showAccountLabel": false,
       "providerOrder": ["codex", "opencode", "kimi", "commandcode", "droid", "cursor", "claude", "copilot", "zai", "openrouter", "antigravity", "devin", "grok", "ollama"],
-      "pinnedMetrics": [],
       "cards": {}
     },
     "providers": {

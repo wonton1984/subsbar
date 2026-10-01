@@ -104,7 +104,27 @@
             "single-pie",
             "pinned"
           ],
-          "default": "single-pie"
+          "description": "legacy: accepted on read; stripped on write. pinned + pinnedMetrics migrate to menuBarProviders"
+        },
+        "menuBarProviders": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "default": null,
+          "description": "null=auto first enabled provider; []=no text (single pie slot); explicit ids rendered in providerOrder. N ids = N NSStatusItem slots; 0 = pie-only. No merged single-slot text.",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,47}$"
+          },
+          "uniqueItems": true
+        },
+        "menuBarLimit": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4,
+          "default": 1,
+          "description": "Intersection with menuBarProviders length; array longer than limit is invalid-config"
         },
         "selectedProvider": {
           "type": [
@@ -134,6 +154,7 @@
           "type": "array",
           "maxItems": 2,
           "default": [],
+          "description": "legacy: accepted on read; stripped on write. When menuBarMode=pinned, unique providerIds (pin order) become menuBarProviders; menuBarLimit=min(pin count, 4) or 1 if empty",
           "items": {
             "type": "object",
             "required": [

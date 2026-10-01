@@ -16,7 +16,8 @@
     "appearance": "system",
     "density": "compact",
     "overviewMode": "cards",
-    "menuBarMode": "single-pie",
+    "menuBarProviders": null,
+    "menuBarLimit": 1,
     "selectedProvider": null,
     "showMenuBarPercent": true,
     "showAccountLabel": false,
@@ -36,7 +37,6 @@
       "grok",
       "ollama"
     ],
-    "pinnedMetrics": [],
     "cards": {}
   },
   "providers": {

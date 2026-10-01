@@ -29,14 +29,16 @@ Highlights:
 | --- | --- |
 | `runtime` | `nodePath` ("auto" or absolute), `refreshIntervalSeconds` 60..86400 (default 300), `timeoutSeconds` 1..30, `maxConcurrency` 1..6 |
 | `privacy` | `allowBrowserDiscovery` (default false), `diagnostics` ("off"/"local-redacted") |
-| `ui` | overview mode, menu bar mode, `selectedProvider`, provider order, up to 2 pinned metrics, per-provider card preferences |
+| `ui` | overview mode, `menuBarProviders` (null / [] / ids) + `menuBarLimit` 0..4 (default 1), `selectedProvider`, provider order, per-provider card preferences |
 | `providers.<id>` | `enabled`, `dataSource` (full source id or kind), `allowCommunityEndpoints`, `activeProfile`, `profiles[]` |
 | `profiles[]` | `id`, `discovery` ("auto"/"only"), permission flags (`allowKeychain/allowBrowser/allowLocalApi`), explicit `sources[]`, optional `region`/`organizationId` |
 | `compatibility` | `pi.enabled` (explicit opt-in), `legacyCache` import policy |
 
 Cards overview uses one column (360pt) when at most three providers are enabled, and a two-column row-major grid (560pt) from the fourth enabled provider. Grid cards show the primary metric and status; expanding a card still shows every visible metric and pin control. Compact (`overviewMode: "single"`) uses the same card model for one selected provider.
 
-`pinnedMetrics` holds at most two `{providerId, profileId, metricId, field}` pins for the menu bar. A missing, disabled, or foreign-profile pin renders as unknown and never substitutes another metric.
+`menuBarProviders` is `null` (auto: first enabled provider), `[]` (no text), or an explicit `providerId[]` rendered in `providerOrder`. `menuBarLimit` is an integer 0..4 (default 1); an explicit array longer than the limit is `invalid-config`. N selected providers are N independent menu-bar slots (mini pie + short text per provider); 0 is a single pie-only slot. There is no merged single-slot text.
+
+Old `menuBarMode` / `pinnedMetrics` are still accepted on read. `menuBarMode=pinned` migrates to `menuBarProviders` (unique pin `providerId`s in pin order) and `menuBarLimit=min(pin count, 4)` (0 pins → limit 1). Both legacy fields are stripped on write. Absent legacy and new fields default to `null` / 1.
 
 Synthetic UI examples (same golden fixtures as the README; not live usage):
 [compact view](assets/screenshot-overview-compact.png),

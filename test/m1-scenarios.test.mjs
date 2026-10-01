@@ -403,6 +403,61 @@ console.log("\n== S4. Pi 默认 agentDir（检测连接可发现 ~/.pi/agent）=
   }
 }
 
+console.log("\n== S5. 菜单栏 menuBarProviders / menuBarLimit 迁移与校验 ==");
+{
+  const { validateConfig } = await import("../core/config/schema.mjs");
+  const { ConfigStore } = await import("../core/config/store.mjs");
+  const pin = (providerId) => ({ providerId, profileId: "personal", metricId: "monthly-credits", field: "remaining" });
+  const codeOf = (raw) => { try { validateConfig(raw); return null; } catch (e) { return e.code; } };
+
+  const twoPins = validateConfig({
+    schemaVersion: 1,
+    ui: { menuBarMode: "pinned", pinnedMetrics: [pin("commandcode"), pin("codex")] },
+  });
+  check("旧 pins → providers 去重保序", JSON.stringify(twoPins.ui.menuBarProviders) === JSON.stringify(["commandcode", "codex"]));
+  check("旧 pins → limit=min(pins,4)", twoPins.ui.menuBarLimit === 2);
+  check("旧字段写出剥离", twoPins.ui.menuBarMode === undefined && twoPins.ui.pinnedMetrics === undefined);
+
+  const dupPins = validateConfig({
+    schemaVersion: 1,
+    ui: { menuBarMode: "pinned", pinnedMetrics: [pin("commandcode"), pin("commandcode")] },
+  });
+  check("同 provider 两 pin → 去重一家", JSON.stringify(dupPins.ui.menuBarProviders) === JSON.stringify(["commandcode"]) && dupPins.ui.menuBarLimit === 2);
+
+  const zeroPins = validateConfig({ schemaVersion: 1, ui: { menuBarMode: "pinned", pinnedMetrics: [] } });
+  check("0 pins → [] 且 limit 默认 1", Array.isArray(zeroPins.ui.menuBarProviders) && zeroPins.ui.menuBarProviders.length === 0 && zeroPins.ui.menuBarLimit === 1);
+
+  const fresh = validateConfig({ schemaVersion: 1 });
+  check("无旧字段 → null/1", fresh.ui.menuBarProviders === null && fresh.ui.menuBarLimit === 1);
+
+  const auto = validateConfig({ schemaVersion: 1, ui: { menuBarProviders: null } });
+  check("显式 null → 自动", auto.ui.menuBarProviders === null && auto.ui.menuBarLimit === 1);
+
+  const none = validateConfig({ schemaVersion: 1, ui: { menuBarProviders: [] } });
+  check("[] → 明确无文本", Array.isArray(none.ui.menuBarProviders) && none.ui.menuBarProviders.length === 0 && none.ui.menuBarLimit === 1);
+
+  const explicit = validateConfig({
+    schemaVersion: 1,
+    ui: { menuBarProviders: ["kimi", "codex"], menuBarLimit: 2, providerOrder: ["codex", "kimi"] },
+  });
+  check("显式数组按写入顺序保留", JSON.stringify(explicit.ui.menuBarProviders) === JSON.stringify(["kimi", "codex"]) && explicit.ui.menuBarLimit === 2);
+
+  check("数组超限 → invalid-config", codeOf({ schemaVersion: 1, ui: { menuBarProviders: ["codex", "kimi"], menuBarLimit: 1 } }) === "invalid-config");
+  check("省略 limit 且数组>1 → invalid-config", codeOf({ schemaVersion: 1, ui: { menuBarProviders: ["codex", "kimi"] } }) === "invalid-config");
+  check("limit 超出 0..4 → invalid-config", codeOf({ schemaVersion: 1, ui: { menuBarLimit: 5 } }) === "invalid-config");
+  check("重复 id → invalid-config", codeOf({ schemaVersion: 1, ui: { menuBarProviders: ["codex", "codex"], menuBarLimit: 2 } }) === "invalid-config");
+
+  const cfgPath = join(base, "menubar-config.json");
+  const store = new ConfigStore(cfgPath);
+  store.initDefault({
+    schemaVersion: 1,
+    ui: { menuBarMode: "pinned", pinnedMetrics: [pin("commandcode"), pin("codex")] },
+  });
+  const disk = JSON.parse(readFileSync(cfgPath, "utf8"));
+  check("落盘无旧字段", disk.ui.menuBarMode === undefined && disk.ui.pinnedMetrics === undefined);
+  check("落盘为迁移后新字段", JSON.stringify(disk.ui.menuBarProviders) === JSON.stringify(["commandcode", "codex"]) && disk.ui.menuBarLimit === 2);
+}
+
 console.log("\n== C19. 严格 JSON ==");
 {
   check("重复键拒绝", (() => { try { parseStrictJson('{"a":1,"a":2}'); return false; } catch (e) { return e.reasonCode === "duplicate-key"; } })());
