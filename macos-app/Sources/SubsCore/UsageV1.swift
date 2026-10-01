@@ -200,6 +200,28 @@ public struct UsageV1: Sendable {
         let counts = Dictionary(grouping: rows, by: { $0["providerId"].text }).mapValues(\.count)
         providers = rows.enumerated().filter { index, row in !rows.prefix(index).contains { $0["providerId"].text == row["providerId"].text } }.map { V1Provider($0.element, invalid: counts[$0.element["providerId"].text] != 1) }
     }
+    /// Explain a fully deferred request using Node deadlines, never recomputing backoff locally.
+    public func backoffNotice(at now: Date, enabledIDs: [String]) -> String? {
+        let request = raw["request"]
+        guard request["outcome"].text == "deferred" else { return nil }
+        let requested = request["requestedProviderIds"].array.map(\.text)
+        let targets = enabledIDs.filter { requested.contains($0) }
+        guard !targets.isEmpty else { return nil }
+        let rows = targets.compactMap { id in providers.first { $0.id == id } }
+        guard rows.count == targets.count, rows.allSatisfy({ !$0.invalid && $0.raw["attempt"]["state"].text == "deferred" && $0.raw["attempt"]["deferredReason"].text == "backoff" }) else { return nil }
+        let deadlines = rows.compactMap { row -> Double? in
+            let values = [V1Metric.timestamp(row.raw["nextEligibleAtMs"]), V1Metric.timestamp(row.raw["error"]["retryAtMs"])].compactMap { $0 }
+            return values.max()
+        }
+        guard deadlines.count == rows.count, let earliest = deadlines.min() else { return "刷新暂缓：退避中，重试时间未知" }
+        guard earliest > now.timeIntervalSince1970 * 1000 else { return "退避等待已结束，可点击刷新重试" }
+        // Round upward: HH:mm must not promise eligibility before the actual deadline.
+        let date = Date(timeIntervalSince1970: ceil(earliest / 60_000) * 60)
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.dateFormat = Calendar.current.isDate(date, inSameDayAs: now) ? "HH:mm" : "MM-dd HH:mm"
+        return "刷新暂缓：全部所选订阅退避中，最早 " + formatter.string(from: date) + " 后可重试"
+    }
     public var receiptText: String? {
         let request = raw["request"]
         if raw["coordinatorError"].isObject { return Presentation.error(raw["coordinatorError"]["code"].text) }

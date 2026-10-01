@@ -90,6 +90,11 @@ struct PopoverView: View {
                 }.buttonStyle(.bordered).controlSize(.small).help("连接与显示设置")
             }
             if ProviderNavigation.visible(ui: model.config["ui"]) { ProviderSelector(model: model) }
+            if let notice = model.usage?.backoffNotice(at: model.now, enabledIDs: model.enabled.map({ $0["providerId"].text })) {
+                Label(notice, systemImage: "clock")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
         }.padding(.horizontal, 10).padding(.vertical, 8)
     }

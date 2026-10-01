@@ -57,6 +57,19 @@ import SubsCore
                 }
             }
         }
+        try scene(enabled: SyntheticScenes.enabledIDs)
+        if let usage = model.usage {
+            let deferredRows = usage.raw["providers"].array.map {
+                $0.setting("attempt", .object(["state": .string("deferred"), "deferredReason": .string("backoff")]))
+                    .setting("nextEligibleAtMs", .number(model.now.timeIntervalSince1970 * 1000 + 900_000))
+            }
+            model.usage = try UsageV1(usage.raw.setting("providers", .array(deferredRows))
+                .setting("request", .object(["outcome": .string("deferred"), "requestedProviderIds": .strings(SyntheticScenes.enabledIDs), "cachePersisted": .bool(true)])))
+            model.receipt = model.usage?.receiptText
+            for dark in [false, true] {
+                try popover("M15-backoff-\(dark ? "dark" : "light").png", dark: dark)
+            }
+        }
         for state in ["ok", "unknown", "exceeded"] {
             for count in 0...4 {
                 for dark in [false, true] {
