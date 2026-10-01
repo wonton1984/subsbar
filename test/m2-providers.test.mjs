@@ -227,11 +227,25 @@ console.log("\n== C. antigravity / devin / grok（来源分流；admission pendi
   check("grok：creditUsagePercent 识别", g.windows[0].used === 37 && g.windows[0].id === "grok-weekly");
   check("grok：pending-verification 诊断", g.diagnostics.some((d) => d.code === "pending-verification"));
   check("grok：plan 不进 report", !JSON.stringify(g).includes('"pro"'));
-  check("grok：PAYG 不并入周窗", g.metrics.some((m) => m.id === "payg-cap" && m.limit === 2500) && g.windows.length === 1);
+  const payg = g.metrics.find((m) => m.id === "payg-cap");
+  check("grok：PAYG 不并入周窗", payg?.limit === 2500 && g.windows.length === 1 && g.windows[0].id === "grok-weekly");
+  check("grok：PAYG 有 quotaState/period", payg?.kind === "quota" && payg.quotaState === "within-limit" && payg.period?.kind === "unknown" && payg.period?.resetState === "unknown" && payg.primary === false);
+  check("grok：PAYG used/limit 来自服务端、remaining 按声明推导", payg?.used === 100 && payg.limit === 2500 && payg.remaining === 2400 && payg.state === "known");
   check("grok：无法识别 → 抛错", (() => { try { normalizeGrokBilling(fixture("grok-synthetic-missing.json"), NOW); return false; } catch { return true; } })());
   const monthly = normalizeGrokBilling(fixture("grok-synthetic-monthly.json"), NOW);
   check("grok：~30d 标月窗而非周窗", monthly.windows[0].id === "grok-monthly" && monthly.windows[0].used === 22);
-  check("grok：PAYG cap 0 诊断而非满额", monthly.diagnostics.some((d) => d.code === "grok-payg-disabled") && !monthly.windows.some((w) => w.limit === 0 && w.used === 0));
+  check("grok：PAYG cap 0 诊断而非满额", monthly.diagnostics.some((d) => d.code === "grok-payg-disabled") && !monthly.metrics.some((m) => m.id === "payg-cap") && !monthly.windows.some((w) => w.limit === 0 && w.used === 0));
+  const capOnly = normalizeGrokBilling({ onDemandCap: 80 }, NOW);
+  const capOnlyPayg = capOnly.metrics.find((m) => m.id === "payg-cap");
+  check("grok：仅 cap 不补 used=0", capOnlyPayg?.state === "limit-only" && capOnlyPayg.quotaState === "unknown" && capOnlyPayg.used === undefined && capOnlyPayg.limit === 80 && capOnlyPayg.period?.kind === "unknown");
+  const quotaOk = (m) => m.kind !== "quota" || (
+    ["unknown", "within-limit", "at-limit", "over-limit"].includes(m.quotaState)
+    && m.period && ["rolling", "calendar", "billing", "lifetime", "unknown"].includes(m.period.kind)
+    && ["known", "unknown", "not-started"].includes(m.period.resetState)
+    && Array.isArray(m.derivations)
+  );
+  const allQuota = (...reports) => reports.flatMap((r) => [...(r.windows ?? []), ...(r.metrics ?? [])]);
+  check("三家 quota 窗均含 quotaState/period", allQuota(a, nested, d, hidden, cliStatus, g, monthly, capOnly).every(quotaOk));
   check("grok 管理 key 拒绝", isGrokManagementKey("xai-synthetic-management-key"));
   check("GROK_HOME 默认 ~/.grok/auth.json", /\/\.grok\/auth\.json$/.test(grokAuthFilePath({})));
   check("GROK_HOME 指定文件", grokAuthFilePath({ GROK_HOME: "/tmp/synthetic-grok-auth.json" }).endsWith("synthetic-grok-auth.json"));

@@ -448,12 +448,20 @@ export function normalizeGrokBilling(payload, capturedAtMs) {
   const paygUsed = asNonNegative(payload.onDemandUsed?.val) ?? asNonNegative(payload.onDemandUsed);
   if (cap === 0) diagnostics.push(diagnostic("grok-payg-disabled", "info"));
   else if (cap !== undefined) {
-    metrics.push({
-      id: "payg-cap", ruleId: "payg-cap", label: "PAYG上限", kind: "quota",
-      unit: "credits", scope: "subscription", provenance: "reported", sourceEndpointIds: ["grok-billing"],
-      state: "known", ...(paygUsed !== undefined ? { used: paygUsed, remaining: Math.max(0, cap - paygUsed) } : {}),
-      limit: cap, diagnostics: [],
-    });
+    // 上限来自服务端 cap；无 used 时不补 0。周期上游未给则显式 unknown，不借用周/月窗。
+    const payg = quotaOut(metric(RULE("grok-payg", "payg-cap", "credits", {
+      derivations: paygUsed !== undefined ? ["remaining-from-limit-used"] : [],
+      sourceEndpointIds: ["grok-billing"],
+    }), {
+      unit: "credits",
+      ...(paygUsed !== undefined ? { used: paygUsed } : {}),
+      limit: cap,
+      period: { kind: "unknown", resetState: "unknown" },
+    }));
+    payg.primary = false;
+    payg.label = "PAYG上限";
+    payg.id = "payg-cap";
+    metrics.push(payg);
   }
   const plan = typeof payload.plan === "string" ? payload.plan : typeof payload.subscription_tier_display === "string" ? payload.subscription_tier_display : undefined;
   void plan;

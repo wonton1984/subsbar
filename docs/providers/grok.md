@@ -34,7 +34,7 @@ Management API keys (`xai-` prefix) are rejected and never sent. Browser cookies
 | Field | Metric | Notes |
 | --- | --- | --- |
 | `creditUsagePercent` / credits percent | `grok-weekly` or `grok-monthly` | Period taken from `currentPeriod.start/end` (or billingPeriod bounds). ~7d → weekly; ~30d → monthly. **Monthly is not labelled weekly.** Missing weekly is omitted, not 0 |
-| `onDemandCap` / `onDemandUsed` | `payg-cap` | PAYG cap is a separate metric. Cap `0` → diagnostic `grok-payg-disabled`, not a full weekly bar |
+| `onDemandCap` / `onDemandUsed` | `payg-cap` (quota) | Separate from weekly. Cap `0` → `grok-payg-disabled`, no bar. Has `quotaState` from used vs cap (`within-limit` / `at-limit` / `over-limit`; cap-only → `unknown`). `period.kind/resetState` are `unknown` unless upstream sends a PAYG cycle — weekly bounds are not copied. Missing used is not filled with 0 |
 
 Plan / `subscription_tier_display` strings are not copied into the report. Team quota is not claimed: if the payload has no personal credits window, the report has no invented team usage.
 
