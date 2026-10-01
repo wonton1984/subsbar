@@ -48,10 +48,10 @@ public struct ConnectionGuide: Equatable, Sendable {
         }
         credentialService = keyReader?["credentialService"].string
         credentialReader = keyReader?["id"].string
-        if !manifest["supported"].bool {
-            kind = .unsupported; primaryTitle = "尚不支持"; command = nil; url = nil; unverified = false
+        if !manifest["supported"].bool || ProviderConnectionPresentation.awaitingAdmission(manifest) {
+            kind = .unsupported; primaryTitle = "暂不可连接"; command = nil; url = nil; unverified = false
             hasDiscoveredSource = false; prefersDetect = false
-            instruction = "\(name) 暂时无法读取用量，后续版本支持。"
+            instruction = "\(name) 暂不可连接；来源仍待启用或尚未实现。"
             return
         }
         let kinds = Set(manifest["credentialReaders"].array.flatMap { $0["credentialKinds"].array.map(\.text) })

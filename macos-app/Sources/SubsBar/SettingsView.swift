@@ -31,7 +31,7 @@ struct SettingsView: View {
                         ForEach(Array(model.providers.enumerated()), id: \.offset) { _, row in
                             VStack(alignment: .leading) {
                                 Text(model.name(row["providerId"].text))
-                                Text(row["supported"].bool ? (model.config["providers"][row["providerId"].text]["enabled"].bool ? "已添加" : "未添加") : "尚不支持")
+                                Text(ProviderConnectionPresentation.awaitingAdmission(row) ? "待启用" : row["supported"].bool ? (model.config["providers"][row["providerId"].text]["enabled"].bool ? "已添加" : "未添加") : "尚不支持")
                                     .font(.caption).foregroundStyle(.secondary)
                             }.tag(row["providerId"].text)
                         }

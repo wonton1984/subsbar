@@ -194,6 +194,20 @@ public enum M1Suite {
             let explicit = Wire.object(["activeProfile": .string("synthetic"), "profiles": .array([.object(["id": .string("synthetic"), "sources": .array([.object(["reader": .string("synthetic-reader")])])])])])
             try check("M2B unsupported reader blocks \(id)", ProviderConnectionPresentation.unavailable(manifest: blockedReader, draft: explicit) != nil)
         }
+        for id in ["antigravity", "devin", "grok"] {
+            let row = registry.value["providers"].array.first { $0["providerId"].text == id } ?? .null
+            try check("M2C pending registry \(id)", !row["name"].text.isEmpty && ProviderConnectionPresentation.awaitingAdmission(row))
+            try check("M2C add list retains \(id)", ProviderSections(registry: registry.value["providers"].array, config: .null).available.contains(id))
+            let segment = MenuBarSegment(providerID: id, name: row["name"].text, provider: nil, now: Date())
+            try check("M2C short name \(id)", !segment.name.isEmpty && segment.name.count <= 3)
+            let guide = ConnectionGuide(manifest: row, name: row["name"].text)
+            try check("M2C no login or paste action \(id)", guide.kind == .unsupported && !guide.canPasteKey && guide.command == nil && !guide.prefersDetect)
+            try check("M2C auto blocked \(id)", ProviderConnectionPresentation.unavailable(manifest: row, draft: .null) != nil)
+            try check("M2C release guidance \(id)", ProviderConnectionPresentation.note(id)?.contains("待启用") == true)
+            for source in row["dataSources"].array {
+                try check("M2C explicit pending blocked \(source["id"].text)", ProviderConnectionPresentation.unavailable(manifest: row, draft: .object(["dataSource": source["id"]])) != nil)
+            }
+        }
         let usage = try UsageV1(emptyBridge.call(["usage", "--json"]).value)
         try check("empty HOME usage disables all providers", usage.providers.count == 14 && usage.providers.allSatisfy { $0.status == "disabled" && !$0.report.isObject })
         let unknown = try emptyBridge.call(["registry", "--json", "--provider", "synthetic-unknown"])

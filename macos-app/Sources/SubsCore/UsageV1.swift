@@ -50,6 +50,8 @@ public enum Presentation {
         case "openrouter-credits-unavailable": "账户余额不可用；当前仅显示 Key 用量"
         case "openrouter-no-limit": "此 Key 未设置限额，不能推算账户余额"
         case "openrouter-free-tier": "免费层 Key"
+        case "pending-verification": "用量来源尚未验证"
+        case "grok-payg-disabled": "PAYG 未启用"
         case "reset-unknown": "重置时间未知"
         case "legacy-unverified": "历史导入，未经当前账户验证"
         case "missing-data": "部分数据缺失"
