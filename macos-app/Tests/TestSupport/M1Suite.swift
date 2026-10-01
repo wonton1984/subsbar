@@ -368,6 +368,7 @@ public enum M1Suite {
           }
         } else if(arg === 'cancel') {
           process.on('SIGTERM',()=>{ out({schemaVersion:1,kind:'usage',request:fixture('refresh-receipt-synthetic.json').cancelled},3); process.exit(3); });
+          fs.writeFileSync('cancel-ready', 'ready');
           setInterval(()=>{},50);
         } else if(arg === 'hang') { process.on('SIGTERM',()=>{}); setInterval(()=>{},50); }
         else if(arg === 'big') process.stdout.write(' '.repeat(1048577));
@@ -386,8 +387,17 @@ public enum M1Suite {
         try check("bounded output", (try? bridge.call(["big"])) == nil)
         try check("duplicate keys rejected", (try? bridge.call(["duplicate"])) == nil)
         let token = Cancellation()
-        DispatchQueue.global().asyncAfter(deadline: .now() + 0.25) { token.cancel() }
-        let cancelled = try bridge.call(["cancel"], cancellation: token)
+        // Cancel only once the fixture has installed SIGTERM handling. Slow CI
+        // process startup must not turn this graceful-receipt test into early cancellation.
+        let ready = temporary.appendingPathComponent("cancel-ready")
+        DispatchQueue.global().async {
+            let deadline = ProcessInfo.processInfo.systemUptime + 10
+            while !FileManager.default.fileExists(atPath: ready.path), ProcessInfo.processInfo.systemUptime < deadline {
+                Thread.sleep(forTimeInterval: 0.01)
+            }
+            token.cancel()
+        }
+        let cancelled = try bridge.call(["cancel"], timeout: 12, cancellation: token)
         try check("SIGTERM retains cancelled receipt", cancelled.exitCode == 3 && cancelled.value["request"]["outcome"].text == "cancelled")
         let started = ProcessInfo.processInfo.systemUptime
         try check("timeout terminates owned child", (try? bridge.call(["hang"], timeout: 0.15)) == nil)
