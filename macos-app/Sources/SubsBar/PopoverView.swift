@@ -85,9 +85,11 @@ struct PopoverView: View {
                     HeaderButton(symbol: "arrow.clockwise", help: "手动刷新（遵守限频与重试时间）") { model.refresh() }
                         .disabled(model.document == nil || model.saving)
                 }
-                HeaderButton(symbol: "gearshape", help: "设置") { model.openSettings?(nil) }
+                Button { model.openSettings?(nil) } label: {
+                    Label("设置", systemImage: "gearshape").font(.system(size: 11))
+                }.buttonStyle(.bordered).controlSize(.small).help("连接与显示设置")
             }
-            ProviderSelector(model: model)
+            if ProviderNavigation.visible(ui: model.config["ui"]) { ProviderSelector(model: model) }
 
         }.padding(.horizontal, 10).padding(.vertical, 8)
     }
@@ -130,33 +132,30 @@ private struct AppMark: View {
     }
 }
 
-/// One row of direct buttons in both overview and focused modes; horizontal overflow only.
+/// All enabled subscriptions are directly reachable; rows wrap without a scroll container.
 struct ProviderSelector: View {
     @ObservedObject var model: AppModel
     var ids: [String] { model.enabled.map { $0["providerId"].text } }
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.horizontal, showsIndicators: true) {
+        VStack(alignment: .leading, spacing: ProviderNavigation.spacing) {
+            ForEach(Array(ProviderNavigation.rows(ids, width: Double(PopoverLayout.width(for: model) - 20)).enumerated()), id: \.offset) { _, row in
                 HStack(spacing: ProviderNavigation.spacing) {
-                    ForEach(ids, id: \.self) { id in
+                    ForEach(row, id: \.self) { id in
                         let selected = ProviderNavigation.selected(id, ui: model.config["ui"])
                         Button { model.patchUI(ProviderNavigation.focus(id)) } label: {
                             HStack(spacing: 3) {
                                 Text(selected ? "●" : "○").font(.system(size: 8))
-                                Text(model.name(id)).font(.system(size: 10, weight: selected ? .semibold : .regular)).lineLimit(1)
-                            }.frame(width: ProviderNavigation.chipWidth, height: 24)
+                                Text(model.name(id)).font(.system(size: 10, weight: selected ? .semibold : .regular)).lineLimit(2).minimumScaleFactor(0.8)
+                            }.frame(width: ProviderNavigation.chipWidth, height: 32)
                                 .background(selected ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 5))
                                 .foregroundStyle(selected ? Color.accentColor : Color.primary)
-                        }.buttonStyle(.plain).id(id).help("查看 " + model.name(id))
+                        }.buttonStyle(.plain).help("查看 " + model.name(id))
                             .accessibilityLabel("查看 " + model.name(id))
                             .accessibilityAddTraits(selected ? [.isSelected] : [])
                             .disabled(model.saving || model.loading || model.document == nil)
                     }
-                }.padding(.vertical, 2)
-            }.frame(height: 32)
-                .accessibilityLabel("订阅直选，可横向滚动")
-                .onChange(of: model.selected) { id in proxy.scrollTo(id, anchor: .center) }
-                .onAppear { proxy.scrollTo(model.selected, anchor: .center) }
-        }
+                }
+            }
+        }.padding(.vertical, 2)
     }
 }

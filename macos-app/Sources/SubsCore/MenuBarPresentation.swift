@@ -94,7 +94,12 @@ public enum MenuBarEditing {
 public enum ProviderNavigation {
     public static let chipWidth: Double = 78
     public static let spacing: Double = 5
-    public static func overflows(count: Int, width: Double) -> Bool { Double(count) * chipWidth + Double(max(0, count - 1)) * spacing > width }
+    public static func visible(ui: Wire) -> Bool { ui["overviewMode"].text == "single" }
+    public static func columns(width: Double) -> Int { max(1, Int((width + spacing) / (chipWidth + spacing))) }
+    public static func rows<T>(_ items: [T], width: Double) -> [[T]] {
+        let count = columns(width: width)
+        return stride(from: 0, to: items.count, by: count).map { Array(items[$0..<min($0 + count, items.count)]) }
+    }
     public static func selected(_ id: String, ui: Wire) -> Bool { ui["overviewMode"].text == "single" && ui["selectedProvider"].text == id }
     public static func focus(_ id: String) -> Wire { .object(["overviewMode": .string("single"), "selectedProvider": .string(id)]) }
 }

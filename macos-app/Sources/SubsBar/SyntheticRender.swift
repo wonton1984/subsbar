@@ -51,8 +51,8 @@ import SubsCore
                 let ids = Array(SyntheticScenes.providerIDs.prefix(count))
                 try scene(enabled: ids, ui: ["overviewMode": .string("single"), "selectedProvider": .string(atEnd ? ids.last! : ids.first!)])
                 for dark in [false, true] {
-                    let name = "M13-selector-\(count)\(atEnd ? "-end" : "")-\(dark ? "dark" : "light").png"
-                    try render(PopoverView(model: model).header(model.sections), size: NSSize(width: 360, height: 90), to: output.appendingPathComponent(name), dark: dark)
+                    let name = "M14-selector-\(count)\(atEnd ? "-end" : "")-\(dark ? "dark" : "light").png"
+                    try render(PopoverView(model: model).header(model.sections), size: NSSize(width: 360, height: count == 14 ? 210 : 132), to: output.appendingPathComponent(name), dark: dark)
                     outputs.append(name)
                 }
             }
