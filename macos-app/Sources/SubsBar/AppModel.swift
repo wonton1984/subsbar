@@ -88,7 +88,7 @@ import SubsCore
         if hasPiReader(id) && !config["compatibility"]["pi"]["enabled"].bool {
             patch = patch.setting("compatibility", config["compatibility"].setting("pi", config["compatibility"]["pi"].setting("enabled", .bool(true))))
         }
-        if config["providers"][id]["enabled"].bool {
+        if config["providers"][id]["enabled"].bool && draft == config["providers"][id] {
             if patch["compatibility"].isObject {
                 pendingConnect = id
                 save(base: base, patch: patch) { [weak self] ok in if !ok { self?.pendingConnect = nil } }

@@ -37,6 +37,16 @@ import SubsCore
             model.addSubscriptionExpanded = false
             model.receipt = "本次部分更新"
         }
+        model.registry = registry
+        model.document = try ConfigDocument(base.setting("config", base["config"].setting("providers", .object([:]))))
+        for id in ["copilot", "zai", "openrouter"] {
+            if let manifest = registry["providers"].array.first(where: { $0["providerId"].text == id }), let document = model.document {
+                for dark in [false, true] {
+                    try render(ConnectionEditor(model: model, base: document, manifest: manifest), size: NSSize(width: 620, height: 540),
+                               to: output.appendingPathComponent("M2B-connect-" + id + (dark ? "-dark.png" : "-light.png")), dark: dark)
+                }
+            }
+        }
         var outputs: [String] = []
         func popover(_ name: String, maxHeight: CGFloat = 900, dark: Bool = false) throws {
             try renderPopover(model, to: output.appendingPathComponent(name), maxHeight: maxHeight, dark: dark); outputs.append(name)

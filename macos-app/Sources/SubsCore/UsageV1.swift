@@ -47,6 +47,9 @@ public enum Presentation {
         switch code {
         case "inconsistent-values": "数值不一致，比例按已用量计算"
         case "summary-unavailable": "本周期用量不可用，仅保留已知数据"
+        case "openrouter-credits-unavailable": "账户余额不可用；当前仅显示 Key 用量"
+        case "openrouter-no-limit": "此 Key 未设置限额，不能推算账户余额"
+        case "openrouter-free-tier": "免费层 Key"
         case "reset-unknown": "重置时间未知"
         case "legacy-unverified": "历史导入，未经当前账户验证"
         case "missing-data": "部分数据缺失"

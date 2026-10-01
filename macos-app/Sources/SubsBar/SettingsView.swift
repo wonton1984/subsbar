@@ -95,6 +95,7 @@ struct ConnectionEditor: View {
     }
     var guide: ConnectionGuide { ConnectionGuide(manifest: manifest, name: model.name(providerID)) }
     var card: CardModel { model.card(providerID, single: false) }
+    var connectionIssue: String? { ProviderConnectionPresentation.unavailable(manifest: manifest, draft: draft) ?? (providerID == "zai" && profile["region"].text.isEmpty ? "请选择密钥所属地区后再连接。" : nil) }
     var connected: Bool { card.enabled && card.hasReport && !card.needsRepair }
     var guideOpen: Bool { model.guideOpen.contains(providerID) }
     var body: some View {
@@ -109,6 +110,20 @@ struct ConnectionEditor: View {
                             .foregroundStyle(connected ? Palette.band(.green) : card.needsRepair ? Palette.band(.orange) : .secondary)
                     }
                 }
+                if let note = ProviderConnectionPresentation.note(providerID) {
+                    Text(note).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+                if providerID == "zai" {
+                    Picker("密钥地区（必选）", selection: Binding(get: { profile["region"].text }, set: { value in
+                        if profiles.isEmpty { addProfile() }
+                        editProfile("region", .string(value))
+                    })) {
+                        Text("请选择").tag("")
+                        Text("Global").tag("global")
+                        Text("CN（未实测）").tag("cn")
+                    }
+                }
+                if let issue = connectionIssue { Text(issue).font(.caption).foregroundStyle(.orange) }
                 primaryAction
                 DisclosureGroup("高级", isExpanded: $advancedOpen) {
                     advanced.padding(.top, 8)
@@ -134,11 +149,11 @@ struct ConnectionEditor: View {
                 if connected {
                     Button(guide.kind == .apiKey ? "更换 API Key" : "重新登录") { model.toggleGuide(providerID) }
                         .buttonStyle(.borderedProminent).controlSize(.large)
-                    Button("重新检测") { detect() }.disabled(model.saving || model.refreshing)
+                    Button("重新检测") { detect() }.disabled(connectionIssue != nil || model.saving || model.refreshing)
                 } else if guide.prefersDetect {
                     Button(guide.primaryTitle) { detect() }
                         .buttonStyle(.borderedProminent).controlSize(.large)
-                        .disabled(model.saving || model.refreshing || model.keySaving)
+                        .disabled(connectionIssue != nil || model.saving || model.refreshing || model.keySaving)
                     Button(guide.kind == .apiKey ? "粘贴 API Key" : "其他登录方式") { model.toggleGuide(providerID) }
                 } else {
                     Button(guide.primaryTitle) { model.toggleGuide(providerID) }
@@ -157,7 +172,7 @@ struct ConnectionEditor: View {
                                 let pasted = keyText; keyText = ""
                                 let selected = profile["id"].string ?? "profile-" + String(UUID().uuidString.lowercased().prefix(8))
                                 model.saveKey(guide: guide, base: base, draft: draft, profileID: selected, key: pasted)
-                            }.disabled(keyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.saving || model.refreshing || model.keySaving)
+                            }.disabled(connectionIssue != nil || keyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.saving || model.refreshing || model.keySaving)
                         }
                         Text("保存后，此账户将仅使用新密钥检测连接。").font(.caption).foregroundStyle(.secondary)
                         if let error = model.keyError { Text(error).font(.caption).foregroundStyle(Palette.band(.orange)) }
@@ -172,7 +187,7 @@ struct ConnectionEditor: View {
                         }
                     }
                     HStack {
-                        if !guide.canPasteKey || guide.command != nil { Button(guide.canPasteKey ? "我已登录，检测连接" : "我已完成，检测连接") { detect() }.disabled(model.saving || model.refreshing) }
+                        if !guide.canPasteKey || guide.command != nil { Button(guide.canPasteKey ? "我已登录，检测连接" : "我已完成，检测连接") { detect() }.disabled(connectionIssue != nil || model.saving || model.refreshing) }
                         if model.saving || model.refreshing || model.keySaving { ProgressView().controlSize(.small) }
                     }
                 }.padding(10).background(Color.secondary.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
@@ -185,7 +200,7 @@ struct ConnectionEditor: View {
             }
         }
     }
-    func detect() { model.connect(provider: providerID, base: base, draft: draft) }
+    func detect() { guard connectionIssue == nil else { return }; model.connect(provider: providerID, base: base, draft: draft) }
     @ViewBuilder var advanced: some View {
             VStack(alignment: .leading, spacing: 12) {
                 Text("默认会自动发现登录信息。只有连接不上时才需要在这里手动指定。").font(.caption).foregroundStyle(.secondary)
@@ -217,7 +232,7 @@ struct ConnectionEditor: View {
                         ForEach(Array(profiles.enumerated()), id: \.offset) { _, row in Text(Presentation.text(row["label"].string ?? row["id"].text)).tag(row["id"].text) }
                     }
                     TextField("名称", text: field("label", inProfile: true))
-                    TextField("地区（如适用）", text: field("region", inProfile: true))
+                    if providerID != "zai" { TextField("地区（如适用）", text: field("region", inProfile: true)) }
                     TextField("组织 ID（如适用）", text: field("organizationId", inProfile: true))
                     Picker("来源发现", selection: field("discovery", inProfile: true)) {
                         Text("自动发现（仅当来源列表为空）").tag("auto")
@@ -260,8 +275,8 @@ struct ConnectionEditor: View {
                 if let issue = model.usage?.providers.first(where: { $0.id == providerID })?.issue { Text(issue).foregroundStyle(.orange) }
                 HStack {
                     Button("保存配置") { save() }.disabled(model.saving || saved)
-                    Button("连接 / 检查所选订阅") { model.refresh(provider: providerID, connect: true) }
-                        .disabled(model.saving || model.refreshing || !model.config["providers"][providerID]["enabled"].bool)
+                    Button("连接 / 检查所选订阅") { detect() }
+                        .disabled(connectionIssue != nil || model.saving || model.refreshing || !model.config["providers"][providerID]["enabled"].bool)
                 }
                 if saved { Text("已保存。重新载入设置后可继续编辑。").foregroundStyle(.secondary) }
                 Text("先保存，再连接。连接只检查这一家；可能请求一次来源授权。此表单只保存来源引用，不接收或显示凭证。").font(.caption).foregroundStyle(.secondary)

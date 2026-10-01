@@ -29,6 +29,7 @@ public enum M2Suite {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let fixtures = root.appendingPathComponent("test/fixtures/ipc")
         func fixture(_ name: String) throws -> Wire { try Wire.parse(Data(contentsOf: fixtures.appendingPathComponent(name))) }
+        count += try M2BSuite.run(root: root)
         let normalized = try fixture("usage-golden-normalized.json")
         let base = try fixture("config-read-synthetic.json")["config"]
         let now = Date(timeIntervalSince1970: normalized["nowMs"].number! / 1000)

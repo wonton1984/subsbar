@@ -170,6 +170,30 @@ public enum M1Suite {
         let emptyBridge = NodeBridge(node: node, root: root, configPath: emptyPath.path, environment: environment)
         let registry = try emptyBridge.call(["registry", "--json"])
         try check("empty HOME registry contains 14 provider declarations", registry.exitCode == 0 && registry.value["providers"].array.count == 14 && registry.value["providers"].array.allSatisfy { $0["credentialReaders"].isArray && $0["profiles"].array.isEmpty && !$0["enabled"].bool })
+        for id in ["copilot", "zai", "openrouter"] {
+            let row = registry.value["providers"].array.first { $0["providerId"].text == id } ?? .null
+            try check("M2B registry lists \(id)", row["supported"].bool && !row["name"].text.isEmpty)
+            let sections = ProviderSections(registry: registry.value["providers"].array, config: .null)
+            try check("M2B add subscription includes \(id)", sections.available.contains(id))
+            let segment = MenuBarSegment(providerID: id, name: row["name"].text, provider: nil, now: Date())
+            try check("M2B short icon name \(id)", !segment.name.isEmpty && segment.name.count <= 3)
+            try check("M2B release guide \(id)", ProviderConnectionPresentation.note(id) != nil)
+            for source in row["dataSources"].array {
+                let draft = Wire.object(["dataSource": source["id"]])
+                try check("M2B source admission \(source["id"].text)", (ProviderConnectionPresentation.unavailable(manifest: row, draft: draft) == nil) == (source["admission"].text == "approved"))
+            }
+            let pendingOnly = row.setting("dataSources", .array([.object(["id": .string("synthetic-pending"), "admission": .string("pending")])]))
+            try check("M2B auto pending cannot connect \(id)", ProviderConnectionPresentation.unavailable(manifest: pendingOnly, draft: .null) != nil)
+            if id == "zai" {
+                let guide = ConnectionGuide(manifest: row, name: row["name"].text)
+                let regional = Wire.object(["profiles": .array([.object(["id": .string("synthetic"), "region": .string("cn")])])])
+                let prepared = try CredentialWriter.connectionDraft(regional, guide: guide, profileID: "synthetic")
+                try check("M2B key save preserves selected region", prepared["profiles"].array.first?["region"].text == "cn")
+            }
+            let blockedReader = row.setting("credentialReaders", .array([.object(["id": .string("synthetic-reader"), "implemented": .bool(false)])]))
+            let explicit = Wire.object(["activeProfile": .string("synthetic"), "profiles": .array([.object(["id": .string("synthetic"), "sources": .array([.object(["reader": .string("synthetic-reader")])])])])])
+            try check("M2B unsupported reader blocks \(id)", ProviderConnectionPresentation.unavailable(manifest: blockedReader, draft: explicit) != nil)
+        }
         let usage = try UsageV1(emptyBridge.call(["usage", "--json"]).value)
         try check("empty HOME usage disables all providers", usage.providers.count == 14 && usage.providers.allSatisfy { $0.status == "disabled" && !$0.report.isObject })
         let unknown = try emptyBridge.call(["registry", "--json", "--provider", "synthetic-unknown"])
