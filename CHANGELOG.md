@@ -1,17 +1,18 @@
 # Changelog
 
-本文件从公开候选树（全新 git 历史）开始记录。私有开发阶段的历史不在此追溯。
+## 0.1.1 — 2026-10-02
 
-## Unreleased（v0.1.0 候选）
+- 单订阅视图的直选标签自动换行，无横向滚动；多卡片总览隐藏重复选择条。
+- 刷新退避显示明确等待提示；手动刷新可重试本地退避，仍尊重服务端 Retry-After 与最小请求间隔。
+- 修复菜单栏渲染循环导致的高 CPU 与刷新停摆，以及单家凭证过期击落整批刷新；其他订阅可继续更新。
+- 新增 Copilot、Z.AI/GLM、OpenRouter 连接与用量展示；Z.AI 中国区尚未实测，OpenRouter key 限额不等于账户余额。
+- Antigravity、Devin、Grok、Ollama 保持可见、待启用；Ollama 签名路径尚待真实验证。
+- 覆盖矩阵为 13 家实现/预留项，加上必做目标 Claude，不表示全部可实时连接。Claude 离线解析已就绪；实时准入 blocked，等待适用许可/官方机器协议，真实连接入口保持关闭。
+- 菜单栏支持按订阅选择独立圆环；设置与连接状态更清晰。本版仍为源码预览，不发布预编译二进制。
 
-### 已有
-- 数据层（`scripts/subs.mjs` + `scripts/pie-png.mjs`）：Codex、OpenCode Go、Kimi Code、CommandCode、Factory Droid、Cursor 六家解析与缓存，零 npm 运行依赖。
-- 原生 macOS 菜单栏 app（`macos-app/`）：Swift 6 + AppKit/NSStatusItem/NSPopover，单饼图图标、六家切换、诚实降级状态（仅余额 / 未知 / 过时 / 缺权限）。
-- 离线测试：数据层边界与契约测试（合成 fixture，不触网）、Swift CoreChecks 契约套件。
-- 公开卫生扫描器 `scripts/check-public.mjs`。
+## 0.1.0 — 2026-09-30
 
-### 计划（13 家已实现；Claude 必做，实时准入未过）
-- 新增 provider：GitHub Copilot、Z.AI/GLM、OpenRouter、Antigravity、Devin、Grok Build、Ollama Cloud。
-- Claude 必做：离线窗口解析已就绪；实时准入 **blocked**，等待适用许可 / 官方机器协议（不是 13+blocked 终态）。
-- 统一凭证抽象（env / 文件 / Keychain / CLI / 显式 pi 兼容）、`~/.config/subsbar/config.json` 配置、版本化报告协议（usage-v1）。
-- 卡片式多 provider 同屏 UI、菜单栏固定指标。
+- 首个公开源码预览：原生 macOS 菜单栏应用与独立 Node 数据层，卡片总览与单订阅视图。
+- Codex、OpenCode Go、Kimi Code、CommandCode、Factory Droid、Cursor 六家曾完成真实账号验证；其余目标的实时准入以最新 provider 文档为准。
+- 图形化连接与配置、显式凭证来源、诚实显示余额/未知/过时/权限状态。
+- 合成数据离线测试、Swift CoreChecks 与公开卫生扫描。
