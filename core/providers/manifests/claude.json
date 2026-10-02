@@ -3,7 +3,7 @@
   "id": "claude",
   "name": "Claude",
   "product": "Claude Pro/Max subscription",
-  "releaseStatus": "experimental",
+  "releaseStatus": "blocked",
   "adapterVersion": "0.1.0",
   "platforms": [
     "darwin"
@@ -79,8 +79,8 @@
       "id": "claude-cli-usage",
       "kind": "official-cli",
       "grade": "B",
-      "admission": "pending",
-      "approvalNote": "docs/providers/claude.md",
+      "admission": "blocked",
+      "approvalNote": "docs/providers/claude.md；2026-10-02 探针：Claude Code 2.1.285 无机读 usage 出口（/usage 为交互 TUI）。blocked 需新证据，不能当 pending 直接启用。",
       "endpointIds": [
         "claude-usage-cli"
       ],
@@ -99,8 +99,8 @@
       "id": "claude-oauth-usage",
       "kind": "community-api",
       "grade": "C",
-      "admission": "approved",
-      "approvalNote": "docs/providers/claude.md；OAuth 来源政策准入 UNVERIFIED（§5.1 Claude 特殊边界），真实账号验收前不宣称合规；官方 CLI 路线并行验证中",
+      "admission": "blocked",
+      "approvalNote": "docs/providers/claude.md；红线=不经手 token / 不刮 TUI / 不碰 OAuth 与 cookie。OAuth 解析器仅供离线形状测试，refresh 拒绝执行。",
       "endpointIds": [
         "claude-usage-http"
       ],

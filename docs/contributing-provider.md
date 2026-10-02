@@ -58,6 +58,12 @@ diagnostic. They are merged (code ships, runtime refuses to execute) and
 promoted to `approved` after a maintainer reviews the source and — when
 possible — a real-account verification report.
 
+`blocked` is different: the source stays in the catalog, refresh still
+refuses, and it must **not** be flipped to approved without new evidence
+(for example Claude after 2026-10-02: official CLI 2.1.285 has no
+machine-readable usage exit; token/TUI/OAuth/cookie paths are out of
+policy). Pending means “not yet enabled”; blocked means “needs a new path.”
+
 ## 6. Docs
 
 `docs/providers/<id>.md` must state: source, credential chain, unit

@@ -22,8 +22,9 @@ execution after admission review (`admission: approved` in its data source).
 | --- | --- |
 | verified | Maintainer exercised the real endpoint with a real subscription (documented per milestone) |
 | pending-verification | Defensive parser shipped + synthetic fixture; field names not yet confirmed against the real endpoint. **Admission stays `pending`, refresh refuses to run it.** Community contributors with a real subscription are welcome to verify (see `contributing-provider.md`). |
+| blocked | Catalog entry kept, but sources must not run until **new** machine-readable evidence exists. Unlike `pending`, blocked sources are not “enable after the current review.” Refresh still refuses. |
 
-## Current matrix (v0.1)
+## Current matrix (v0.1 first release: 13 + Claude blocked)
 
 | Provider | Data source | Grade | Admission | Verification |
 | --- | --- | --- | --- | --- |
@@ -33,7 +34,7 @@ execution after admission review (`admission: approved` in its data source).
 | commandcode | `api.commandcode.ai/alpha/*` | C | approved | verified |
 | droid | Factory organization usage | C | approved | verified |
 | cursor | IDE state.vscdb + usage-summary | C | approved | verified |
-| claude | `api.anthropic.com/api/oauth/usage` | C | approved (policy admission **UNVERIFIED**) | unverified |
+| claude | Official CLI `/usage` is interactive TUI (2.1.285). OAuth/cookie/PTY out of policy. | D | **blocked** | unverified |
 | copilot | `copilot_internal/user` (community; Copilot OAuth only). Official CLI pending. | C/A | approved (community) / pending (CLI) | unverified |
 | zai | quota/limit, region-scoped origins (CN unverified) | B | approved | unverified |
 | openrouter | `/api/v1/key` (official). `/credits` pending (management key) | A | approved (key) / pending (credits) | unverified |

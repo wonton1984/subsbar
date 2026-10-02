@@ -322,7 +322,7 @@ console.log("\n== D. ollama 签名主路径（pending-verification）==");
 
 console.log("\n== 注册表/分发一致性 ==");
 {
-  for (const pid of ["claude", "copilot", "zai", "openrouter"]) {
+  for (const pid of ["copilot", "zai", "openrouter"]) {
     const m = reg.get(pid);
     check(`${pid} 有 approved 数据源`, (m.dataSources ?? []).some((s) => s.admission === "approved"));
   }
@@ -331,7 +331,12 @@ console.log("\n== 注册表/分发一致性 ==");
     check(`${pid} 维持 pending + pending-verification 标注`, (m.dataSources ?? []).every((s) => s.admission === "pending") && (m.diagnosticCodes ?? []).includes("pending-verification"));
   }
   const claude = reg.get("claude");
-  check("claude approved 源 approvalNote 含 UNVERIFIED 标注", claude.dataSources.some((s) => s.admission === "approved" && /UNVERIFIED/.test(s.approvalNote)));
+  check("claude releaseStatus=blocked", claude.releaseStatus === "blocked");
+  check("claude 源全部 blocked（非 pending/approved）", (claude.dataSources ?? []).length > 0 && (claude.dataSources ?? []).every((s) => s.admission === "blocked"));
+  check("claude 无 approved 源", !(claude.dataSources ?? []).some((s) => s.admission === "approved"));
+  const claudeProj = reg.projectRegistry(null, createCredentialStores({ env: {} }), { pi: { enabled: false } });
+  const claudeEntry = claudeProj.providers.find((p) => p.providerId === "claude");
+  check("registry 投影 claude admission=blocked 且 unsupported", claudeEntry?.admission === "blocked" && claudeEntry.supported === false);
 }
 
 console.log("\n== 分发冒烟：fetchProviderSnapshot 对 claude 合成 payload（注入 HTTP 层不适用，走 normalize 一致性）==");

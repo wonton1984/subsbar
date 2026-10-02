@@ -5,7 +5,7 @@
 
 macOS 菜单栏订阅额度面板 + 可独立运行的 Node 数据层。目标是在一个原生面板里完整覆盖你实际购买的 AI Coding 订阅，统一展示真实额度、余额与重置时间。
 
-**状态：公开预览准备中（v0.1 目标 14 家 provider）。** 当前仓库为公开候选树：六家 provider（Codex / OpenCode Go / Kimi Code / CommandCode / Factory Droid / Cursor）已有本地实现与离线测试；其余八家已实现（防御性解析 + 离线测试），未经真实端点验证，欢迎社区验证。
+**状态：公开预览准备中（v0.1 首发 13 家 + Claude blocked）。** 当前仓库为公开候选树：六家 provider（Codex / OpenCode Go / Kimi Code / CommandCode / Factory Droid / Cursor）已有本地实现与离线测试；另七家已实现（防御性解析 + 离线测试），未经真实端点验证，欢迎社区验证。Claude 官方 CLI 无机读用量出口，首发标 blocked。
 
 ![卡片视图浅色（合成数据）](docs/assets/screenshot-overview-cards-light.png)
 
@@ -15,7 +15,7 @@ macOS 菜单栏订阅额度面板 + 可独立运行的 Node 数据层。目标�
 
 示例画面全部来自离屏合成渲染，数值与账户为合成数据，不是真实用量。
 
-## 首发目标 provider（14 家）
+## 首发目标 provider（13 家 + Claude blocked）
 
 | Provider | 状态 | 数据来源 |
 | --- | --- | --- |
@@ -25,7 +25,7 @@ macOS 菜单栏订阅额度面板 + 可独立运行的 Node 数据层。目标�
 | CommandCode | 已实现 | `/alpha/whoami` + billing/usage |
 | Factory Droid | 已实现 | organization subscription usage |
 | Cursor | 已实现 | IDE state.vscdb + usage-summary RPC |
-| Claude | 已实现（未验证） | OAuth usage 接口；来源政策准入未验证 |
+| Claude | **blocked** | 官方 CLI 2.1.285 无机读 usage 出口；不经手 token / 不刮 TUI / 不碰 OAuth 与 cookie |
 | GitHub Copilot | 已实现（未验证） | `copilot_internal/user`（社区来源） |
 | Z.AI / GLM Coding Plan | 已实现（未验证） | quota/limit 接口（社区来源，region 必填） |
 | OpenRouter | 已实现（未验证） | `/api/v1/key`（官方） |
@@ -34,7 +34,7 @@ macOS 菜单栏订阅额度面板 + 可独立运行的 Node 数据层。目标�
 | Grok Build | 已实现（未验证） | `cli-chat-proxy.grok.com/v1/billing`（防御性解析） |
 | Ollama Cloud | 已实现（未验证） | 本地 OpenSSH 签名 `GET /api/usage`；admission pending；`OLLAMA_API_KEY` 不是额度 |
 
-> 上表「已实现（未验证）」八家：响应结构已防御性实现，但维护者本机无此订阅、未经真实端点验证——字段名可能偏差，欢迎社区贡献者以真实账号验证（参考 `docs/providers/<id>.md` 与各 manifest 的 pending-verification 标注）。
+> 上表「已实现（未验证）」七家：响应结构已防御性实现，但维护者本机无此订阅、未经真实端点验证——字段名可能偏差，欢迎社区贡献者以真实账号验证（参考 `docs/providers/<id>.md` 与各 manifest 的 pending-verification 标注）。Claude 是 **blocked**，不是 pending：现有来源不能直接启用，需官方 CLI 出现机读出口后再评估。
 
 每家的来源等级、凭证方式、窗口口径与已知缺口见 `docs/providers/<id>.md`。社区内部接口的 adapter 默认关闭，启用前请阅读对应文档与适用服务条款。
 

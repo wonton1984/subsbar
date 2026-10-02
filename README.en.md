@@ -6,10 +6,11 @@ A macOS menu bar app plus an independently runnable Node data layer that
 covers the AI coding subscriptions you actually pay for, showing real quota,
 balance and reset times — with honest degradation when data is missing.
 
-**Status: public preview in preparation (target 14 providers for v0.1).** Six
-providers are implemented with offline tests; eight more are implemented
-(defensive parsers + offline tests) but have not been verified against real
-endpoints. Community verification is welcome.
+**Status: public preview in preparation (v0.1 first release: 13 providers +
+Claude blocked).** Six providers are implemented with offline tests; seven
+more are implemented (defensive parsers + offline tests) but have not been
+verified against real endpoints. Community verification is welcome. Claude
+stays **blocked**: the official CLI has no machine-readable usage exit.
 
 ![Card overview, light (synthetic data)](docs/assets/screenshot-overview-cards-light.png)
 
@@ -20,7 +21,7 @@ endpoints. Community verification is welcome.
 All screenshots are off-screen synthetic renders. Values and accounts are
 synthetic, not live usage.
 
-## Target providers (14)
+## Target providers (13 + Claude blocked)
 
 | Provider | Status | Data source |
 | --- | --- | --- |
@@ -30,7 +31,7 @@ synthetic, not live usage.
 | CommandCode | verified | `/alpha/whoami` + billing/usage |
 | Factory Droid | verified | organization subscription usage |
 | Cursor | verified | IDE state.vscdb + usage-summary RPC |
-| Claude | implemented (unverified) | OAuth usage endpoint; source policy admission unverified |
+| Claude | **blocked** | Claude Code 2.1.285 has no machine-readable usage exit; no token handling, TUI scrape, OAuth, or cookies |
 | GitHub Copilot | implemented (unverified) | `copilot_internal/user` (community) |
 | Z.AI / GLM Coding Plan | implemented (unverified) | quota/limit (community, region required) |
 | OpenRouter | implemented (unverified) | `/api/v1/key` (official) |
@@ -39,11 +40,13 @@ synthetic, not live usage.
 | Grok Build | implemented (unverified) | `cli-chat-proxy.grok.com/v1/billing` (defensive parser) |
 | Ollama Cloud | implemented (unverified) | signed `GET /api/usage` (OpenSSH Ed25519); admission pending; `OLLAMA_API_KEY` is not quota |
 
-> The "implemented (unverified)" eight: response structures are defensively
+> The "implemented (unverified)" seven: response structures are defensively
 > implemented, but the maintainer has no subscription for them and they have
 > not been exercised against real endpoints — field names may differ.
 > Community contributors with a real subscription are welcome to verify (see
 > `docs/providers/<id>.md` and the `pending-verification` annotations).
+> Claude is **blocked**, not pending: existing sources cannot be turned on
+> until the official CLI exposes a machine-readable usage exit.
 
 Each provider's source grade, credential chain, window semantics and known
 gaps: `docs/providers/<id>.md`.

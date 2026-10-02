@@ -59,7 +59,7 @@ function buildReport(providerId, name, { capturedAtMs, windows, metrics = [], pr
 const RULE = (id, metricId, unit, extra = {}) => ({ id, metricId, unit, derivations: [], scope: "subscription", ...extra });
 
 // ---------------------------------------------------------------------------
-// 批次 A — claude（端点未公开接口，OAuth 来源政策准入 UNVERIFIED，见 manifest approvalNote）
+// 批次 A — claude（2026-10-02：admission blocked。normalize 仅供离线形状测试，refresh 拒绝执行）
 // ---------------------------------------------------------------------------
 
 export async function fetchClaudeUsage(token, extra = {}, ctx = {}) {

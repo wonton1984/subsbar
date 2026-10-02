@@ -409,6 +409,9 @@ console.log("\n== S1. 显式 sources 按 reader id/kind 绑定 implementationId 
   const proj = reg.projectRegistry(null, stores, { pi: { enabled: false } });
   const modes = new Set(["headless-url", "tty", "web-guide"]);
   check("14 家 login.launchMode 三分类齐全", proj.providers.length === 14 && proj.providers.every((p) => modes.has(p.login?.launchMode)));
+  const claudeReg = proj.providers.find((p) => p.providerId === "claude");
+  check("claude registry admission=blocked", claudeReg?.admission === "blocked" && claudeReg.supported === false && claudeReg.releaseStatus === "blocked");
+  check("claude 数据源均为 blocked", (claudeReg?.dataSources ?? []).every((s) => s.admission === "blocked"));
   check("claude urlPattern 匹配 authorize URL", (() => {
     const pat = proj.providers.find((p) => p.providerId === "claude").login.urlPattern;
     return typeof pat === "string" && new RegExp(pat).test("https://claude.com/cai/oauth/authorize");
