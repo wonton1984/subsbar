@@ -9,6 +9,9 @@ import { fetchJson } from "./engine.mjs";
 import { normalizeQuota, usedPercentOf, iconFractionOf } from "../../runtime/report.mjs";
 import { diagnostic, safeText } from "../../defs.mjs";
 import { isCopilotOauthToken } from "../../credentials/stores.mjs";
+import {
+  isOllamaApiKey, ollamaUsageChallenge, ollamaUsageUrl, signOllamaChallenge,
+} from "../../credentials/ollama-signer.mjs";
 
 // ---------------------------------------------------------------------------
 // 共用小工具
@@ -675,14 +678,104 @@ export function normalizeAntigravityUsage(payload, capturedAtMs) {
   return buildReport("antigravity", "Antigravity", { capturedAtMs, windows, diagnostics: [diagnostic("pending-verification", "warning")] });
 }
 
-// — ollama：签名 GET ollama.com/api/usage（签名能力经 broker；本函数只做归一化）—
+// — ollama：签名 GET ollama.com/api/usage（request-signer；普通 API key 不替代 quota）。—
+export const OLLAMA_USAGE_URL = "https://ollama.com/api/usage";
+
+function ollamaUsedPercent(o) {
+  const shared = usedPercentField(o);
+  if (shared !== undefined) return shared;
+  const usageN = asNumber(o.usage);
+  if (usageN !== undefined && usageN <= 1) return usageN * 100;
+  if (usageN !== undefined && usageN <= 100) return usageN;
+  return undefined;
+}
+
+function addOllamaWindow(windows, id, label, raw, primary, periodKind, durationSeconds) {
+  if (windows.some((w) => w.id === id)) return;
+  const o = asObject(raw);
+  if (!o) return;
+  const resetsAtMs = isoToMs(o.resets_at) ?? isoToMs(o.reset_at) ?? isoToMs(o.resetTime) ?? isoToMs(o.reset_time);
+  const usedAmt = asNonNegative(o.used) ?? asNonNegative(o.used_credits) ?? asNonNegative(o.spend);
+  const limitAmt = asNonNegative(o.limit) ?? asNonNegative(o.included) ?? asNonNegative(o.quota);
+  const usedPct = ollamaUsedPercent(o);
+  const period = {
+    kind: periodKind,
+    ...(durationSeconds ? { durationSeconds } : {}),
+    resetState: resetsAtMs ? "known" : "unknown",
+    resetsAtMs,
+  };
+  let m;
+  if (usedAmt !== undefined && limitAmt !== undefined) {
+    m = quotaOut(metric(RULE("ollama-" + id, id, "currency", { derivations: ["remaining-from-limit-used"] }), {
+      unit: "currency", currency: "USD", used: usedAmt, remaining: Math.max(0, limitAmt - usedAmt), limit: limitAmt, period,
+    }));
+  } else if (usedPct !== undefined) {
+    m = quotaOut(metric(RULE("ollama-" + id, id, "percent"), { unit: "percent", used: usedPct, period }));
+  } else {
+    return;
+  }
+  m.primary = !!primary;
+  m.label = label;
+  m.id = id;
+  windows.push(m);
+}
+
+export async function fetchOllamaUsage(token, extra = {}, ctx = {}) {
+  if (extra.payload) return normalizeOllamaUsage(extra.payload, Date.now());
+  if (isOllamaApiKey(token) && !extra.signRequest) {
+    throw deniedQuotaError("Ollama usage returned 403: OLLAMA_API_KEY cannot replace quota", 403);
+  }
+  const ts = extra.nowSec ?? Math.floor(Date.now() / 1000);
+  const challenge = ollamaUsageChallenge(ts);
+  let authorization;
+  try {
+    authorization = extra.signRequest ? extra.signRequest(challenge) : signOllamaChallenge(token, challenge).authorization;
+  } catch {
+    throw deniedQuotaError("Ollama usage returned 403: signing key unreadable or encrypted", 403);
+  }
+  const fetchFn = extra.fetchJson ?? fetchJson;
+  let payload;
+  try {
+    payload = await fetchFn({
+      url: extra.url ?? ollamaUsageUrl(ts),
+      headers: { Authorization: authorization, Accept: "application/json" },
+      description: "Ollama usage",
+      secrets: [token, authorization],
+      signal: ctx.signal,
+    });
+  } catch (e) {
+    if (e?.httpStatus === 401) {
+      throw deniedQuotaError("Ollama usage returned 401: signing key is not linked to an ollama.com account", 401);
+    }
+    throw e;
+  }
+  return normalizeOllamaUsage(payload, Date.now());
+}
+
 export function normalizeOllamaUsage(payload, capturedAtMs) {
-  const usage = asObject(payload) ?? {};
-  const windows = probePercentWindows(usage, [
-    { id: "ollama-monthly", label: "月度额度", pick: (p) => p.monthly ?? p, primary: true },
-    { id: "ollama-weekly", label: "周额度", pick: (p) => p.weekly },
-  ]);
-  const metrics = [];
+  const root = asObject(payload) ?? {};
+  const usage = asObject(root.usage) ?? root;
+  const windows = [];
+  addOllamaWindow(windows, "ollama-monthly", "月度额度", usage.monthly ?? root.monthly, true, "calendar");
+  addOllamaWindow(windows, "ollama-session", "会话额度", usage.session ?? usage.hourly ?? root.session ?? root.hourly, windows.length === 0, "rolling", 18_000);
+  addOllamaWindow(windows, "ollama-weekly", "周额度", usage.weekly ?? root.weekly, windows.length === 0, "rolling", 604_800);
+  const limits = Array.isArray(root.limits) ? root.limits : Array.isArray(usage.limits) ? usage.limits : [];
+  for (const raw of limits) {
+    const o = asObject(raw);
+    if (!o) continue;
+    const name = String(o.name ?? o.type ?? o.id ?? o.kind ?? "").toLowerCase();
+    if (/month/.test(name)) addOllamaWindow(windows, "ollama-monthly", "月度额度", o, windows.length === 0, "calendar");
+    else if (/session|hour/.test(name)) addOllamaWindow(windows, "ollama-session", "会话额度", o, windows.length === 0, "rolling", 18_000);
+    else if (/week/.test(name)) addOllamaWindow(windows, "ollama-weekly", "周额度", o, windows.length === 0, "rolling", 604_800);
+  }
+  if (windows.length === 0) {
+    windows.push(...probePercentWindows(usage, [
+      { id: "ollama-monthly", label: "月度额度", pick: (p) => p.monthly ?? p, primary: true },
+      { id: "ollama-session", label: "会话额度", pick: (p) => p.session },
+      { id: "ollama-weekly", label: "周额度", pick: (p) => p.weekly },
+    ]));
+  }
   if (windows.length === 0) throw new Error("Ollama usage 响应没有可识别的用量字段（pending-verification）。");
-  return buildReport("ollama", "Ollama Cloud", { capturedAtMs, windows, metrics, diagnostics: [diagnostic("pending-verification", "warning")] });
+  if (!windows.some((w) => w.primary) && windows[0]) windows[0].primary = true;
+  return buildReport("ollama", "Ollama Cloud", { capturedAtMs, windows, diagnostics: [diagnostic("pending-verification", "warning")] });
 }

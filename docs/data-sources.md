@@ -40,7 +40,7 @@ execution after admission review (`admission: approved` in its data source).
 | antigravity | `agy -p /usage --output-format json` (CLI version unverified). local-api pending | A/C | pending | unverified |
 | devin | CLI TOML `windsurf_api_key` (Connect RPC unverified) + web org quota (manual session + orgId) | C | pending | unverified |
 | grok | `cli-chat-proxy.grok.com/v1/billing?format=credits` | C | pending | unverified |
-| ollama | signed `ollama.com/api/usage` | C | pending-verification | unverified |
+| ollama | signed `GET ollama.com/api/usage` (OpenSSH Ed25519). `OLLAMA_API_KEY` is not quota. | C | pending | unverified |
 
 ## Credential chains
 

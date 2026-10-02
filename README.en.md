@@ -37,7 +37,7 @@ synthetic, not live usage.
 | Antigravity | implemented (unverified) | `agy /usage` (defensive parser) |
 | Devin | implemented (unverified) | web org quota (defensive parser, needs organizationId) |
 | Grok Build | implemented (unverified) | `cli-chat-proxy.grok.com/v1/billing` (defensive parser) |
-| Ollama Cloud | implemented (unverified) | locally signed requests (defensive parser) |
+| Ollama Cloud | implemented (unverified) | signed `GET /api/usage` (OpenSSH Ed25519); admission pending; `OLLAMA_API_KEY` is not quota |
 
 > The "implemented (unverified)" eight: response structures are defensively
 > implemented, but the maintainer has no subscription for them and they have

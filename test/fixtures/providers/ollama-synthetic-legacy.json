@@ -1,0 +1,6 @@
+{
+  "limits": [
+    { "name": "session", "usage": 0.4 },
+    { "name": "weekly", "usage": 0.2 }
+  ]
+}

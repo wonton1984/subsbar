@@ -32,7 +32,7 @@ macOS 菜单栏订阅额度面板 + 可独立运行的 Node 数据层。目标�
 | Antigravity | 已实现（未验证） | `agy /usage`（防御性解析） |
 | Devin | 已实现（未验证） | 网页组织 quota（防御性解析，需 organizationId） |
 | Grok Build | 已实现（未验证） | `cli-chat-proxy.grok.com/v1/billing`（防御性解析） |
-| Ollama Cloud | 已实现（未验证） | 本地签名请求（防御性解析） |
+| Ollama Cloud | 已实现（未验证） | 本地 OpenSSH 签名 `GET /api/usage`；admission pending；`OLLAMA_API_KEY` 不是额度 |
 
 > 上表「已实现（未验证）」八家：响应结构已防御性实现，但维护者本机无此订阅、未经真实端点验证——字段名可能偏差，欢迎社区贡献者以真实账号验证（参考 `docs/providers/<id>.md` 与各 manifest 的 pending-verification 标注）。
 

@@ -111,6 +111,7 @@ const M2_FETCH = {
   grok: m2.fetchGrokBilling,
   devin: m2.fetchDevinQuota,
   antigravity: m2.fetchAntigravityUsage,
+  ollama: m2.fetchOllamaUsage,
 };
 
 /** 返回 SnapshotReport。extra: {region?, organizationId?}；ctx: {signal?} */

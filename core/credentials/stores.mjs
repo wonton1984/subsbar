@@ -7,6 +7,7 @@ import { createDecipheriv } from "crypto";
 import { homedir } from "os";
 import { join } from "path";
 import { safeText } from "../defs.mjs";
+import { isOllamaOpenSshKey } from "./ollama-signer.mjs";
 
 /** Factory CLI Keychain 项（本机核实：account=auth-encryption-key-security-cli，不是 auth-encryption-key）。 */
 export const FACTORY_KEYCHAIN_SERVICE = "Factory CLI";
@@ -369,11 +370,17 @@ export function createCredentialStores({ env = process.env } = {}) {
   });
   register("ollama-signing-key", {
     discover(spec) {
-      const path = spec.path ?? "~/.ollama/id_ed25519";
+      const path = spec.path ?? implDefaults("ollama-signing-key")?.path ?? ollamaSigningKeyPath();
       if (!fileExistsQuiet(path)) return { status: "missing", reasonCode: "not-configured" };
       return { status: "resolved", reasonCode: undefined };
     },
-    resolve() { throw new ReaderOutcome("unsupported", "not-implemented"); }, // 签名能力经 broker，v1 探测后接入
+    resolve(spec) {
+      const path = spec.path ?? implDefaults("ollama-signing-key")?.path ?? ollamaSigningKeyPath();
+      if (!fileExistsQuiet(path)) throw new ReaderOutcome("missing", "not-configured");
+      const { data } = readFileBounded(path, 8192);
+      if (!isOllamaOpenSshKey(data.toString("utf8"))) throw new ReaderOutcome("rejected", "file-malformed");
+      return { bytes: data };
+    },
   });
 
   // cli-session 别名：各家官方 CLI reader 共用受控探测实现
@@ -452,6 +459,7 @@ export function createCredentialStores({ env = process.env } = {}) {
     ["devin-credentials-toml", { path: join(homedir(), ".local", "share", "devin", "credentials.toml") }],
     ["copilot-apps-json", { path: join(env.XDG_CONFIG_HOME ? expand(env.XDG_CONFIG_HOME) : join(homedir(), ".config"), "github-copilot", "apps.json"), extract: copilotAppsExtract }],
     ["claude-pi-anthropic", { piKey: "anthropic" }],
+    ["ollama-signing-key", { path: ollamaSigningKeyPath() }],
     ["github-copilot", { piKey: "github-copilot" }],
     ["openrouter-env-key", { envName: "OPENROUTER_API_KEY" }],
   ]);
@@ -517,6 +525,12 @@ export function agyExecutable(env = {}) {
   if (env.ANTIGRAVITY_CLI_PATH === "") return undefined;
   if (typeof env.ANTIGRAVITY_CLI_PATH === "string" && env.ANTIGRAVITY_CLI_PATH.trim()) return expand(env.ANTIGRAVITY_CLI_PATH);
   return "/opt/homebrew/bin/agy";
+}
+
+/** 默认 ~/.ollama/id_ed25519。不读正文、不把 OLLAMA_API_KEY 当签名钥。 */
+export function ollamaSigningKeyPath(explicit) {
+  if (typeof explicit === "string" && explicit.trim()) return expand(explicit);
+  return join(homedir(), ".ollama", "id_ed25519");
 }
 
 /** GROK_HOME 为文件或目录；未设则 ~/.grok/auth.json。不扫描浏览器。 */

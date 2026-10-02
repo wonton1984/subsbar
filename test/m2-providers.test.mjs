@@ -5,6 +5,7 @@
  * 运行：node test/m2-providers.test.mjs ；退出码 0 = 全过。
  */
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { execFileSync } from "child_process";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
@@ -12,12 +13,13 @@ import {
   normalizeClaudeUsage, normalizeCopilotUsage, normalizeZaiQuota, normalizeOpenRouterKey,
   normalizeGrokBilling, normalizeDevinQuota, normalizeAntigravityUsage, normalizeOllamaUsage,
   ZAI_REGION_ORIGINS, ZAI_QUOTA_PATH, fetchCopilotUsage, fetchZaiUsage, mergeOpenRouterCredits,
-  fetchAntigravityUsage, fetchDevinQuota, fetchGrokBilling, AGY_USAGE_ARGV, AGY_DEFAULT_EXECUTABLE,
+  fetchAntigravityUsage, fetchDevinQuota, fetchGrokBilling, fetchOllamaUsage, AGY_USAGE_ARGV, AGY_DEFAULT_EXECUTABLE,
   GROK_BILLING_URL, DEVIN_WEB_ORIGIN, isGrokManagementKey, normalizeDevinCliStatus,
 } from "../core/providers/engine/m2-providers.mjs";
 import { fetchProviderSnapshot } from "../core/providers/adapters.mjs";
 import { ProviderRegistry } from "../core/providers/registry.mjs";
-import { isCopilotOauthToken, copilotAppsExtract, zaiEnvName, createCredentialStores, parseDevinTomlKey, parseDevinTomlOrigin, grokAuthFilePath, agyExecutable } from "../core/credentials/stores.mjs";
+import { isCopilotOauthToken, copilotAppsExtract, zaiEnvName, createCredentialStores, parseDevinTomlKey, parseDevinTomlOrigin, grokAuthFilePath, agyExecutable, ollamaSigningKeyPath } from "../core/credentials/stores.mjs";
+import { isOllamaApiKey, ollamaUsageChallenge, signOllamaChallenge } from "../core/credentials/ollama-signer.mjs";
 
 let ok = 0, fail = 0;
 const failures = [];
@@ -255,10 +257,67 @@ console.log("\n== C. antigravity / devin / grok（来源分流；admission pendi
   check("grok 源 pending", (grok.dataSources ?? []).every((s) => s.admission === "pending"));
 }
 
-console.log("\n== D. ollama 防御性解析（pending-verification）==");
+console.log("\n== D. ollama 签名主路径（pending-verification）==");
 {
   const o = normalizeOllamaUsage({ monthly: { utilization: 25 } }, NOW);
   check("ollama：monthly 识别", o.windows[0].id === "ollama-monthly" && o.windows[0].used === 25);
+  check("ollama：pending-verification 诊断", o.diagnostics.some((d) => d.code === "pending-verification"));
+  const dollars = normalizeOllamaUsage(fixture("ollama-synthetic-normal.json"), NOW);
+  const monthly = dollars.windows.find((w) => w.id === "ollama-monthly");
+  check("ollama：月度 used/limit 不补分母外的窗", monthly?.used === 7.5 && monthly.limit === 60 && monthly.remaining === 52.5 && monthly.unit === "currency" && dollars.windows.length === 1);
+  check("ollama：月度 reset 来自上游", monthly?.period?.kind === "calendar" && monthly.period.resetState === "known" && monthly.period.resetsAtMs === Date.parse("2031-11-01T00:00:00Z"));
+  check("ollama：plan 不进 report", !JSON.stringify(dollars).includes('"pro"'));
+  const legacy = normalizeOllamaUsage(fixture("ollama-synthetic-legacy.json"), NOW);
+  const session = legacy.windows.find((w) => w.id === "ollama-session");
+  const weekly = legacy.windows.find((w) => w.id === "ollama-weekly");
+  check("ollama：旧 session/weekly 分数→百分", session?.used === 40 && weekly?.used === 20 && session.period.resetState === "unknown" && weekly.period.resetState === "unknown");
+  check("ollama：无法识别 → 抛错", (() => { try { normalizeOllamaUsage(fixture("ollama-synthetic-missing.json"), NOW); return false; } catch { return true; } })());
+  const quotaOk = (m) => m.kind !== "quota" || (
+    ["unknown", "within-limit", "at-limit", "over-limit"].includes(m.quotaState)
+    && m.period && ["rolling", "calendar", "billing", "lifetime", "unknown"].includes(m.period.kind)
+    && ["known", "unknown", "not-started"].includes(m.period.resetState)
+  );
+  check("ollama quota 窗含 quotaState/period", [...dollars.windows, ...legacy.windows, ...o.windows].every(quotaOk));
+
+  check("OLLAMA_API_KEY 不是签名钥", isOllamaApiKey("ollama-synthetic-api-key"));
+  let apiKeyStatus;
+  try { await fetchOllamaUsage("ollama-synthetic-api-key"); } catch (e) { apiKeyStatus = e.httpStatus; }
+  check("fetch 拒绝 API key 且不当 quota", apiKeyStatus === 403);
+
+  const dir = mkdtempSync(join(tmpdir(), "subsbar-ollama-"));
+  const keyPath = join(dir, "id_ed25519");
+  try {
+    execFileSync("ssh-keygen", ["-t", "ed25519", "-f", keyPath, "-N", "", "-C", "subsbar-test", "-q"], { stdio: "ignore" });
+    const pem = readFileSync(keyPath, "utf8");
+    const ts = 1_710_000_000;
+    const signed = signOllamaChallenge(pem, ollamaUsageChallenge(ts));
+    check("签名 token 形如 pubkey:sig", /^[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+$/.test(signed.authorization) && !signed.authorization.includes("BEGIN"));
+    let seen;
+    const report = await fetchOllamaUsage(pem, {
+      nowSec: ts,
+      fetchJson: async (req) => {
+        seen = req;
+        return fixture("ollama-synthetic-normal.json");
+      },
+    });
+    check("签名请求只打 usage+ts", seen?.url === `https://ollama.com/api/usage?ts=${ts}` && seen.headers.Authorization === signed.authorization);
+    check("私钥不进 URL", !String(seen?.url).includes("BEGIN") && !String(seen?.url).includes(pem.slice(0, 20)));
+    check("fetch+normalize 走合成月窗", report.windows[0].id === "ollama-monthly" && report.windows[0].used === 7.5);
+    const stores = createCredentialStores({ env: {} });
+    writeFileSync(join(dir, "not-a-key"), "ollama-synthetic-api-key\n");
+    check("reader 默认路径 ~/.ollama/id_ed25519", /\/\.ollama\/id_ed25519$/.test(ollamaSigningKeyPath()));
+    check("reader 发现合成钥", stores.discover("ollama-signing-key", { path: keyPath }).status === "resolved");
+    const resolved = stores.resolve("ollama-signing-key", { path: keyPath });
+    check("reader resolve 只回字节", resolved.bytes instanceof Uint8Array && isOllamaApiKey(new TextDecoder().decode(resolved.bytes)) === false);
+    check("非 OpenSSH 文件拒绝", (() => { try { stores.resolve("ollama-signing-key", { path: join(dir, "not-a-key") }); return false; } catch (e) { return e.reasonCode === "file-malformed"; } })());
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+
+  const viaAdapter = await fetchProviderSnapshot("ollama", "", { payload: fixture("ollama-synthetic-legacy.json") });
+  check("adapter 分发 ollama", viaAdapter.windows.some((w) => w.id === "ollama-session"));
+  const ollama = reg.get("ollama");
+  check("ollama 源 pending", (ollama.dataSources ?? []).every((s) => s.admission === "pending"));
 }
 
 console.log("\n== 注册表/分发一致性 ==");

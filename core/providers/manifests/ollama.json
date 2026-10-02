@@ -52,7 +52,7 @@
       "kind": "official-api",
       "grade": "C",
       "admission": "pending",
-      "approvalNote": "pending-verification: 防御性解析已实现，响应字段名未经真实账号验证（本机网络无法核实开源实现细节）；真实账号冒烟前排程",
+      "approvalNote": "pending-verification: 签名主路径已实现（OpenSSH Ed25519 → GET /api/usage）；响应字段名与新旧计费形态未经真实账号验证。普通 OLLAMA_API_KEY 不替代 quota。refresh 拒绝执行。",
       "endpointIds": [
         "ollama-usage"
       ],
@@ -63,7 +63,9 @@
         "quota"
       ],
       "coverageMetricRules": [
-        "ollama-monthly"
+        "ollama-monthly",
+        "ollama-session",
+        "ollama-weekly"
       ],
       "coverageMatch": "any"
     }
@@ -83,12 +85,36 @@
       "scope": "subscription",
       "period": "calendar",
       "derivations": [],
-      "description": "monthly or session/weekly by new billing; never guess reset",
+      "description": "new-plan monthly credits when present; never guess reset",
+      "missingPolicy": "unknown"
+    },
+    {
+      "id": "ollama-session",
+      "metricId": "session",
+      "kind": "quota",
+      "unit": "percent",
+      "scope": "subscription",
+      "period": "rolling",
+      "derivations": [],
+      "description": "legacy 5h session window when present; reset unknown unless upstream sends it",
+      "missingPolicy": "unknown"
+    },
+    {
+      "id": "ollama-weekly",
+      "metricId": "weekly",
+      "kind": "quota",
+      "unit": "percent",
+      "scope": "subscription",
+      "period": "rolling",
+      "derivations": [],
+      "description": "legacy 7d weekly window when present; reset unknown unless upstream sends it",
       "missingPolicy": "unknown"
     }
   ],
   "primaryPreference": [
-    "ollama-monthly"
+    "ollama-monthly",
+    "ollama-session",
+    "ollama-weekly"
   ],
   "diagnosticCodes": [
     "pending-verification"
@@ -96,6 +122,7 @@
   "reasonCodes": [],
   "fixtureIds": [
     "ollama-synthetic-normal",
+    "ollama-synthetic-legacy",
     "ollama-synthetic-missing"
   ],
   "provenance": [],
