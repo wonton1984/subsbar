@@ -4,7 +4,7 @@ import Foundation
 public enum ProviderConnectionPresentation {
     public static func blockedReason(_ manifest: Wire) -> String? {
         guard manifest["releaseStatus"].text == "blocked" else { return nil }
-        return manifest["providerId"].text == "claude" ? "官方 CLI 暂无机读出口" : "用量来源已被禁止"
+        return manifest["providerId"].text == "claude" ? "等待适用许可（实时准入审阅 blocked）" : "用量来源已被禁止"
     }
     public static func awaitingAdmission(_ manifest: Wire) -> Bool {
         let sources = manifest["dataSources"].array
@@ -12,6 +12,7 @@ public enum ProviderConnectionPresentation {
     }
     public static func note(_ id: String) -> String? {
         switch id {
+        case "claude": return "Claude 是必做目标。离线解析与合成验证可继续；取得适用许可并完成真实订阅验收后，再重开实时准入。官方 CLI 暂无机读出口；用户 opt-in 或购买订阅不能替代许可。"
         case "copilot": return "实验性社区来源：仅接受 Copilot OAuth，不接受 PAT；官方 CLI 来源待接入。403 不转查组织账单。AI credits 与 Premium requests 按上游类型显示。"
         case "zai": return "请先选择密钥所属地区；global 使用 ZAI_API_KEY，cn 使用 BIGMODEL_API_KEY，不跨区探测。CN 本轮未经真实账户验证。"
         case "openrouter": return "显示 API Key 限额，不是账户余额。账户余额需要独立 management key，本轮尚未接入；不要将它填作普通 Key。"

@@ -4,12 +4,12 @@ Swift 6 / SwiftPM, macOS 13+. AppKit owns the menu bar item, transient popover a
 
 ## Launch support matrix
 
-The first-release scope is **13 providers plus one visible blocked provider**. Inclusion does not override source admission or imply live-account verification.
+First-release coverage is provisionally **13 providers**. **Claude remains a required target**, with live admission blocked pending applicable permission and subsequent real-subscription validation; it is not a permanently excluded provider. Inclusion does not override source admission or imply live-account verification.
 
 | Scope | Providers | Native behavior |
 | --- | --- | --- |
 | First-release scope (13) | Codex, OpenCode Go, Kimi Code, CommandCode, Factory Droid, Cursor, GitHub Copilot, Z.AI, OpenRouter, Antigravity, Devin, Grok, Ollama Cloud | Display registry support/admission; pending sources stay visible but cannot connect. |
-| Blocked | Claude | Visible as unavailable: official CLI has no non-interactive machine-readable quota output. No login/connect action while registry marks it blocked. TUI, OAuth-token and cookie workarounds are not implemented. |
+| Required target; live admission blocked | Claude | Visible as awaiting applicable permission, following the live-admission review. Offline parsing and synthetic validation may proceed. Reopening admission requires permission and real-subscription validation. The official CLI also lacks a machine-readable quota output. Opt-in or purchasing a subscription does not replace permission; no secret-reader, login/connect or usage-network entry is enabled by this UI change. |
 
 Ollama Cloud's signing path and monthly/legacy window shapes have only synthetic validation this round. The app displays supplied windows and does not invent reset times.
 
