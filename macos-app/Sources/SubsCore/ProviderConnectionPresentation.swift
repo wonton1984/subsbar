@@ -14,6 +14,7 @@ public enum ProviderConnectionPresentation {
         case "antigravity": return "待启用：agy CLI 版本及用量输出尚未实测。Gemini 与非 Gemini 池分别显示，缺失窗口不补满；本地 API 会话读取尚未实现。"
         case "devin": return "待启用：CLI 会话与网页组织会话是两种独立来源。CLI 用量读取尚未验证；网页组织来源需手动导入钥匙串及组织 ID，自动浏览器导入尚未实现。日额度与周额度分开显示，不跨账户回退。"
         case "grok": return "待启用：Grok Build 真实账户尚未验证。按上游周期区分周窗和月窗，PAYG 单独显示；不承诺网页 gRPC、WKE 或团队额度支持。"
+        case "ollama": return "待启用：Ollama Cloud 本机签名路径尚未经过真实账户验证。普通 OLLAMA_API_KEY 不能读取订阅额度；按响应显示月度 credits 或旧版会话/周窗口，缺少重置时间时显示未知。"
         default: return nil
         }
     }

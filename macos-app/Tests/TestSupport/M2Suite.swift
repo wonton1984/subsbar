@@ -31,6 +31,7 @@ public enum M2Suite {
         func fixture(_ name: String) throws -> Wire { try Wire.parse(Data(contentsOf: fixtures.appendingPathComponent(name))) }
         count += try M2BSuite.run(root: root)
         count += try M2CSuite.run(root: root)
+        count += try M2DSuite.run(root: root)
         let normalized = try fixture("usage-golden-normalized.json")
         let base = try fixture("config-read-synthetic.json")["config"]
         let now = Date(timeIntervalSince1970: normalized["nowMs"].number! / 1000)

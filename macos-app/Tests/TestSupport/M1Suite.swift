@@ -194,7 +194,7 @@ public enum M1Suite {
             let explicit = Wire.object(["activeProfile": .string("synthetic"), "profiles": .array([.object(["id": .string("synthetic"), "sources": .array([.object(["reader": .string("synthetic-reader")])])])])])
             try check("M2B unsupported reader blocks \(id)", ProviderConnectionPresentation.unavailable(manifest: blockedReader, draft: explicit) != nil)
         }
-        for id in ["antigravity", "devin", "grok"] {
+        for id in ["antigravity", "devin", "grok", "ollama"] {
             let row = registry.value["providers"].array.first { $0["providerId"].text == id } ?? .null
             try check("M2C pending registry \(id)", !row["name"].text.isEmpty && ProviderConnectionPresentation.awaitingAdmission(row))
             try check("M2C add list retains \(id)", ProviderSections(registry: registry.value["providers"].array, config: .null).available.contains(id))
