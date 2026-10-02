@@ -31,6 +31,13 @@ public enum M2DSuite {
         try check("no reset timestamp invented", wire["noReset"]["windows"].array.allSatisfy { $0["period"]["resetState"].text == "unknown" && $0["period"]["resetsAtMs"] == .null })
         try check("legacy reset remains unknown", wire["legacy"]["windows"].array.allSatisfy { $0["period"]["resetState"].text == "unknown" })
         try check("missing payload not full quota", wire["missingRejected"].bool)
+        let blocked = Wire.object(["providerId": .string("claude"), "name": .string("Claude"), "releaseStatus": .string("blocked"), "supported": .bool(true)])
+        try check("blocked differs from pending", !ProviderConnectionPresentation.awaitingAdmission(blocked) && ProviderConnectionPresentation.blockedReason(blocked) == "官方 CLI 暂无机读出口")
+        let guide = ConnectionGuide(manifest: blocked, name: "Claude")
+        try check("blocked has no login action", guide.kind == .unsupported && guide.command == nil && guide.url == nil && !guide.prefersDetect && !guide.canPasteKey)
+        try check("blocked reason shown", guide.instruction.contains("官方 CLI 暂无机读出口"))
+        try check("blocked overrides supported", ProviderConnectionPresentation.unavailable(manifest: blocked, draft: .null)?.contains("不可用") == true)
+        try check("blocked stays in add list", ProviderSections(registry: [blocked], config: .null).available.contains("claude"))
         return count
     }
 }

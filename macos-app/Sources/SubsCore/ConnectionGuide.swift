@@ -48,6 +48,12 @@ public struct ConnectionGuide: Equatable, Sendable {
         }
         credentialService = keyReader?["credentialService"].string
         credentialReader = keyReader?["id"].string
+        if let reason = ProviderConnectionPresentation.blockedReason(manifest) {
+            kind = .unsupported; primaryTitle = "不可用"; command = nil; url = nil; unverified = false
+            hasDiscoveredSource = false; prefersDetect = false
+            instruction = reason
+            return
+        }
         if !manifest["supported"].bool || ProviderConnectionPresentation.awaitingAdmission(manifest) {
             kind = .unsupported; primaryTitle = "暂不可连接"; command = nil; url = nil; unverified = false
             hasDiscoveredSource = false; prefersDetect = false

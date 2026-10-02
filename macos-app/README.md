@@ -2,6 +2,17 @@
 
 Swift 6 / SwiftPM, macOS 13+. AppKit owns the menu bar item, transient popover and settings window; SwiftUI renders the content. Node ≥22 is required. The public app uses bundle identifier `com.subsbar.public-native`, separate from the existing private installation.
 
+## Launch support matrix
+
+The first-release scope is **13 providers plus one visible blocked provider**. Inclusion does not override source admission or imply live-account verification.
+
+| Scope | Providers | Native behavior |
+| --- | --- | --- |
+| First-release scope (13) | Codex, OpenCode Go, Kimi Code, CommandCode, Factory Droid, Cursor, GitHub Copilot, Z.AI, OpenRouter, Antigravity, Devin, Grok, Ollama Cloud | Display registry support/admission; pending sources stay visible but cannot connect. |
+| Blocked | Claude | Visible as unavailable: official CLI has no non-interactive machine-readable quota output. No login/connect action while registry marks it blocked. TUI, OAuth-token and cookie workarounds are not implemented. |
+
+Ollama Cloud's signing path and monthly/legacy window shapes have only synthetic validation this round. The app displays supplied windows and does not invent reset times.
+
 ## Build and check
 
 Run from the public repository root. Build products and captures stay outside the source tree.

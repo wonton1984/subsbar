@@ -2,9 +2,13 @@ import Foundation
 
 /// UI guidance from the provider release cards. Node remains the config/admission validator.
 public enum ProviderConnectionPresentation {
+    public static func blockedReason(_ manifest: Wire) -> String? {
+        guard manifest["releaseStatus"].text == "blocked" else { return nil }
+        return manifest["providerId"].text == "claude" ? "官方 CLI 暂无机读出口" : "用量来源已被禁止"
+    }
     public static func awaitingAdmission(_ manifest: Wire) -> Bool {
         let sources = manifest["dataSources"].array
-        return !sources.isEmpty && !sources.contains { $0["admission"].text == "approved" }
+        return blockedReason(manifest) == nil && !sources.isEmpty && !sources.contains { $0["admission"].text == "approved" }
     }
     public static func note(_ id: String) -> String? {
         switch id {
@@ -19,6 +23,7 @@ public enum ProviderConnectionPresentation {
         }
     }
     public static func unavailable(manifest: Wire, draft: Wire) -> String? {
+        if let reason = blockedReason(manifest) { return "不可用：" + reason }
         guard manifest["supported"].bool else { return "此订阅尚不可连接" }
         let selected = draft["dataSource"].text
         let sources = manifest["dataSources"].array

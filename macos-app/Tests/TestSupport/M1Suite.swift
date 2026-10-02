@@ -208,6 +208,11 @@ public enum M1Suite {
                 try check("M2C explicit pending blocked \(source["id"].text)", ProviderConnectionPresentation.unavailable(manifest: row, draft: .object(["dataSource": source["id"]])) != nil)
             }
         }
+        let claude = registry.value["providers"].array.first { $0["providerId"].text == "claude" } ?? .null
+        try check("Claude registry blocked remains visible", claude["releaseStatus"].text == "blocked" && ProviderSections(registry: registry.value["providers"].array, config: .null).available.contains("claude"))
+        try check("Claude live blocked not pending", ProviderConnectionPresentation.blockedReason(claude) != nil && !ProviderConnectionPresentation.awaitingAdmission(claude))
+        let claudeGuide = ConnectionGuide(manifest: claude, name: "Claude")
+        try check("Claude live registry no connect action", claudeGuide.kind == .unsupported && !claudeGuide.canPasteKey && claudeGuide.command == nil && !claudeGuide.prefersDetect)
         let usage = try UsageV1(emptyBridge.call(["usage", "--json"]).value)
         try check("empty HOME usage disables all providers", usage.providers.count == 14 && usage.providers.allSatisfy { $0.status == "disabled" && !$0.report.isObject })
         let unknown = try emptyBridge.call(["registry", "--json", "--provider", "synthetic-unknown"])

@@ -248,7 +248,7 @@ struct AddSubscriptionSection: View {
                             Monogram(id: id, name: model.name(id), size: 18)
                             VStack(alignment: .leading, spacing: 0) {
                                 Text(model.name(id)).lineLimit(1)
-                                Text(ProviderConnectionPresentation.awaitingAdmission(model.providers.first { $0["providerId"].text == id } ?? .null) ? "待启用" : model.supported(id) ? "连接" : "尚不支持").font(.system(size: 9.5)).foregroundStyle(.secondary)
+                                Text(ProviderConnectionPresentation.blockedReason(model.providers.first { $0["providerId"].text == id } ?? .null).map { "不可用：" + $0 } ?? (ProviderConnectionPresentation.awaitingAdmission(model.providers.first { $0["providerId"].text == id } ?? .null) ? "待启用" : model.supported(id) ? "连接" : "尚不支持")).font(.system(size: 9.5)).foregroundStyle(.secondary)
                             }
                             Spacer(minLength: 0)
                             Image(systemName: "plus.circle").foregroundStyle(.secondary)
