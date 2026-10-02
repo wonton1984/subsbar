@@ -1,0 +1,4 @@
+{
+  "five_hour": { "utilization": 5, "resets_at": "2031-10-01T00:00:00Z" },
+  "extra_usage": { "amount": 3.25, "unit": "USD", "cap": 25 }
+}

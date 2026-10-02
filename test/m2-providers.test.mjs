@@ -10,7 +10,8 @@ import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import {
-  normalizeClaudeUsage, normalizeCopilotUsage, normalizeZaiQuota, normalizeOpenRouterKey,
+  normalizeClaudeUsage, classifyClaudeWindowField, classifyClaudeExtraUsage, classifyClaudeLimits,
+  fetchClaudeUsage, normalizeCopilotUsage, normalizeZaiQuota, normalizeOpenRouterKey,
   normalizeGrokBilling, normalizeDevinQuota, normalizeAntigravityUsage, normalizeOllamaUsage,
   ZAI_REGION_ORIGINS, ZAI_QUOTA_PATH, fetchCopilotUsage, fetchZaiUsage, mergeOpenRouterCredits,
   fetchAntigravityUsage, fetchDevinQuota, fetchGrokBilling, fetchOllamaUsage, AGY_USAGE_ARGV, AGY_DEFAULT_EXECUTABLE,
@@ -18,8 +19,13 @@ import {
 } from "../core/providers/engine/m2-providers.mjs";
 import { fetchProviderSnapshot } from "../core/providers/adapters.mjs";
 import { ProviderRegistry } from "../core/providers/registry.mjs";
-import { isCopilotOauthToken, copilotAppsExtract, zaiEnvName, createCredentialStores, parseDevinTomlKey, parseDevinTomlOrigin, grokAuthFilePath, agyExecutable, ollamaSigningKeyPath } from "../core/credentials/stores.mjs";
+import { isCopilotOauthToken, copilotAppsExtract, zaiEnvName, createCredentialStores, parseDevinTomlKey, parseDevinTomlOrigin, grokAuthFilePath, agyExecutable, ollamaSigningKeyPath, ReaderOutcome } from "../core/credentials/stores.mjs";
+import {
+  parseClaudeAiOauth, claudeUsageCapability, CLAUDE_BORROWED_REFRESH,
+  claudeOnUnauthorized, claudeBindKey, claudeAcceptLateResult,
+} from "../core/credentials/claude-oauth-shape.mjs";
 import { isOllamaApiKey, ollamaUsageChallenge, signOllamaChallenge } from "../core/credentials/ollama-signer.mjs";
+import { iconFractionOf } from "../core/runtime/report.mjs";
 
 let ok = 0, fail = 0;
 const failures = [];
@@ -32,7 +38,7 @@ const reg = new ProviderRegistry();
 const here = dirname(fileURLToPath(import.meta.url));
 const fixture = (name) => JSON.parse(readFileSync(join(here, "fixtures", "providers", name), "utf8"));
 
-console.log("== A1. claude（five_hour/seven_day/opus，ISO reset，超额不 clamp）==");
+console.log("== A1. claude（离线窗口 + extra_usage + weekly_scoped，超额不 clamp）==");
 {
   const r = normalizeClaudeUsage({
     five_hour: { utilization: 42, resets_at: "2031-10-01T00:00:00Z" },
@@ -44,9 +50,100 @@ console.log("== A1. claude（five_hour/seven_day/opus，ISO reset，超额不 cl
   check("5h primary + reset 转 ms", five.primary === true && five.period.resetsAtMs === Date.parse("2031-10-01T00:00:00Z"));
   const seven = r.windows.find((w) => w.id === "seven-day");
   check("utilization 130 保留（不 clamp）", seven.used === 130 && seven.quotaState === "over-limit");
+  check("展示层才裁剪 icon", iconFractionOf(seven) === 0);
   const opus = r.windows.find((w) => w.id === "seven-day-opus");
   check("0% 保留", opus.used === 0);
   check("全空 → 抛错", (() => { try { normalizeClaudeUsage({}, NOW); return false; } catch { return true; } })());
+
+  const full = normalizeClaudeUsage(fixture("claude-synthetic-normal.json"), NOW);
+  check("normal：5h/7d/opus/sonnet 四窗", ["five-hour", "seven-day", "seven-day-opus", "seven-day-sonnet"].every((id) => full.windows.some((w) => w.id === id)));
+  const sonnet = full.windows.find((w) => w.id === "seven-day-sonnet");
+  check("sonnet 130 不截断", sonnet.used === 130 && sonnet.quotaState === "over-limit");
+  const extra = full.metrics.find((m) => m.id === "extra-usage");
+  check("extra_usage 金额+币种独立，不进百分比窗", extra?.used === 12.5 && extra.limit === 50 && extra.currency === "USD" && extra.unit === "currency" && !full.windows.some((w) => w.id === "extra-usage"));
+  check("All models 不重复进 scoped", !full.windows.some((w) => /all models/i.test(w.label ?? "")));
+  check("Fable weekly_scoped", full.windows.some((w) => w.id === "weekly-scoped-fable" && w.used === 7 && w.label === "Fable"));
+
+  check("缺失分类", classifyClaudeWindowField(undefined) === "missing");
+  check("null 分类", classifyClaudeWindowField(null) === "null");
+  check("未开始分类", classifyClaudeWindowField({}) === "not-started" && classifyClaudeWindowField({ utilization: 0 }) === "not-started");
+  check("解析失败分类", classifyClaudeWindowField("nope") === "parse-failed");
+  check("extra 无金额不混入百分比", classifyClaudeExtraUsage({ utilization: 9 }) === "amount-missing");
+  check("limits null 独立", classifyClaudeLimits(null) === "null");
+
+  const missing = (() => { try { normalizeClaudeUsage(fixture("claude-synthetic-missing.json"), NOW); return null; } catch (e) { return e; } })();
+  check("missing fixture 抛错", !!missing);
+  const nulled = (() => { try { normalizeClaudeUsage(fixture("claude-synthetic-null-windows.json"), NOW); return null; } catch (e) { return e; } })();
+  check("全 null 抛错且 outcomes 为 null", !!nulled);
+
+  const notStarted = normalizeClaudeUsage(fixture("claude-synthetic-not-started.json"), NOW);
+  const nsFive = notStarted.windows.find((w) => w.id === "five-hour");
+  const nsWeek = notStarted.windows.find((w) => w.id === "seven-day");
+  check("未开始 resetState", nsFive?.period?.resetState === "not-started" && nsWeek?.period?.resetState === "not-started");
+  check("未开始 outcomes", notStarted.claudeOutcomes.five_hour === "not-started");
+
+  const scoped = normalizeClaudeUsage(fixture("claude-synthetic-scoped.json"), NOW);
+  check("scoped 仅 weekly_scoped", scoped.windows.some((w) => w.id === "weekly-scoped-sonnet" && w.used === 22) && !scoped.windows.some((w) => w.used === 99));
+
+  const extraOnly = normalizeClaudeUsage(fixture("claude-synthetic-extra.json"), NOW);
+  const extraM = extraOnly.metrics.find((m) => m.id === "extra-usage");
+  check("extra amount/unit 不混入窗", extraM?.used === 3.25 && extraM.limit === 25 && extraM.currency === "USD" && extraOnly.windows.every((w) => w.unit === "percent"));
+
+  const stale = normalizeClaudeUsage(fixture("claude-synthetic-normal.json"), NOW, { rateLimited: true });
+  check("限流缓存独立诊断", stale.diagnostics.some((d) => d.code === "rate-limited-cache"));
+  check("解析失败诊断", normalizeClaudeUsage({ five_hour: { utilization: 1 } }, NOW, { parseFailed: true }).diagnostics.some((d) => d.code === "invalid-number"));
+}
+
+console.log("\n== A1b. claude 凭证形状 / 刷新禁止 / 401 一次重读 / generation 隔离 ==");
+{
+  const parsed = parseClaudeAiOauth(fixture("claude-oauth-shape.json"));
+  check("oauth 形状可读", parsed.ok === true && parsed.shape.accessToken === "synthetic-claude-access-not-a-secret");
+  check("refreshToken 解析后丢弃", parsed.discardedRefresh === true && parsed.shape.refreshToken === undefined && !JSON.stringify(parsed).includes("refreshToken") && !JSON.stringify(parsed).includes("must-drop"));
+  check("expiresAt 保留", parsed.shape.expiresAt === 1800003600000 && parsed.expiresAtKnown === true);
+  check("有 user:profile 才算可读", claudeUsageCapability(parsed.shape).status === "can-read-usage");
+
+  const noScopes = parseClaudeAiOauth({ claudeAiOauth: { accessToken: "synthetic-claude-access-not-a-secret", expiresAt: 1 } });
+  check("scopes 缺失 ≠ 已证明权限", claudeUsageCapability(noScopes.shape).status === "unknown-scope" && claudeUsageCapability(noScopes.shape).proven === false && claudeUsageCapability(noScopes.shape).remainingInvented === false);
+
+  const setup = parseClaudeAiOauth({ claudeAiOauth: { accessToken: "synthetic-setup-token", scopes: ["user:inference"], subscriptionType: "pro" } });
+  const cap = claudeUsageCapability(setup.shape);
+  check("setup-token 缺 user:profile → 能力不足不是剩余 0", cap.status === "insufficient-scope" && cap.code === "insufficient-scope" && cap.remainingInvented === false);
+
+  check("借入 refresh 禁止消费/持久化/写回", CLAUDE_BORROWED_REFRESH.consume === false && CLAUDE_BORROWED_REFRESH.persist === false && CLAUDE_BORROWED_REFRESH.writeBack === false && CLAUDE_BORROWED_REFRESH.enterGenericRefresh === false);
+
+  const once = claudeOnUnauthorized({ rereadCount: 0, sameBinding: true, accessUpdated: true, identityUnchanged: true });
+  check("401 同绑定且 access 已更新 → 重读一次", once.action === "reread-once" && once.consumeRefresh === false);
+  const twice = claudeOnUnauthorized({ rereadCount: 1, sameBinding: true, accessUpdated: true, identityUnchanged: true });
+  check("401 第二次 → reauth-required 且不消费 refresh", twice.action === "reauth-required" && twice.consumeRefresh === false && twice.writeBack === false);
+  const staleAccess = claudeOnUnauthorized({ rereadCount: 0, sameBinding: true, accessUpdated: false, identityUnchanged: true });
+  check("401 未更新 access → 不重试", staleAccess.action === "reauth-required");
+
+  const bind = claudeBindKey({ accountId: "acct-a", organizationId: "org-1", sourceRevision: "src-1", generation: 3 });
+  const late = claudeAcceptLateResult({ bindKey: bind.key, resultBindKey: bind.key, generation: 4, resultGeneration: 3 });
+  check("generation 递增拒绝旧结果", bind.ok && late.accept === false && late.reason === "generation-mismatch");
+  const swapped = claudeAcceptLateResult({ bindKey: bind.key, resultBindKey: "acct-b:org-1:src-1:3", generation: 3, resultGeneration: 3 });
+  check("账户变更拒绝串用", swapped.accept === false && swapped.reason === "identity-mismatch");
+  check("身份不明 fail closed", claudeBindKey({}).ok === false && claudeBindKey({}).reason === "identity-unconfirmed");
+
+  const stores = createCredentialStores({ env: {} });
+  const closedDiscover = stores.discover("claude-official-usage", { id: "c", kind: "cli" }, { nowMs: NOW });
+  let closedResolve;
+  try { stores.resolve("claude-official-usage", { id: "c", kind: "cli" }, { nowMs: NOW }); } catch (e) { closedResolve = e; }
+  const piDiscover = stores.discover("claude-pi-anthropic", { id: "p", kind: "pi" }, { nowMs: NOW });
+  check("claude CLI/pi secret reader 关闭", closedDiscover.status === "unsupported" && closedDiscover.reasonCode === "reader-unavailable" && closedResolve instanceof ReaderOutcome && piDiscover.status === "unsupported");
+
+  let liveErr;
+  try { await fetchClaudeUsage("synthetic-token"); } catch (e) { liveErr = e; }
+  check("联网 fetch 关闭", liveErr?.code === "unsupported" && liveErr.reasonCode === "insufficient-scope");
+  const viaPayload = await fetchClaudeUsage("ignored", { payload: fixture("claude-synthetic-normal.json"), capturedAtMs: NOW });
+  check("仅合成 payload 可解析", viaPayload.windows.some((w) => w.id === "five-hour") && viaPayload.capturedAtMs === NOW);
+  const snap = await fetchProviderSnapshot("claude", "ignored", { payload: { five_hour: { utilization: 4, resets_at: "2031-10-01T00:00:00Z" } }, capturedAtMs: NOW });
+  check("adapter 合成 payload 不触网", snap.windows[0].used === 4);
+
+  const engineSrc = readFileSync(new URL("../core/providers/engine/m2-providers.mjs", import.meta.url), "utf8");
+  const fetchBody = engineSrc.slice(engineSrc.indexOf("export async function fetchClaudeUsage"), engineSrc.indexOf("export function normalizeClaudeUsage"));
+  check("fetchClaudeUsage 不调用 fetchJson / usage URL", !/fetchJson/.test(fetchBody) && !/api\.anthropic\.com/.test(fetchBody));
+  check("引擎无 oauth/token 刷新", !/oauth\/token|token_endpoint/i.test(engineSrc));
 }
 
 console.log("\n== A2. copilot（premium / AI credits / OAuth 门禁 / 403 不打组织）==");

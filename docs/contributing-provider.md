@@ -60,9 +60,9 @@ possible — a real-account verification report.
 
 `blocked` is different: the source stays in the catalog, refresh still
 refuses, and it must **not** be flipped to approved without new evidence
-(for example Claude after 2026-10-02: official CLI 2.1.285 has no
-machine-readable usage exit; token/TUI/OAuth/cookie paths are out of
-policy). Pending means “not yet enabled”; blocked means “needs a new path.”
+(for example Claude after 2026-10-02: required target, offline parser ready,
+live admission blocked pending applicable permission; secret readers stay
+closed). Pending means “not yet enabled”; blocked means “needs a new path.”
 
 ## 6. Docs
 

@@ -440,6 +440,14 @@ export function createCredentialStores({ env = process.env } = {}) {
     },
   });
 
+  // Claude：实时准入 blocked。关闭 CLI/pi/Keychain/.credentials.json 等 secret reader。
+  const claudeReaderClosed = {
+    discover() { return { status: "unsupported", reasonCode: "reader-unavailable" }; },
+    resolve() { throw new ReaderOutcome("unsupported", "reader-unavailable"); },
+  };
+  impls.set("claude-official-usage", claudeReaderClosed);
+  impls.set("claude-pi-anthropic", claudeReaderClosed);
+
   // 各 reader 的默认路径/pi 键/默认可执行登记（manifest 的 implementationId → 元数据）
   const defaults = new Map([
     ["codex-auth-file", { path: join(env.CODEX_HOME ? expand(env.CODEX_HOME) : "", "auth.json"), extract: codexAuthExtract }],

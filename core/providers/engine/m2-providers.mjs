@@ -59,40 +59,189 @@ function buildReport(providerId, name, { capturedAtMs, windows, metrics = [], pr
 const RULE = (id, metricId, unit, extra = {}) => ({ id, metricId, unit, derivations: [], scope: "subscription", ...extra });
 
 // ---------------------------------------------------------------------------
-// 批次 A — claude（2026-10-02：admission blocked。normalize 仅供离线形状测试，refresh 拒绝执行）
+// 批次 A — claude（admission blocked。离线 parser + 合成 fixture；refresh / 联网关闭）
 // ---------------------------------------------------------------------------
 
-export async function fetchClaudeUsage(token, extra = {}, ctx = {}) {
-  const payload = await fetchJson({
-    url: "https://api.anthropic.com/api/oauth/usage",
-    headers: { Authorization: `Bearer ${token}`, "anthropic-beta": "oauth-2025-04-20", "User-Agent": "SubsBar" },
-    description: "Claude usage",
-    secrets: [token],
-    signal: ctx.signal,
-  });
-  return normalizeClaudeUsage(payload, Date.now());
+const CLAUDE_NAMED_WINDOWS = [
+  { field: "five_hour", id: "five-hour", label: "5h窗口", primary: true },
+  { field: "seven_day", id: "seven-day", label: "周窗口" },
+  { field: "seven_day_opus", id: "seven-day-opus", label: "周Opus" },
+  { field: "seven_day_sonnet", id: "seven-day-sonnet", label: "周Sonnet" },
+];
+
+/** 窗口字段独立分类：缺失 / null / 未开始 / 解析失败 / 可显示。 */
+export function classifyClaudeWindowField(raw) {
+  if (raw === undefined) return "missing";
+  if (raw === null) return "null";
+  const o = asObject(raw);
+  if (!o) return "parse-failed";
+  const used = asNumber(o.utilization);
+  const resetsAtMs = isoToMs(o.resets_at);
+  if (used === undefined && resetsAtMs === undefined) return "not-started";
+  if (used === 0 && resetsAtMs === undefined) return "not-started";
+  if (used === undefined) return "parse-failed";
+  return "ok";
 }
 
-export function normalizeClaudeUsage(payload, capturedAtMs) {
+function slugModelName(name) {
+  const s = safeText(name, 64).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  return s || "scoped";
+}
+
+function moneyAmount(v) {
+  if (v === undefined || v === null) return undefined;
+  if (typeof v === "number" || typeof v === "string") return asNonNegative(v);
+  const o = asObject(v);
+  if (!o) return undefined;
+  const direct = asNonNegative(o.used) ?? asNonNegative(o.amount) ?? asNonNegative(o.used_credits);
+  if (direct !== undefined) return direct;
+  const minor = asNumber(o.amount_minor);
+  const exp = asNumber(o.exponent);
+  if (minor !== undefined && exp !== undefined) return minor * (10 ** exp);
+  return undefined;
+}
+
+function extraUsageCurrency(o) {
+  if (typeof o.currency === "string" && o.currency.trim()) return o.currency.trim().toUpperCase();
+  if (typeof o.unit === "string" && o.unit.trim() && !/^percent$/i.test(o.unit)) return o.unit.trim().toUpperCase();
+  const nested = asObject(o.used) ?? asObject(o.amount);
+  if (typeof nested?.currency === "string" && nested.currency.trim()) return nested.currency.trim().toUpperCase();
+  return undefined;
+}
+
+export function classifyClaudeExtraUsage(raw) {
+  if (raw === undefined) return "missing";
+  if (raw === null) return "null";
+  const o = asObject(raw);
+  if (!o) return "parse-failed";
+  const used = moneyAmount(o.used) ?? moneyAmount(o.amount) ?? moneyAmount(o.used_credits) ?? moneyAmount(o);
+  const limit = moneyAmount(o.limit) ?? moneyAmount(o.cap);
+  const remaining = moneyAmount(o.remaining);
+  if (used === undefined && limit === undefined && remaining === undefined) return "amount-missing";
+  return "ok";
+}
+
+export function classifyClaudeLimits(raw) {
+  if (raw === undefined) return "missing";
+  if (raw === null) return "null";
+  if (!Array.isArray(raw)) return "parse-failed";
+  return "ok";
+}
+
+/** 联网入口关闭：仅接受 extra.payload 合成数据。admission blocked 时 refresh 不会走到这里。 */
+export async function fetchClaudeUsage(token, extra = {}, ctx = {}) {
+  void token;
+  void ctx;
+  if (extra && extra.payload !== undefined) {
+    return normalizeClaudeUsage(extra.payload, extra.capturedAtMs ?? Date.now(), extra);
+  }
+  const err = new Error("Claude live fetch is closed: admission blocked");
+  err.code = "unsupported";
+  err.reasonCode = "insufficient-scope";
+  throw err;
+}
+
+export function normalizeClaudeUsage(payload, capturedAtMs, extra = {}) {
+  const root = asObject(payload);
+  if (!root) throw new Error("Claude usage 响应无法解析。");
   const windows = [];
-  const add = (id, label, raw, primary) => {
-    const o = asObject(raw);
-    if (!o) return;
-    const used = asNumber(o.utilization);
-    if (used === undefined) return;
-    const resetsAtMs = isoToMs(o.resets_at);
-    windows.push(quotaOut(metric(RULE("claude-" + id, id, "percent"), {
-      unit: "percent", used,
-      period: { kind: "rolling", resetState: resetsAtMs ? "known" : "unknown", resetsAtMs },
-    })));
-    windows[windows.length - 1].primary = !!primary;
-    windows[windows.length - 1].label = label;
+  const metrics = [];
+  const diagnostics = [];
+  const outcomes = {};
+
+  const note = (code, metricId) => {
+    diagnostics.push(diagnostic(code, "info", metricId ? { metricId } : {}));
   };
-  add("five-hour", "5h窗口", payload.five_hour, true);
-  add("seven-day", "周窗口", payload.seven_day);
-  add("seven-day-opus", "周Opus", payload.seven_day_opus);
-  if (windows.length === 0) throw new Error("Claude usage 响应没有可显示的用量数据。");
-  return buildReport("claude", "Claude", { capturedAtMs, windows });
+
+  const emitPercent = (id, label, used, resetsAtMs, primary, resetState) => {
+    const period = {
+      kind: "rolling",
+      resetState: resetState ?? (resetsAtMs ? "known" : "unknown"),
+      resetsAtMs,
+    };
+    const fields = { unit: "percent", period };
+    if (used !== undefined) fields.used = used;
+    const m = quotaOut(metric(RULE("claude-" + id, id, "percent"), fields));
+    m.primary = !!primary;
+    m.label = label;
+    m.id = id;
+    windows.push(m);
+  };
+
+  for (const spec of CLAUDE_NAMED_WINDOWS) {
+    const raw = root[spec.field];
+    const kind = classifyClaudeWindowField(raw);
+    outcomes[spec.field] = kind;
+    if (kind === "missing") { note("window-missing", spec.id); continue; }
+    if (kind === "null") { note("window-null", spec.id); continue; }
+    if (kind === "parse-failed") { note("invalid-number", spec.id); continue; }
+    const o = asObject(raw);
+    const used = asNumber(o.utilization);
+    const resetsAtMs = isoToMs(o.resets_at);
+    if (kind === "not-started") {
+      note("window-not-started", spec.id);
+      emitPercent(spec.id, spec.label, used, resetsAtMs, spec.primary, "not-started");
+      continue;
+    }
+    emitPercent(spec.id, spec.label, used, resetsAtMs, spec.primary);
+  }
+
+  const extraKind = classifyClaudeExtraUsage(root.extra_usage);
+  outcomes.extra_usage = extraKind;
+  if (extraKind === "missing") note("window-missing", "extra-usage");
+  else if (extraKind === "null") note("window-null", "extra-usage");
+  else if (extraKind === "parse-failed") note("invalid-number", "extra-usage");
+  else if (extraKind === "amount-missing") note("missing-data", "extra-usage");
+  else {
+    const o = asObject(root.extra_usage);
+    const used = moneyAmount(o.used) ?? moneyAmount(o.amount) ?? moneyAmount(o.used_credits) ?? moneyAmount(o);
+    const limit = moneyAmount(o.limit) ?? moneyAmount(o.cap);
+    const remaining = moneyAmount(o.remaining);
+    const currency = extraUsageCurrency(o);
+    const resetsAtMs = isoToMs(o.resets_at);
+    const period = { kind: resetsAtMs ? "calendar" : "unknown", resetState: resetsAtMs ? "known" : "unknown", resetsAtMs };
+    const rule = RULE("claude-extra-usage", "extra-usage", "currency", {
+      currency,
+      derivations: used !== undefined && limit !== undefined ? ["remaining-from-limit-used"] : [],
+    });
+    const fields = { unit: "currency", currency, period };
+    if (used !== undefined) fields.used = used;
+    if (limit !== undefined) fields.limit = limit;
+    if (remaining !== undefined) fields.remaining = remaining;
+    const m = quotaOut(metric(rule, fields));
+    m.primary = false;
+    m.label = "额外用量";
+    m.id = "extra-usage";
+    if (currency) m.currency = currency;
+    metrics.push(m);
+  }
+
+  const limitsKind = classifyClaudeLimits(root.limits);
+  outcomes.limits = limitsKind;
+  if (limitsKind === "missing") note("window-missing", "weekly-scoped");
+  else if (limitsKind === "null") note("window-null", "weekly-scoped");
+  else if (limitsKind === "parse-failed") note("invalid-number", "weekly-scoped");
+  else {
+    for (const item of root.limits) {
+      const o = asObject(item);
+      if (!o || o.kind !== "weekly_scoped") continue;
+      const display = typeof o.scope?.model?.display_name === "string" ? o.scope.model.display_name.trim() : "";
+      if (!display || /^all models$/i.test(display)) continue;
+      const percent = asNumber(o.percent) ?? asNumber(o.utilization);
+      if (percent === undefined) { note("invalid-number", "weekly-scoped"); continue; }
+      const resetsAtMs = isoToMs(o.resets_at);
+      const id = "weekly-scoped-" + slugModelName(display);
+      emitPercent(id, display, percent, resetsAtMs, false);
+    }
+  }
+
+  if (extra.rateLimited) diagnostics.push(diagnostic("rate-limited-cache", "warning"));
+  if (extra.parseFailed) diagnostics.push(diagnostic("invalid-number", "error"));
+
+  if (windows.length === 0 && metrics.length === 0) throw new Error("Claude usage 响应没有可显示的用量数据。");
+  const report = buildReport("claude", "Claude", { capturedAtMs, windows, metrics, diagnostics });
+  report.claudeOutcomes = outcomes;
+  return report;
 }
 
 // ---------------------------------------------------------------------------

@@ -80,7 +80,7 @@
       "kind": "official-cli",
       "grade": "B",
       "admission": "blocked",
-      "approvalNote": "docs/providers/claude.md；2026-10-02 探针：Claude Code 2.1.285 无机读 usage 出口（/usage 为交互 TUI）。blocked 需新证据，不能当 pending 直接启用。",
+      "approvalNote": "docs/providers/claude.md；Claude 必做目标。离线解析已就绪。实时准入 blocked，等待适用许可/官方机器协议。blocked 需新证据，不能当 pending 直接启用。",
       "endpointIds": [
         "claude-usage-cli"
       ],
@@ -100,7 +100,7 @@
       "kind": "community-api",
       "grade": "C",
       "admission": "blocked",
-      "approvalNote": "docs/providers/claude.md；红线=不经手 token / 不刮 TUI / 不碰 OAuth 与 cookie。OAuth 解析器仅供离线形状测试，refresh 拒绝执行。",
+      "approvalNote": "docs/providers/claude.md；离线解析已就绪。实时准入 blocked（等适用许可）。不实现 secret reader、不消费 refresh、refresh 拒绝执行。",
       "endpointIds": [
         "claude-usage-http"
       ],
@@ -112,7 +112,10 @@
       ],
       "coverageMetricRules": [
         "claude-five-hour",
-        "claude-seven-day"
+        "claude-seven-day",
+        "claude-seven-day-opus",
+        "claude-seven-day-sonnet",
+        "claude-extra-usage"
       ],
       "coverageMatch": "any",
       "minimumIntervalSeconds": 300
@@ -168,6 +171,42 @@
       "derivations": [],
       "description": "seven_day_opus utilization percent",
       "missingPolicy": "unknown"
+    },
+    {
+      "id": "claude-seven-day-sonnet",
+      "metricId": "seven-day-sonnet",
+      "kind": "quota",
+      "unit": "percent",
+      "scope": "subscription",
+      "period": "rolling",
+      "derivations": [],
+      "description": "seven_day_sonnet utilization percent (raw, no clamp)",
+      "missingPolicy": "unknown"
+    },
+    {
+      "id": "claude-extra-usage",
+      "metricId": "extra-usage",
+      "kind": "quota",
+      "unit": "currency",
+      "currencyFromPayload": true,
+      "scope": "subscription",
+      "period": "calendar",
+      "derivations": [
+        "remaining-from-limit-used"
+      ],
+      "description": "extra_usage amount+currency; never mixed into percent windows",
+      "missingPolicy": "unknown"
+    },
+    {
+      "id": "claude-weekly-scoped",
+      "metricId": "weekly-scoped",
+      "kind": "quota",
+      "unit": "percent",
+      "scope": "subscription",
+      "period": "rolling",
+      "derivations": [],
+      "description": "limits[] kind=weekly_scoped percent by scope.model.display_name",
+      "missingPolicy": "unknown"
     }
   ],
   "primaryPreference": [
@@ -177,7 +216,12 @@
   "reasonCodes": [],
   "fixtureIds": [
     "claude-synthetic-normal",
-    "claude-synthetic-missing"
+    "claude-synthetic-missing",
+    "claude-synthetic-null-windows",
+    "claude-synthetic-not-started",
+    "claude-synthetic-scoped",
+    "claude-synthetic-extra",
+    "claude-oauth-shape"
   ],
   "provenance": [],
   "login": {

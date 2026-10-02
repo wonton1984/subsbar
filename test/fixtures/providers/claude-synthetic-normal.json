@@ -1,0 +1,11 @@
+{
+  "five_hour": { "utilization": 42, "resets_at": "2031-10-01T00:00:00Z" },
+  "seven_day": { "utilization": 18, "resets_at": "2031-10-07T00:00:00Z" },
+  "seven_day_opus": { "utilization": 0, "resets_at": "2031-10-07T00:00:00Z" },
+  "seven_day_sonnet": { "utilization": 130, "resets_at": "2031-10-07T00:00:00Z" },
+  "extra_usage": { "used": 12.5, "limit": 50, "currency": "USD", "resets_at": "2031-11-01T00:00:00Z" },
+  "limits": [
+    { "kind": "weekly_scoped", "scope": { "model": { "display_name": "All models" } }, "percent": 18, "resets_at": "2031-10-07T00:00:00Z" },
+    { "kind": "weekly_scoped", "scope": { "model": { "display_name": "Fable" } }, "percent": 7, "resets_at": "2031-10-07T00:00:00Z" }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "claudeAiOauth": {
+    "accessToken": "synthetic-claude-access-not-a-secret",
+    "refreshToken": "synthetic-claude-refresh-must-drop",
+    "expiresAt": 1800003600000,
+    "scopes": ["user:profile", "user:inference"],
+    "subscriptionType": "pro",
+    "rateLimitTier": "default_claude_ai"
+  }
+}
