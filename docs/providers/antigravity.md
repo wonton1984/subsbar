@@ -1,18 +1,17 @@
 # antigravity
 
-> Status: experimental (official CLI A, local-api C). Not enabled for
-> open-source first release until a later publish-round gate. Maintainer has
-> **not** exercised a real Antigravity / `agy` session this round — CLI version
-> and JSON shape are **unverified**.
+> Status: **supported** for the official CLI usage path. Verified 2026-10-03
+> against `agy` **1.2.16** (`agy -p /usage --output-format json`).
+> `local-api` stays pending / not-implemented.
 
 | Field | Value |
 | --- | --- |
 | Product | Google Antigravity / Gemini quota pools |
-| Primary source | Logged-in `agy -p /usage --output-format json` (changelog v1.1.11 non-interactive print; command A) |
+| Primary source | Logged-in `agy -p /usage --output-format json` (official print-mode; grade A) |
 | Optional | `local-api` language-server / loopback (C); Keychain OAuth only after admission |
-| Admission | All sources **pending**. Refresh refuses to run them. |
-| Verified CLI | **None this round.** Do not claim a specific `agy` version is supported. |
-| Last maintained | 2026-10-02 |
+| Admission | `antigravity-cli` **approved** (2026-10-03). `antigravity-local-api` **pending**. |
+| Verified CLI | `agy` **1.2.16** on the maintainer Mac (`~/.local/bin/agy`) |
+| Last maintained | 2026-10-03 |
 | Maintainer | SubsBar Node core |
 
 ## Threshold / ToS
@@ -23,23 +22,29 @@
 
 ## Credentials
 
-Default auto chain (once admitted) is **only** the official CLI session:
+Default auto chain is **only** the official CLI session:
 
-1. `agy-official-usage` — discover a fixed executable (`ANTIGRAVITY_CLI_PATH` if set and non-empty, else `/opt/homebrew/bin/agy`). Resolve returns a capability handle, not a copied token. Empty `ANTIGRAVITY_CLI_PATH` skips the CLI (does not search PATH).
-2. `local-api` is **not** on the default chain. It requires `profile.allowLocalApi`. Loopback only; CSRF / same-account process checks are **unverified this round** and resolve is `not-implemented`.
+1. `agy-official-usage` — discover a fixed executable (`ANTIGRAVITY_CLI_PATH` if set and non-empty, else `/opt/homebrew/bin/agy`). Resolve returns a capability handle, not a copied token. Empty `ANTIGRAVITY_CLI_PATH` skips the CLI (does not search PATH). This machine’s verified binary is `~/.local/bin/agy` (set `ANTIGRAVITY_CLI_PATH` if not using Homebrew).
+2. `local-api` is **not** on the default chain. It requires `profile.allowLocalApi`. Loopback only; CSRF / same-account process checks are **unverified** and resolve is `not-implemented`.
 3. SubsBar Keychain OAuth is a separate pending source, not in the CLI chain.
 
 Config cannot set an arbitrary URL or shell string. CLI argv is fixed: `-p /usage --output-format json`. Timeout 15s, stdout cap 64 KiB. The runner does not send a model prompt, does not start onboarding, and does not parse TUI output.
 
-## Quota semantics
+## Quota semantics (verified 2026-10-03)
+
+Official 1.2.16 JSON is a print envelope. Subscription windows live in
+`command.data.groups[].buckets[]`, not in the human TSV `response` string and
+not in the envelope `usage` token counts (those are this invocation only).
 
 | Pool | Metric | Notes |
 | --- | --- | --- |
-| Gemini (Pro/Flash shared) | `antigravity-gemini` | Percent used. Nested 5h / weekly become `antigravity-gemini` + `antigravity-gemini-weekly` when both are present |
-| Non-Gemini | `antigravity-other` | Only if the payload actually includes that pool |
-| Missing weekly | omitted | Old endpoints without weekly are **not** recorded as 0% |
+| Gemini Models (Flash / Pro shared) | `antigravity-gemini` / `antigravity-gemini-weekly` | `window=5h` is primary; `window=weekly` is the week row |
+| Claude and GPT models (Opus / Sonnet / GPT-OSS) | `antigravity-other` / `antigravity-other-weekly` | Same 5h / weekly split |
+| `remaining_fraction` | used percent | Field is **remaining** in `0..1`. Stored used = `(1 - remaining_fraction) * 100`. Not clamped |
+| `reset_time` | UTC ISO | `period.resetState=known` |
+| credits / balance | absent | This payload has no currency or credit balance |
 
-Plan/tier strings are not copied into the report. Over-limit values are not clamped. Fractions in `0..1` are converted to percent; explicit percent fields are used as-is.
+Plan/tier and group description strings are not copied into the report. Missing weekly is omitted, not recorded as 0%. The older `quota.gemini.percentage` shape is still accepted as a defensive fallback.
 
 ## 403 / errors
 
@@ -47,14 +52,13 @@ Plan/tier strings are not copied into the report. Over-limit values are not clam
 - Tokenless local requests on newer `agy` builds may 401 (CSRF). That is not treated as a full quota.
 - HTTP 401 on an admitted remote path → `reauth-required` / `relogin-owner` (per-provider).
 
-## Known gaps (this round, unverified)
+## Known gaps
 
-- **CLI version lock and live `/usage` JSON shape not exercised.** Print-mode argv follows public changelog + community notes; output fields may drift.
-- Local language-server port/CSRF/session binding **not implemented** (S-level evidence insufficient to ship a scanner).
+- Local language-server port/CSRF/session binding **not implemented**.
 - Keychain OAuth / Cloud Code remote quota **not admitted**.
 - Local conversation spend / usage-trend **out of scope**.
-- Real-account Gemini vs non-Gemini window names **unverified**.
+- No independent plan-tier field was present on the verified account.
 
 ## Synthetic fixtures
 
-`test/fixtures/providers/antigravity-synthetic-*.json`.
+`test/fixtures/providers/antigravity-synthetic-*.json` (including `antigravity-synthetic-cli-groups.json` for the official 1.2.16 envelope). Real-account JSON stays local.

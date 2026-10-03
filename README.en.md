@@ -7,11 +7,12 @@ covers the AI coding subscriptions you actually pay for, showing real quota,
 balance and reset times — with honest degradation when data is missing.
 
 **Status: public preview in preparation (v0.1 first release: 13 providers
-implemented; Claude is required, live admission not passed).** Six providers
-are implemented with offline tests; seven more are implemented (defensive
-parsers + offline tests) but have not been verified against real endpoints.
-Community verification is welcome. Claude is a required target: offline
-parsing is ready; live admission waits for applicable permission.
+implemented; Claude is required, live admission not passed).** Seven providers
+are implemented with offline tests and live or official-CLI verification; six
+more are implemented (defensive parsers + offline tests) but have not been
+verified against real endpoints. Community verification is welcome. Claude is
+a required target: offline parsing is ready; live admission waits for
+applicable permission.
 
 ![Card overview, light (synthetic data)](docs/assets/screenshot-overview-cards-light.png)
 
@@ -36,19 +37,20 @@ synthetic, not live usage.
 | GitHub Copilot | implemented (unverified) | `copilot_internal/user` (community) |
 | Z.AI / GLM Coding Plan | implemented (unverified) | quota/limit (community, region required) |
 | OpenRouter | implemented (unverified) | `/api/v1/key` (official) |
-| Antigravity | implemented (unverified) | `agy /usage` (defensive parser) |
+| Antigravity | **verified** | `agy` 1.2.16 `-p /usage --output-format json` (official groups/buckets; local-api still unimplemented) |
 | Devin | implemented (unverified) | web org quota (defensive parser, needs organizationId) |
 | Grok Build | implemented (unverified) | `cli-chat-proxy.grok.com/v1/billing` (defensive parser) |
 | Ollama Cloud | implemented (unverified) | signed `GET /api/usage` (OpenSSH Ed25519); admission pending; `OLLAMA_API_KEY` is not quota |
 
-> The "implemented (unverified)" seven: response structures are defensively
+> The "implemented (unverified)" six: response structures are defensively
 > implemented, but the maintainer has no subscription for them and they have
 > not been exercised against real endpoints — field names may differ.
 > Community contributors with a real subscription are welcome to verify (see
 > `docs/providers/<id>.md` and the `pending-verification` annotations).
-> Claude is a required target, not a finished exclusion: live admission stays
-> **blocked** (awaiting applicable permission); the offline parser is ready.
-> Existing sources cannot be treated as pending and turned on later.
+> Antigravity's official CLI usage path was verified on 2026-10-03 with agy
+> 1.2.16. Claude is a required target, not a finished exclusion: live admission
+> stays **blocked** (awaiting applicable permission); the offline parser is
+> ready. Existing sources cannot be treated as pending and turned on later.
 
 Each provider's source grade, credential chain, window semantics and known
 gaps: `docs/providers/<id>.md`.

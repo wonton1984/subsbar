@@ -503,7 +503,7 @@ function usedPercentField(o) {
   if (explicit !== undefined) return explicit;
   const usedFrac = asNumber(o.fraction) ?? asNumber(o.usageFraction) ?? asNumber(o.usedFraction);
   if (usedFrac !== undefined && usedFrac <= 1) return usedFrac * 100;
-  const remainingFrac = asNumber(o.remainingFraction);
+  const remainingFrac = asNumber(o.remainingFraction) ?? asNumber(o.remaining_fraction);
   if (remainingFrac !== undefined && remainingFrac <= 1) return roundPercent((1 - remainingFrac) * 100);
   const rem = asNumber(o.remaining);
   if (rem !== undefined && rem <= 1) return roundPercent((1 - rem) * 100);
@@ -800,7 +800,7 @@ function addAntigravityWindow(windows, id, label, raw, primary) {
   if (!o) return;
   const used = usedPercentField(o);
   if (used === undefined) return;
-  const resetsAtMs = isoToMs(o.resets_at) ?? isoToMs(o.reset_at) ?? isoToMs(o.resetTime);
+  const resetsAtMs = isoToMs(o.resets_at) ?? isoToMs(o.reset_at) ?? isoToMs(o.resetTime) ?? isoToMs(o.reset_time);
   const m = quotaOut(metric(RULE("agy-" + id, id, "percent"), {
     unit: "percent", used,
     period: { kind: "rolling", resetState: resetsAtMs ? "known" : "unknown", resetsAtMs },
@@ -809,22 +809,48 @@ function addAntigravityWindow(windows, id, label, raw, primary) {
   windows.push(m);
 }
 
+function addAntigravityOfficialGroups(windows, payload) {
+  const data = asObject(payload?.command?.data);
+  const groups = Array.isArray(data?.groups) ? data.groups : [];
+  if (groups.length === 0) return false;
+  for (const rawGroup of groups) {
+    const group = asObject(rawGroup);
+    if (!group) continue;
+    const name = typeof group.name === "string" ? group.name : "";
+    const isGemini = /gemini/i.test(name);
+    const poolId = isGemini ? "antigravity-gemini" : "antigravity-other";
+    const poolLabel = isGemini ? "Gemini 池" : "非 Gemini 池";
+    const buckets = Array.isArray(group.buckets) ? group.buckets : [];
+    for (const rawBucket of buckets) {
+      const bucket = asObject(rawBucket);
+      if (!bucket) continue;
+      const windowKind = String(bucket.window ?? "").toLowerCase();
+      const weekly = windowKind === "weekly" || /weekly/i.test(String(bucket.id ?? "")) || /weekly/i.test(String(bucket.name ?? ""));
+      addAntigravityWindow(windows, weekly ? poolId + "-weekly" : poolId, weekly ? poolLabel + "·周" : poolLabel, bucket, isGemini && !weekly);
+    }
+  }
+  return windows.length > 0;
+}
+
 export function normalizeAntigravityUsage(payload, capturedAtMs) {
   if (isQuotaDenied(payload)) throw deniedQuotaError("Antigravity usage returned 403: quotas denied", 403);
-  const quotaRoot = asObject(payload.quota) ?? asObject(payload.data?.quota) ?? asObject(payload.quotas) ?? payload;
   const windows = [];
-  addAntigravityPool(windows, "antigravity-gemini", "Gemini 池", quotaRoot.gemini ?? quotaRoot.session, true);
-  addAntigravityPool(windows, "antigravity-other", "非 Gemini 池", quotaRoot.other ?? quotaRoot.claude ?? quotaRoot.nonGemini);
-  if (windows.length === 0) {
-    const probed = probePercentWindows(quotaRoot, [
-      { id: "antigravity-gemini", label: "Gemini 池", pick: (p) => p.gemini ?? p, primary: true },
-      { id: "antigravity-other", label: "非 Gemini 池", pick: (p) => p.other },
-    ]);
-    windows.push(...probed);
+  const official = addAntigravityOfficialGroups(windows, payload);
+  if (!official) {
+    const quotaRoot = asObject(payload.quota) ?? asObject(payload.data?.quota) ?? asObject(payload.quotas) ?? payload;
+    addAntigravityPool(windows, "antigravity-gemini", "Gemini 池", quotaRoot.gemini ?? quotaRoot.session, true);
+    addAntigravityPool(windows, "antigravity-other", "非 Gemini 池", quotaRoot.other ?? quotaRoot.claude ?? quotaRoot.nonGemini);
+    if (windows.length === 0) {
+      const probed = probePercentWindows(quotaRoot, [
+        { id: "antigravity-gemini", label: "Gemini 池", pick: (p) => p.gemini ?? p, primary: true },
+        { id: "antigravity-other", label: "非 Gemini 池", pick: (p) => p.other },
+      ]);
+      windows.push(...probed);
+    }
   }
-  if (windows.length === 0) throw new Error("Antigravity usage 响应没有可识别的用量字段（pending-verification）。");
+  if (windows.length === 0) throw new Error("Antigravity usage 响应没有可识别的用量字段。");
   if (!windows.some((w) => w.primary) && windows[0]) windows[0].primary = true;
-  return buildReport("antigravity", "Antigravity", { capturedAtMs, windows, diagnostics: [diagnostic("pending-verification", "warning")] });
+  return buildReport("antigravity", "Antigravity", { capturedAtMs, windows });
 }
 
 // — ollama：签名 GET ollama.com/api/usage（request-signer；普通 API key 不替代 quota）。—

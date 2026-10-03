@@ -252,27 +252,43 @@ console.log("\n== A4. openrouter（key 限额 + spend metrics + 注册诊断）=
   check("无 managementToken 不打 /credits", /if \(!extra\.managementToken\) return report/.test(engineSrc));
 }
 
-console.log("\n== C. antigravity / devin / grok（来源分流；admission pending）==");
+console.log("\n== C. antigravity / devin / grok（agy-usage 已验证；local-api / 其余 pending）==");
 {
   const a = normalizeAntigravityUsage(fixture("antigravity-synthetic-normal.json"), NOW);
   check("antigravity：gemini 池识别", a.windows[0].id === "antigravity-gemini" && a.windows[0].used === 66);
   check("antigravity：非 Gemini 池独立", a.windows.some((w) => w.id === "antigravity-other" && w.used === 12));
-  check("antigravity：pending-verification", a.diagnostics.some((d) => d.code === "pending-verification"));
+  check("antigravity：已验证不再标 pending-verification", !a.diagnostics.some((d) => d.code === "pending-verification"));
   check("antigravity：无法识别 → 抛错", (() => { try { normalizeAntigravityUsage(fixture("antigravity-synthetic-missing.json"), NOW); return false; } catch { return true; } })());
   let deniedStatus;
   try { normalizeAntigravityUsage(fixture("antigravity-synthetic-denied.json"), NOW); } catch (e) { deniedStatus = e.httpStatus; }
   check("antigravity：quotas denied → 403 不装满额度", deniedStatus === 403);
   const nested = normalizeAntigravityUsage({ quota: { gemini: { session: { percentage: 10 }, weekly: { percentage: 80 } } } }, NOW);
   check("antigravity：5h/周分窗且缺周不补 0", nested.windows.some((w) => w.id === "antigravity-gemini" && w.used === 10) && nested.windows.some((w) => w.id === "antigravity-gemini-weekly" && w.used === 80));
+
+  const official = normalizeAntigravityUsage(fixture("antigravity-synthetic-cli-groups.json"), NOW);
+  const g5 = official.windows.find((w) => w.id === "antigravity-gemini");
+  const gw = official.windows.find((w) => w.id === "antigravity-gemini-weekly");
+  const o5 = official.windows.find((w) => w.id === "antigravity-other");
+  const ow = official.windows.find((w) => w.id === "antigravity-other-weekly");
+  check("官方 groups：四窗", official.windows.length === 4 && g5 && gw && o5 && ow);
+  check("remaining_fraction 翻成 used", g5.used === 60 && gw.used === 27 && o5.used === 9 && ow.used === 12);
+  check("reset_time UTC", g5.period.resetState === "known" && g5.period.resetsAtMs === Date.parse("2031-10-01T05:00:00Z") && gw.period.resetsAtMs === Date.parse("2031-10-08T00:00:00Z"));
+  check("5h primary", g5.primary === true && gw.primary !== true);
+  check("不刮 TSV response（100% ≠ groups）", !official.windows.some((w) => w.used === 0 && w.id === "antigravity-gemini-weekly"));
+  check("本次 usage tokens 不进窗", !JSON.stringify(official.windows).includes("15") && !official.metrics?.some((m) => m.value === 15));
+  check("不复制套餐/模型说明", !JSON.stringify(official).includes("Gemini Flash") && !JSON.stringify(official).includes("individual tier"));
+  check("仅 TSV response 不解析", (() => { try { normalizeAntigravityUsage({ status: "SUCCESS", response: "Gemini Models\tWeekly Limit Remaining\t50%\t2031-10-08T00:00:00Z\n" }, NOW); return false; } catch { return true; } })());
+  check("仅调用 usage tokens 不解析", (() => { try { normalizeAntigravityUsage({ usage: { total_tokens: 9 } }, NOW); return false; } catch { return true; } })());
+
   let seenArgv;
   const report = await fetchAntigravityUsage("agy-usage", {
     runCommand: async ({ executable, argv }) => {
       seenArgv = { executable, argv };
-      return JSON.stringify(fixture("antigravity-synthetic-normal.json"));
+      return JSON.stringify(fixture("antigravity-synthetic-cli-groups.json"));
     },
   }, {});
   check("antigravity：固定 argv -p /usage --output-format json", JSON.stringify(seenArgv.argv) === JSON.stringify(AGY_USAGE_ARGV) && seenArgv.executable === AGY_DEFAULT_EXECUTABLE);
-  check("antigravity：注入 CLI JSON 可归一化", report.windows[0].id === "antigravity-gemini");
+  check("antigravity：注入官方 CLI JSON 可归一化", report.windows.some((w) => w.id === "antigravity-gemini" && w.used === 60));
   const engineSrc = readFileSync(join(here, "..", "core", "providers", "engine", "m2-providers.mjs"), "utf8");
   check("antigravity：不发推理/onboarding 副作用", !/onboarding/i.test(engineSrc) && !/--prompt/.test(engineSrc));
   const agyStores = createCredentialStores({ env: { ANTIGRAVITY_CLI_PATH: "" } });
@@ -282,8 +298,13 @@ console.log("\n== C. antigravity / devin / grok（来源分流；admission pendi
   check("local-api 默认 skipped", localOff.discover("localapi-generic", { reader: "antigravity-local-api" }, {}).status === "skipped");
   check("local-api 显式允许仍 not-implemented", localOff.discover("localapi-generic", { reader: "antigravity-local-api" }, { allowLocalApi: true }).reasonCode === "not-implemented");
   const agy = reg.get("antigravity");
-  check("antigravity 源均 pending", (agy.dataSources ?? []).every((s) => s.admission === "pending"));
+  check("antigravity CLI 源 approved", agy.dataSources.find((s) => s.id === "antigravity-cli")?.admission === "approved");
+  check("antigravity local-api 仍 pending", agy.dataSources.find((s) => s.id === "antigravity-local-api")?.admission === "pending");
+  check("antigravity releaseStatus=supported", agy.releaseStatus === "supported");
   check("antigravity CLI 链不含 local-api", JSON.stringify(agy.dataSources.find((s) => s.id === "antigravity-cli").credentialChain) === JSON.stringify(["agy-official-usage"]));
+  const agyProj = reg.projectRegistry(null, createCredentialStores({ env: {} }), { pi: { enabled: false } });
+  const agyEntry = agyProj.providers.find((p) => p.providerId === "antigravity");
+  check("registry 投影 antigravity admission=approved", agyEntry?.admission === "approved" && agyEntry.supported === true);
 
   const d = normalizeDevinQuota(fixture("devin-synthetic-normal.json"), NOW);
   check("devin：daily primary + weekly", d.windows.length === 2 && d.windows[0].primary === true && d.windows[1].id === "devin-weekly");
@@ -419,11 +440,11 @@ console.log("\n== D. ollama 签名主路径（pending-verification）==");
 
 console.log("\n== 注册表/分发一致性 ==");
 {
-  for (const pid of ["copilot", "zai", "openrouter"]) {
+  for (const pid of ["copilot", "zai", "openrouter", "antigravity"]) {
     const m = reg.get(pid);
     check(`${pid} 有 approved 数据源`, (m.dataSources ?? []).some((s) => s.admission === "approved"));
   }
-  for (const pid of ["antigravity", "devin", "grok", "ollama"]) {
+  for (const pid of ["devin", "grok", "ollama"]) {
     const m = reg.get(pid);
     check(`${pid} 维持 pending + pending-verification 标注`, (m.dataSources ?? []).every((s) => s.admission === "pending") && (m.diagnosticCodes ?? []).includes("pending-verification"));
   }

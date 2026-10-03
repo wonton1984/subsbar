@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Antigravity 官方 CLI 用量已真实验证（agy 1.2.16）：`antigravity-cli` 准入 approved。解析 `command.data.groups[].buckets[]` 的 `remaining_fraction` / `reset_time`；不刮 TSV、不把本次调用 token 当订阅窗。local-api 仍 not-implemented。
+
 ## 0.1.1 — 2026-10-02
 
 - 单订阅视图的直选标签自动换行，无横向滚动；多卡片总览隐藏重复选择条。

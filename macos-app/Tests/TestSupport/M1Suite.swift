@@ -170,7 +170,7 @@ public enum M1Suite {
         let emptyBridge = NodeBridge(node: node, root: root, configPath: emptyPath.path, environment: environment)
         let registry = try emptyBridge.call(["registry", "--json"])
         try check("empty HOME registry contains 14 provider declarations", registry.exitCode == 0 && registry.value["providers"].array.count == 14 && registry.value["providers"].array.allSatisfy { $0["credentialReaders"].isArray && $0["profiles"].array.isEmpty && !$0["enabled"].bool })
-        for id in ["copilot", "zai", "openrouter"] {
+        for id in ["copilot", "zai", "openrouter", "antigravity"] {
             let row = registry.value["providers"].array.first { $0["providerId"].text == id } ?? .null
             try check("M2B registry lists \(id)", row["supported"].bool && !row["name"].text.isEmpty)
             let sections = ProviderSections(registry: registry.value["providers"].array, config: .null)
@@ -194,7 +194,7 @@ public enum M1Suite {
             let explicit = Wire.object(["activeProfile": .string("synthetic"), "profiles": .array([.object(["id": .string("synthetic"), "sources": .array([.object(["reader": .string("synthetic-reader")])])])])])
             try check("M2B unsupported reader blocks \(id)", ProviderConnectionPresentation.unavailable(manifest: blockedReader, draft: explicit) != nil)
         }
-        for id in ["antigravity", "devin", "grok", "ollama"] {
+        for id in ["devin", "grok", "ollama"] {
             let row = registry.value["providers"].array.first { $0["providerId"].text == id } ?? .null
             try check("M2C pending registry \(id)", !row["name"].text.isEmpty && ProviderConnectionPresentation.awaitingAdmission(row))
             try check("M2C add list retains \(id)", ProviderSections(registry: registry.value["providers"].array, config: .null).available.contains(id))

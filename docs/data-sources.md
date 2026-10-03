@@ -38,7 +38,7 @@ execution after admission review (`admission: approved` in its data source).
 | copilot | `copilot_internal/user` (community; Copilot OAuth only). Official CLI pending. | C/A | approved (community) / pending (CLI) | unverified |
 | zai | quota/limit, region-scoped origins (CN unverified) | B | approved | unverified |
 | openrouter | `/api/v1/key` (official). `/credits` pending (management key) | A | approved (key) / pending (credits) | unverified |
-| antigravity | `agy -p /usage --output-format json` (CLI version unverified). local-api pending | A/C | pending | unverified |
+| antigravity | `agy` 1.2.16 `-p /usage --output-format json` (groups/buckets). local-api pending | A/C | **approved** (CLI) / pending (local-api) | verified (CLI, 2026-10-03) |
 | devin | CLI TOML `windsurf_api_key` (Connect RPC unverified) + web org quota (manual session + orgId) | C | pending | unverified |
 | grok | `cli-chat-proxy.grok.com/v1/billing?format=credits` | C | pending | unverified |
 | ollama | signed `GET ollama.com/api/usage` (OpenSSH Ed25519). `OLLAMA_API_KEY` is not quota. | C | pending | unverified |

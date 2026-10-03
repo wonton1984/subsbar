@@ -3,7 +3,7 @@
   "id": "antigravity",
   "name": "Antigravity",
   "product": "Antigravity subscription",
-  "releaseStatus": "experimental",
+  "releaseStatus": "supported",
   "adapterVersion": "0.1.0",
   "platforms": [
     "darwin"
@@ -100,8 +100,8 @@
       "id": "antigravity-cli",
       "kind": "official-cli",
       "grade": "A",
-      "admission": "pending",
-      "approvalNote": "docs/providers/antigravity.md；agy -p /usage --output-format json（changelog v1.1.11）。CLI 版本与 JSON 形状本轮未实测。不启动 onboarding/推理。403 quotas denied 不装满额度。",
+      "admission": "approved",
+      "approvalNote": "2026-10-03 真实验证：agy 1.2.16 `agy -p /usage --output-format json`。官方形状为 command.data.groups[].buckets[]（remaining_fraction + reset_time UTC）。覆盖 Gemini Models（Flash/Pro 共享）与 Claude and GPT models（Opus/Sonnet/GPT-OSS）的 5h/weekly。未见 credits/balance。不刮 TSV response、不把本次 usage tokens 当订阅窗。local-api 仍 not-implemented。",
       "endpointIds": [
         "agy-usage"
       ],
@@ -112,7 +112,10 @@
         "quota"
       ],
       "coverageMetricRules": [
-        "antigravity-gemini"
+        "antigravity-gemini",
+        "antigravity-gemini-weekly",
+        "antigravity-other",
+        "antigravity-other-weekly"
       ],
       "coverageMatch": "any"
     },
@@ -163,27 +166,48 @@
       "scope": "subscription",
       "period": "rolling",
       "derivations": [],
-      "description": "non-Gemini pool percent used as returned",
+      "description": "non-Gemini 5h remaining_fraction as used percent",
+      "missingPolicy": "omit-optional"
+    },
+    {
+      "id": "antigravity-gemini-weekly",
+      "metricId": "antigravity-gemini-weekly",
+      "kind": "quota",
+      "unit": "percent",
+      "scope": "subscription",
+      "period": "rolling",
+      "derivations": [],
+      "description": "Gemini weekly remaining_fraction as used percent",
+      "missingPolicy": "omit-optional"
+    },
+    {
+      "id": "antigravity-other-weekly",
+      "metricId": "antigravity-other-weekly",
+      "kind": "quota",
+      "unit": "percent",
+      "scope": "subscription",
+      "period": "rolling",
+      "derivations": [],
+      "description": "non-Gemini weekly remaining_fraction as used percent",
       "missingPolicy": "omit-optional"
     }
   ],
   "primaryPreference": [
     "antigravity-gemini"
   ],
-  "diagnosticCodes": [
-    "pending-verification"
-  ],
+  "diagnosticCodes": [],
   "reasonCodes": [],
   "fixtureIds": [
     "antigravity-synthetic-normal",
     "antigravity-synthetic-denied",
-    "antigravity-synthetic-missing"
+    "antigravity-synthetic-missing",
+    "antigravity-synthetic-cli-groups"
   ],
   "provenance": [],
   "login": {
     "mode": "guide",
-    "note": "启动 Antigravity app 或运行 agy 交互登录（非交互 login 未验证）",
-    "verified": false,
+    "note": "启动 Antigravity app 或运行 agy 交互登录。2026-10-03 在已登录 agy 1.2.16 上验证 /usage。",
+    "verified": true,
     "url": "https://antigravity.google",
     "launchMode": "web-guide"
   }

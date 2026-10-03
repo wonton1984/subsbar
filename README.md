@@ -5,7 +5,7 @@
 
 macOS 菜单栏订阅额度面板 + 可独立运行的 Node 数据层。目标是在一个原生面板里完整覆盖你实际购买的 AI Coding 订阅，统一展示真实额度、余额与重置时间。
 
-**状态：公开预览准备中（v0.1 首发：13 家已实现；Claude 必做，实时准入未过）。** 当前仓库为公开候选树：六家 provider（Codex / OpenCode Go / Kimi Code / CommandCode / Factory Droid / Cursor）已有本地实现与离线测试；另七家已实现（防御性解析 + 离线测试），未经真实端点验证，欢迎社区验证。Claude 是必做目标：离线解析已就绪，实时准入等待适用许可。
+**状态：公开预览准备中（v0.1 首发：13 家已实现；Claude 必做，实时准入未过）。** 当前仓库为公开候选树：七家 provider（Codex / OpenCode Go / Kimi Code / CommandCode / Factory Droid / Cursor / Antigravity）已有本地实现与真实或官方 CLI 验证；另六家已实现（防御性解析 + 离线测试），未经真实端点验证，欢迎社区验证。Claude 是必做目标：离线解析已就绪，实时准入等待适用许可。
 
 ![卡片视图浅色（合成数据）](docs/assets/screenshot-overview-cards-light.png)
 
@@ -29,12 +29,12 @@ macOS 菜单栏订阅额度面板 + 可独立运行的 Node 数据层。目标�
 | GitHub Copilot | 已实现（未验证） | `copilot_internal/user`（社区来源） |
 | Z.AI / GLM Coding Plan | 已实现（未验证） | quota/limit 接口（社区来源，region 必填） |
 | OpenRouter | 已实现（未验证） | `/api/v1/key`（官方） |
-| Antigravity | 已实现（未验证） | `agy /usage`（防御性解析） |
+| Antigravity | **已验证** | `agy` 1.2.16 `-p /usage --output-format json`（官方 groups/buckets；local-api 仍未实现） |
 | Devin | 已实现（未验证） | 网页组织 quota（防御性解析，需 organizationId） |
 | Grok Build | 已实现（未验证） | `cli-chat-proxy.grok.com/v1/billing`（防御性解析） |
 | Ollama Cloud | 已实现（未验证） | 本地 OpenSSH 签名 `GET /api/usage`；admission pending；`OLLAMA_API_KEY` 不是额度 |
 
-> 上表「已实现（未验证）」七家：响应结构已防御性实现，但维护者本机无此订阅、未经真实端点验证——字段名可能偏差，欢迎社区贡献者以真实账号验证（参考 `docs/providers/<id>.md` 与各 manifest 的 pending-verification 标注）。Claude 是必做目标，不是终态排除：实时准入 **blocked**（等待适用许可），离线解析已就绪；现有来源不能当 pending 直接启用。
+> 上表「已实现（未验证）」六家：响应结构已防御性实现，但维护者本机无此订阅、未经真实端点验证——字段名可能偏差，欢迎社区贡献者以真实账号验证（参考 `docs/providers/<id>.md` 与各 manifest 的 pending-verification 标注）。Antigravity 官方 CLI 用量已于 2026-10-03 用 agy 1.2.16 点亮。Claude 是必做目标，不是终态排除：实时准入 **blocked**（等待适用许可），离线解析已就绪；现有来源不能当 pending 直接启用。
 
 每家的来源等级、凭证方式、窗口口径与已知缺口见 `docs/providers/<id>.md`。社区内部接口的 adapter 默认关闭，启用前请阅读对应文档与适用服务条款。
 
