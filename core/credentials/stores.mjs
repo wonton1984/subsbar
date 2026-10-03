@@ -389,8 +389,16 @@ export function createCredentialStores({ env = process.env } = {}) {
   }
   const cliGeneric = impls.get("cli-generic");
   impls.set("agy-official-usage", {
-    discover(spec) { return cliGeneric.discover(spec); },
-    resolve() { return { bytes: new TextEncoder().encode("agy-usage") }; },
+    discover(spec) {
+      const hit = resolveAgyExecutable({ explicit: spec.executablePath, env });
+      if (!hit.path) return { status: "missing", reasonCode: "not-configured" };
+      return { status: "resolved", reasonCode: undefined };
+    },
+    resolve(spec) {
+      const hit = resolveAgyExecutable({ explicit: spec.executablePath, env });
+      if (!hit.path) throw new ReaderOutcome("missing", "not-configured");
+      return { bytes: new TextEncoder().encode("agy-usage"), executablePath: hit.path };
+    },
   });
   // kind 别名表（manifest implementationId → 通用实现）：按 kind 分流，env 不得误接 keychain
   const envAliases = ["kimi-env-key", "commandcode-env-key", "droid-env-key", "openrouter-env-key", "codex-env-token"];
@@ -529,10 +537,55 @@ export function copilotAppsExtract(json) {
   return { bytes: new TextEncoder().encode(token) };
 }
 
-export function agyExecutable(env = {}) {
-  if (env.ANTIGRAVITY_CLI_PATH === "") return undefined;
-  if (typeof env.ANTIGRAVITY_CLI_PATH === "string" && env.ANTIGRAVITY_CLI_PATH.trim()) return expand(env.ANTIGRAVITY_CLI_PATH);
-  return "/opt/homebrew/bin/agy";
+export const AGY_DEFAULT_EXECUTABLE = "/opt/homebrew/bin/agy";
+export const AGY_BINARY_NAME = "agy";
+
+function pathLookupDirs(pathStr) {
+  if (typeof pathStr !== "string" || !pathStr.trim()) return [];
+  return pathStr.split(":").filter((d) => d && d.startsWith("/") && !d.includes(".."));
+}
+
+function isAgyBinary(p, probe) {
+  if (!p || typeof p !== "string") return false;
+  if (probe?.exists) return !!probe.exists(p);
+  if (!existsSync(p)) return false;
+  try {
+    const st = statSync(p);
+    return st.isFile() && (st.mode & 0o111) !== 0;
+  } catch {
+    return false;
+  }
+}
+
+/** 候选顺序：显式 source → env → Homebrew 默认 → ~/.local/bin → /usr/local/bin → PATH 中的 agy。空 env 跳过整链。 */
+export function agyExecutableCandidates({ explicit, env = {} } = {}) {
+  if (env.ANTIGRAVITY_CLI_PATH === "") return [];
+  const out = [];
+  const push = (path, via) => {
+    if (typeof path === "string" && path.trim()) out.push({ path: expand(path.trim()), via });
+  };
+  push(explicit, "explicit");
+  if (typeof env.ANTIGRAVITY_CLI_PATH === "string" && env.ANTIGRAVITY_CLI_PATH.trim()) {
+    push(env.ANTIGRAVITY_CLI_PATH, "env");
+  }
+  push(AGY_DEFAULT_EXECUTABLE, "default");
+  push(join(homedir(), ".local", "bin", AGY_BINARY_NAME), "local");
+  push("/usr/local/bin/" + AGY_BINARY_NAME, "usr-local");
+  for (const dir of pathLookupDirs(env.PATH)) push(join(dir, AGY_BINARY_NAME), "path");
+  return out;
+}
+
+export function resolveAgyExecutable({ explicit, env = {}, exists } = {}) {
+  if (env.ANTIGRAVITY_CLI_PATH === "") return { path: undefined, via: "skipped" };
+  const probe = exists ? { exists } : undefined;
+  for (const c of agyExecutableCandidates({ explicit, env })) {
+    if (isAgyBinary(c.path, probe)) return { path: c.path, via: c.via };
+  }
+  return { path: undefined, via: "miss" };
+}
+
+export function agyExecutable(env = {}, spec = {}) {
+  return resolveAgyExecutable({ explicit: spec.executablePath, env }).path;
 }
 
 /** 默认 ~/.ollama/id_ed25519。不读正文、不把 OLLAMA_API_KEY 当签名钥。 */

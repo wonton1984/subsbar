@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Antigravity 官方 CLI 用量已真实验证（agy 1.2.16）：`antigravity-cli` 准入 approved。解析 `command.data.groups[].buckets[]` 的 `remaining_fraction` / `reset_time`；不刮 TSV、不把本次调用 token 当订阅窗。local-api 仍 not-implemented。
+- Antigravity CLI 路径按显式 source → env → Homebrew/`~/.local/bin`/`/usr/local/bin`/PATH 命中，refresh 透传同一路径（GUI 不再依赖 `ANTIGRAVITY_CLI_PATH`）。
 
 ## 0.1.1 — 2026-10-02
 

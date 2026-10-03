@@ -24,7 +24,7 @@
 
 Default auto chain is **only** the official CLI session:
 
-1. `agy-official-usage` — discover a fixed executable (`ANTIGRAVITY_CLI_PATH` if set and non-empty, else `/opt/homebrew/bin/agy`). Resolve returns a capability handle, not a copied token. Empty `ANTIGRAVITY_CLI_PATH` skips the CLI (does not search PATH). This machine’s verified binary is `~/.local/bin/agy` (set `ANTIGRAVITY_CLI_PATH` if not using Homebrew).
+1. `agy-official-usage` — resolve a whitelist executable (explicit source `executablePath`, then `ANTIGRAVITY_CLI_PATH`, then `/opt/homebrew/bin/agy`, `~/.local/bin/agy`, `/usr/local/bin/agy`, then `agy` on PATH). First existing executable wins; refresh uses that same path (fixed argv, no shell). Empty `ANTIGRAVITY_CLI_PATH` skips the CLI. Resolve returns a capability handle plus the resolved path, not a copied token.
 2. `local-api` is **not** on the default chain. It requires `profile.allowLocalApi`. Loopback only; CSRF / same-account process checks are **unverified** and resolve is `not-implemented`.
 3. SubsBar Keychain OAuth is a separate pending source, not in the CLI chain.
 

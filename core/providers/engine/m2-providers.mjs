@@ -8,7 +8,7 @@ import { existsSync, statSync } from "fs";
 import { fetchJson } from "./engine.mjs";
 import { normalizeQuota, usedPercentOf, iconFractionOf } from "../../runtime/report.mjs";
 import { diagnostic, safeText } from "../../defs.mjs";
-import { isCopilotOauthToken } from "../../credentials/stores.mjs";
+import { isCopilotOauthToken, resolveAgyExecutable, AGY_DEFAULT_EXECUTABLE as AGY_STORES_DEFAULT } from "../../credentials/stores.mjs";
 import {
   isOllamaApiKey, ollamaUsageChallenge, ollamaUsageUrl, signOllamaChallenge,
 } from "../../credentials/ollama-signer.mjs";
@@ -711,7 +711,7 @@ export function normalizeDevinCliStatus(payload, capturedAtMs) {
 export const AGY_USAGE_ARGV = ["-p", "/usage", "--output-format", "json"];
 export const AGY_USAGE_MAX_BYTES = 65536;
 export const AGY_USAGE_TIMEOUT_MS = 15_000;
-export const AGY_DEFAULT_EXECUTABLE = "/opt/homebrew/bin/agy";
+export const AGY_DEFAULT_EXECUTABLE = AGY_STORES_DEFAULT;
 
 export function defaultAgyRun({ executable, argv, timeoutMs, maxBytes, signal }) {
   return new Promise((resolve, reject) => {
@@ -767,9 +767,19 @@ export async function fetchAntigravityUsage(_token, extra = {}, ctx = {}) {
     err.transportKind = "unsupported";
     throw err;
   }
+  const hit = extra.skipResolve
+    ? { path: extra.executablePath, via: "explicit" }
+    : resolveAgyExecutable({ explicit: extra.executablePath, env: extra.env ?? process.env, exists: extra.exists });
+  if (!hit.path) {
+    const err = new Error("Install the Antigravity CLI (agy) or sign in with the official app");
+    err.transportKind = "interaction-required";
+    err.code = "interaction-required";
+    err.reasonCode = "not-configured";
+    throw err;
+  }
   const run = extra.runCommand ?? defaultAgyRun;
   const stdout = await run({
-    executable: extra.executablePath ?? AGY_DEFAULT_EXECUTABLE,
+    executable: hit.path,
     argv: AGY_USAGE_ARGV,
     timeoutMs: extra.timeoutMs ?? AGY_USAGE_TIMEOUT_MS,
     maxBytes: AGY_USAGE_MAX_BYTES,
@@ -779,7 +789,14 @@ export async function fetchAntigravityUsage(_token, extra = {}, ctx = {}) {
   try { payload = JSON.parse(stdout); } catch { throw new Error("Antigravity CLI usage returned invalid JSON"); }
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("Antigravity CLI usage returned invalid JSON");
   if (isQuotaDenied(payload)) throw deniedQuotaError("Antigravity usage returned 403: quotas denied", 403);
-  return normalizeAntigravityUsage(payload, Date.now());
+  const report = normalizeAntigravityUsage(payload, Date.now());
+  report.observationBasis = "cli-response";
+  const locator = extra.cliVersion
+    ? safeText(`${extra.cliVersion} @ ${hit.path}`, 160)
+    : safeText(hit.path, 160);
+  report.diagnostics = [...(report.diagnostics ?? []), diagnostic("agy-cli", "info")];
+  report.cliLocator = locator;
+  return report;
 }
 
 function addAntigravityPool(windows, id, label, raw, primary) {

@@ -231,6 +231,10 @@
             "source-bound",
             "unverified-legacy"
           ]
+        },
+        "locator": {
+          "type": "string",
+          "maxLength": 160
         }
       }
     },

@@ -408,11 +408,7 @@ export class RefreshCoordinator {
     let report;
     try {
       const token = await broker.withSecret(resolved.lease.access, providerId, async (b) => new TextDecoder().decode(b));
-      const extra = {
-        region: profile.region,
-        organizationId: profile.organizationId ?? provCfg?.profiles?.find((p) => p.id === profile.id)?.organizationId,
-        dataSourceId: dataSource.id,
-      };
+      const extra = snapshotFetchExtra({ profile, provCfg, dataSource, lease: resolved.lease });
       report = await withTimeout(fetchProviderSnapshot(providerId, token, extra, { signal }), manifest.refresh.taskTimeoutSeconds * 1000, signal);
     } catch (e) {
       if (signal.aborted) return { kind: "cancelled", retainLastGood: true, profileId: profile.id, startedAtMs, finishedAtMs: Date.now(), requestedAtMs };
@@ -578,7 +574,14 @@ export function applyResult(entry, r, { nowMs, trigger, configRevision = 0 }) {
       credentialSourceId: r.credentialSourceId, reader: r.reader,
       identityAssurance: r.identityAssurance,
     };
-    entry.report = r.report;
+    if (typeof r.report?.cliLocator === "string" && r.report.cliLocator) {
+      entry.source.locator = r.report.cliLocator.slice(0, 160);
+      const persisted = { ...r.report };
+      delete persisted.cliLocator;
+      entry.report = persisted;
+    } else {
+      entry.report = r.report;
+    }
     delete entry.error;
   } else if (r.kind === "failed") {
     entry.error = r.error;
@@ -671,6 +674,9 @@ function classifyFetchError(e) {
   const retryAfter = e?.retryAfterHeader;
   const statusFromMsg = msg.match(/returned (\d{3})/);
   const httpStatus = Number.isInteger(e?.httpStatus) ? e.httpStatus : (statusFromMsg ? parseInt(statusFromMsg[1], 10) : undefined);
+  if (kind === "interaction-required" || e?.code === "interaction-required") {
+    return safeError("interaction-required", e?.reasonCode ?? "not-configured", "configure-source");
+  }
   if (kind === "unsupported" || /unverified this round/.test(msg)) {
     return safeError("unsupported", "not-implemented", "contact-maintainer");
   }
@@ -703,6 +709,19 @@ function withTimeout(promise, ms, signal) {
     signal?.addEventListener?.("abort", onAbort, { once: true });
     promise.then((v) => { clearTimeout(t); resolve(v); }, (e) => { clearTimeout(t); reject(e); });
   });
+}
+
+/** 正式 refresh extra：显式 CLI 路径随 lease 透传，不回落到 adapter 默认。 */
+export function snapshotFetchExtra({ profile = {}, provCfg, dataSource, lease } = {}) {
+  const extra = {
+    region: profile.region,
+    organizationId: profile.organizationId ?? provCfg?.profiles?.find((p) => p.id === profile.id)?.organizationId,
+    dataSourceId: dataSource?.id,
+  };
+  if (typeof lease?.source?.executablePath === "string" && lease.source.executablePath.trim()) {
+    extra.executablePath = lease.source.executablePath;
+  }
+  return extra;
 }
 
 function buildChain(manifest, dataSource, profile = {}) {

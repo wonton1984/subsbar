@@ -4,7 +4,7 @@
  * 断言基于 pi-subs 上游语义（MIT，移植不改数值口径）+ §6.3 v1 语义。
  * 运行：node test/m2-providers.test.mjs ；退出码 0 = 全过。
  */
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { execFileSync } from "child_process";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
@@ -19,7 +19,8 @@ import {
 } from "../core/providers/engine/m2-providers.mjs";
 import { fetchProviderSnapshot } from "../core/providers/adapters.mjs";
 import { ProviderRegistry } from "../core/providers/registry.mjs";
-import { isCopilotOauthToken, copilotAppsExtract, zaiEnvName, createCredentialStores, parseDevinTomlKey, parseDevinTomlOrigin, grokAuthFilePath, agyExecutable, ollamaSigningKeyPath, ReaderOutcome } from "../core/credentials/stores.mjs";
+import { isCopilotOauthToken, copilotAppsExtract, zaiEnvName, createCredentialStores, parseDevinTomlKey, parseDevinTomlOrigin, grokAuthFilePath, agyExecutableCandidates, resolveAgyExecutable, ollamaSigningKeyPath, ReaderOutcome } from "../core/credentials/stores.mjs";
+import { snapshotFetchExtra, fetchErrorToSafe } from "../core/runtime/scheduler.mjs";
 import {
   parseClaudeAiOauth, claudeUsageCapability, CLAUDE_BORROWED_REFRESH,
   claudeOnUnauthorized, claudeBindKey, claudeAcceptLateResult,
@@ -280,20 +281,74 @@ console.log("\n== C. antigravity / devin / grok（agy-usage 已验证；local-ap
   check("仅 TSV response 不解析", (() => { try { normalizeAntigravityUsage({ status: "SUCCESS", response: "Gemini Models\tWeekly Limit Remaining\t50%\t2031-10-08T00:00:00Z\n" }, NOW); return false; } catch { return true; } })());
   check("仅调用 usage tokens 不解析", (() => { try { normalizeAntigravityUsage({ usage: { total_tokens: 9 } }, NOW); return false; } catch { return true; } })());
 
+  const stubDir = mkdtempSync(join(tmpdir(), "agy-stub-"));
+  const stubAgy = join(stubDir, "agy");
+  const trapAgy = join(stubDir, "homebrew-agy");
+  writeFileSync(stubAgy, "#!/bin/sh\necho stub\n");
+  writeFileSync(trapAgy, "#!/bin/sh\necho trap\n");
+  chmodSync(stubAgy, 0o755);
+  chmodSync(trapAgy, 0o755);
   let seenArgv;
   const report = await fetchAntigravityUsage("agy-usage", {
+    executablePath: stubAgy,
+    env: { ANTIGRAVITY_CLI_PATH: trapAgy },
+    cliVersion: "1.2.16",
     runCommand: async ({ executable, argv }) => {
       seenArgv = { executable, argv };
       return JSON.stringify(fixture("antigravity-synthetic-cli-groups.json"));
     },
   }, {});
-  check("antigravity：固定 argv -p /usage --output-format json", JSON.stringify(seenArgv.argv) === JSON.stringify(AGY_USAGE_ARGV) && seenArgv.executable === AGY_DEFAULT_EXECUTABLE);
+  check("antigravity：固定 argv -p /usage --output-format json", JSON.stringify(seenArgv.argv) === JSON.stringify(AGY_USAGE_ARGV));
+  check("refresh 透传显式路径（不走默认/env trap）", seenArgv.executable === stubAgy);
   check("antigravity：注入官方 CLI JSON 可归一化", report.windows.some((w) => w.id === "antigravity-gemini" && w.used === 60));
+  check("source locator 含路径与版本", report.cliLocator === `1.2.16 @ ${stubAgy}` && report.observationBasis === "cli-response");
+
+  const ordered = agyExecutableCandidates({
+    explicit: "/explicit/agy",
+    env: { ANTIGRAVITY_CLI_PATH: "/env/agy", PATH: "/path-dir:/other" },
+  });
+  check("候选链顺序 显式→env→default→local→usr-local→PATH", ordered.map((c) => c.via).slice(0, 6).join(",") === "explicit,env,default,local,usr-local,path" && ordered[2].path === AGY_DEFAULT_EXECUTABLE && ordered.some((c) => c.path === "/path-dir/agy"));
+  const first = resolveAgyExecutable({
+    explicit: "/explicit/agy",
+    env: { ANTIGRAVITY_CLI_PATH: "/env/agy" },
+    exists: (p) => p === "/env/agy",
+  });
+  check("首个存在的候选命中 env", first.path === "/env/agy" && first.via === "env");
+  const missed = resolveAgyExecutable({ env: {}, exists: () => false, });
+  check("全 miss", missed.path === undefined && missed.via === "miss");
+  let missErr;
+  try { await fetchAntigravityUsage("agy-usage", { env: { ANTIGRAVITY_CLI_PATH: "" } }); } catch (e) { missErr = e; }
+  const mappedMiss = fetchErrorToSafe(missErr);
+  check("全 miss → interaction 提示装 CLI/登录", missErr?.code === "interaction-required" && mappedMiss.code === "interaction-required" && mappedMiss.action === "configure-source");
+
+  const stubStores = createCredentialStores({ env: { ANTIGRAVITY_CLI_PATH: stubAgy } });
+  const disc = stubStores.discover("agy-official-usage", { reader: "agy-official-usage", kind: "cli" }, {});
+  const resolvedStub = stubStores.resolve("agy-official-usage", { reader: "agy-official-usage", kind: "cli" }, {});
+  check("discover/resolve 命中 env stub", disc.status === "resolved" && resolvedStub.executablePath === stubAgy);
+  const extra = snapshotFetchExtra({
+    profile: { id: "p" },
+    dataSource: { id: "antigravity-cli" },
+    lease: { source: { executablePath: resolvedStub.executablePath } },
+  });
+  check("scheduler extra 带上 resolve 路径", extra.executablePath === stubAgy && extra.dataSourceId === "antigravity-cli");
+  let e2eSeen;
+  await fetchAntigravityUsage("agy-usage", {
+    executablePath: extra.executablePath,
+    env: {},
+    exists: (p) => p === stubAgy || p === AGY_DEFAULT_EXECUTABLE,
+    runCommand: async ({ executable, argv }) => {
+      e2eSeen = { executable, argv };
+      return JSON.stringify(fixture("antigravity-synthetic-cli-groups.json"));
+    },
+  });
+  check("隔离 stub 端到端 refresh 用 discover 路径", e2eSeen.executable === stubAgy && JSON.stringify(e2eSeen.argv) === JSON.stringify(AGY_USAGE_ARGV));
+  rmSync(stubDir, { recursive: true, force: true });
+
   const engineSrc = readFileSync(join(here, "..", "core", "providers", "engine", "m2-providers.mjs"), "utf8");
   check("antigravity：不发推理/onboarding 副作用", !/onboarding/i.test(engineSrc) && !/--prompt/.test(engineSrc));
   const agyStores = createCredentialStores({ env: { ANTIGRAVITY_CLI_PATH: "" } });
   check("空 ANTIGRAVITY_CLI_PATH 不扫 PATH", agyStores.discover("agy-official-usage", { reader: "agy-official-usage" }, {}).status === "missing");
-  check("agy 默认 executable", agyExecutable({}) === "/opt/homebrew/bin/agy");
+  check("agy 默认候选是 Homebrew", agyExecutableCandidates({ env: {} })[0].path === AGY_DEFAULT_EXECUTABLE);
   const localOff = createCredentialStores({ env: {} });
   check("local-api 默认 skipped", localOff.discover("localapi-generic", { reader: "antigravity-local-api" }, {}).status === "skipped");
   check("local-api 显式允许仍 not-implemented", localOff.discover("localapi-generic", { reader: "antigravity-local-api" }, { allowLocalApi: true }).reasonCode === "not-implemented");

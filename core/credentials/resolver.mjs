@@ -132,7 +132,11 @@ export async function resolveSource(providerId, profile, source, ctx) {
     providerId,
     profileId: profile.id,
     purpose: source.purpose ?? "primary",
-    source: { id: source.id, kind: source.kind, reader: source.reader, purpose: source.purpose ?? "primary", originOfChoice: source.originOfChoice ?? "discovered" },
+    source: {
+      id: source.id, kind: source.kind, reader: source.reader, purpose: source.purpose ?? "primary",
+      originOfChoice: source.originOfChoice ?? "discovered",
+      ...(resolved.executablePath ? { executablePath: resolved.executablePath } : {}),
+    },
     identity,
     kind: source.credentialKind ?? "api-key",
     access,
