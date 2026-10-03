@@ -19,11 +19,25 @@ public enum M2CSuite {
             let report = wire[key]
             return (report["windows"].array + report["metrics"].array).map { MetricDisplay(V1Metric($0), primaryID: report["primaryMetricId"].string, now: now) }
         }
-        for key in ["agy", "devin", "hideDaily", "dailyOnly", "monthly", "weekly"] {
+        for key in ["agy", "agyGroups", "devin", "hideDaily", "dailyOnly", "monthly", "weekly"] {
             try check("valid wire displays " + key, !displays(key).isEmpty && displays(key).allSatisfy(\.valid))
         }
         try check("Antigravity separate pools", Set(displays("agy").map(\.id)).isSuperset(of: ["antigravity-gemini", "antigravity-other"]))
         try check("Antigravity denied never full quota", wire["denied"].bool)
+        let agyReport = wire["agyGroups"]
+        let provider = V1Provider(.object(["providerId": .string("antigravity"), "profileId": .string("synthetic"), "scopeKey": .string("scope-synthetic-agy"), "source": .object(["dataSourceId": .string("antigravity-cli")]), "lastSuccessAtMs": agyReport["capturedAtMs"], "status": .string("ok"), "dataDisposition": .string("current"), "report": agyReport]))
+        try check("Antigravity full entry preserves four windows", !provider.invalid && provider.windows.count == 4)
+        try check("Antigravity menu ring uses primary remaining", abs((provider.iconFraction(at: now) ?? -1) - 0.4) < 0.00001)
+        let groups = displays("agyGroups")
+        try check("Antigravity official groups four quota windows", groups.count == 4 && groups.allSatisfy { $0.valid && $0.showsBar })
+        let remaining: [String: Double] = ["antigravity-gemini": 0.4, "antigravity-gemini-weekly": 0.73, "antigravity-other": 0.91, "antigravity-other-weekly": 0.88]
+        for (id, value) in remaining {
+            let display = groups.first { $0.id == id }
+            try check("Antigravity remaining fraction " + id, abs((display?.fraction ?? -1) - value) < 0.00001)
+            try check("Antigravity reset visible " + id, display?.resetFull != nil && display?.resetShort != "重置时间未知")
+        }
+        try check("Antigravity envelope tokens not credits", wire["agyGroups"]["metrics"].array.isEmpty)
+
         try check("Devin daily and weekly separate", Set(displays("devin").map(\.id)).isSuperset(of: ["devin-daily", "devin-weekly"]))
         try check("Devin hide daily omits", !displays("hideDaily").contains { $0.id == "devin-daily" })
         try check("Devin daily never becomes weekly", displays("dailyOnly").map(\.id) == ["devin-daily"])

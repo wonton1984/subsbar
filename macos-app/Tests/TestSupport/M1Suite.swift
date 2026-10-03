@@ -184,6 +184,13 @@ public enum M1Suite {
             }
             let pendingOnly = row.setting("dataSources", .array([.object(["id": .string("synthetic-pending"), "admission": .string("pending")])]))
             try check("M2B auto pending cannot connect \(id)", ProviderConnectionPresentation.unavailable(manifest: pendingOnly, draft: .null) != nil)
+            if id == "antigravity" {
+                let guide = ConnectionGuide(manifest: row, name: row["name"].text)
+                try check("Antigravity approved CLI offers detection", guide.kind != .unsupported && guide.prefersDetect && guide.primaryTitle == "检测连接")
+                try check("Antigravity not awaiting admission", !ProviderConnectionPresentation.awaitingAdmission(row) && row["releaseStatus"].text == "supported")
+                let cli = row["credentialReaders"].array.first { $0["id"].text == "agy-official-usage" } ?? .null
+                try check("Antigravity registry exposes executable picker", cli["implemented"].bool && cli["configurable"].array.contains(.string("executablePath")))
+            }
             if id == "zai" {
                 let guide = ConnectionGuide(manifest: row, name: row["name"].text)
                 let regional = Wire.object(["profiles": .array([.object(["id": .string("synthetic"), "region": .string("cn")])])])

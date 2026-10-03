@@ -51,6 +51,18 @@ import SubsCore
         func popover(_ name: String, maxHeight: CGFloat = 900, dark: Bool = false) throws {
             try renderPopover(model, to: output.appendingPathComponent(name), maxHeight: maxHeight, dark: dark); outputs.append(name)
         }
+        // Optional synthetic Node-normalized provider report for targeted UI review.
+        let agyFixture = fixtures.appendingPathComponent("antigravity-ui-report.json")
+        if FileManager.default.fileExists(atPath: agyFixture.path) {
+            let agyReport = try Wire.parse(Data(contentsOf: agyFixture))
+            try scene(enabled: ["antigravity"], decorated: false)
+            let entry = Wire.object(["providerId": .string("antigravity"), "profileId": .string("personal"), "scopeKey": .string("scope-synthetic-agy"), "source": .object(["dataSourceId": .string("antigravity-cli")]), "lastSuccessAtMs": agyReport["capturedAtMs"], "status": .string("ok"), "freshness": .string("fresh"), "dataDisposition": .string("current"), "report": agyReport, "diagnostics": .array([])])
+            model.usage = try UsageV1(model.usage!.raw.setting("providers", .array([entry])))
+            model.receipt = "合成数据 · 官方 CLI 结构"
+            model.expandedOverrides = ["antigravity": true]
+            try popover("Antigravity-groups-light.png")
+            try popover("Antigravity-groups-dark.png", dark: true)
+        }
         for count in [3, 4, 6, 14] {
             try scene(enabled: Array(SyntheticScenes.providerIDs.prefix(count)))
             try popover("M10-grid-\(count)-light.png", maxHeight: 1600)

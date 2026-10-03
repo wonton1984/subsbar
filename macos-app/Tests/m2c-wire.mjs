@@ -6,6 +6,7 @@ const now = 1800000000000;
 let denied = false;
 try { normalizeAntigravityUsage(fixture('antigravity-synthetic-denied'), now); } catch { denied = true; }
 writeFileSync(process.argv[2], JSON.stringify({now, denied,
+  agyGroups: normalizeAntigravityUsage(fixture('antigravity-synthetic-cli-groups'), now),
   agy: normalizeAntigravityUsage(fixture('antigravity-synthetic-normal'), now),
   devin: normalizeDevinQuota(fixture('devin-synthetic-normal'), now),
   hideDaily: normalizeDevinQuota(fixture('devin-synthetic-hide-daily'), now),
