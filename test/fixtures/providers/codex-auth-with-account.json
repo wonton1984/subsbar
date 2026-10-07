@@ -1,0 +1,8 @@
+{
+  "auth_mode": "chatgpt",
+  "last_refresh": "2031-10-01T00:00:00.000Z",
+  "tokens": {
+    "access_token": "synthetic-codex-access-token",
+    "account_id": "acct_synthetic_codex_001"
+  }
+}

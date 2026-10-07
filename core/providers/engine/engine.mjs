@@ -527,12 +527,16 @@ const CODEX_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
 // codex CLI 的公共 client_id（社区通行值，auth.openai.com 公开客户端）
 const CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkX67XuORkP4S";
 
-export async function fetchCodex(accessToken) {
+export async function fetchCodex(accessToken, extra = {}) {
+  const accountId = typeof extra.accountId === "string" && extra.accountId.trim()
+    ? extra.accountId.trim() : undefined;
+  const headers = { Authorization: `Bearer ${accessToken}` };
+  if (accountId) headers["chatgpt-account-id"] = accountId;
   const payload = await fetchJson({
     url: CODEX_USAGE_URL,
-    headers: { Authorization: `Bearer ${accessToken}` },
+    headers,
     description: "Codex usage",
-    secrets: [accessToken],
+    secrets: [accessToken, ...(accountId ? [accountId] : [])],
   });
   return normalizeCodex(payload, Date.now());
 }
@@ -1281,9 +1285,12 @@ export async function refreshAll(debug) {
         results.push({ id: subsId, status: "not-configured" });
         return;
       }
-      const secrets = [credential.access, ...(credential.refresh ? [credential.refresh] : [])];
+      const accountId = typeof credential.accountId === "string" && credential.accountId.trim()
+        ? credential.accountId.trim() : undefined;
+      const extra = accountId ? { accountId } : {};
+      const secrets = [credential.access, ...(credential.refresh ? [credential.refresh] : []), ...(accountId ? [accountId] : [])];
       try {
-        const report = await fetchFor(subsId, credential.access);
+        const report = await fetchFor(subsId, credential.access, extra);
         cache[subsId] = { report, fetchedAt: now };
         results.push({ id: subsId, status: "ok" });
       } catch (error) {
@@ -1305,10 +1312,10 @@ export async function refreshAll(debug) {
   return { results, cache };
 }
 
-export function fetchFor(subsId, token) {
+export function fetchFor(subsId, token, extra = {}) {
   if (subsId === "kimi") return fetchKimi(token);
   if (subsId === "opencode") return fetchOpenCode(token);
-  if (subsId === "codex") return fetchCodex(token);
+  if (subsId === "codex") return fetchCodex(token, extra);
   if (subsId === "commandcode") return fetchCommandCode(token);
   if (subsId === "droid") return fetchDroid(token);
   if (subsId === "cursor") return fetchCursor(token);

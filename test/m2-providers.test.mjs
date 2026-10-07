@@ -18,9 +18,12 @@ import {
   GROK_BILLING_URL, DEVIN_WEB_ORIGIN, isGrokManagementKey, normalizeDevinCliStatus,
 } from "../core/providers/engine/m2-providers.mjs";
 import { fetchProviderSnapshot } from "../core/providers/adapters.mjs";
+import { fetchCodex } from "../core/providers/engine/engine.mjs";
 import { ProviderRegistry } from "../core/providers/registry.mjs";
-import { isCopilotOauthToken, copilotAppsExtract, zaiEnvName, createCredentialStores, parseDevinTomlKey, parseDevinTomlOrigin, grokAuthFilePath, agyExecutableCandidates, resolveAgyExecutable, ollamaSigningKeyPath, ReaderOutcome } from "../core/credentials/stores.mjs";
-import { snapshotFetchExtra, fetchErrorToSafe } from "../core/runtime/scheduler.mjs";
+import { isCopilotOauthToken, copilotAppsExtract, zaiEnvName, createCredentialStores, parseDevinTomlKey, parseDevinTomlOrigin, grokAuthFilePath, agyExecutableCandidates, resolveAgyExecutable, ollamaSigningKeyPath, ReaderOutcome, codexAuthExtract } from "../core/credentials/stores.mjs";
+import { resolveChain } from "../core/credentials/resolver.mjs";
+import { SecretBroker } from "../core/credentials/broker.mjs";
+import { snapshotFetchExtra, fetchErrorToSafe, applyResult } from "../core/runtime/scheduler.mjs";
 import {
   parseClaudeAiOauth, claudeUsageCapability, CLAUDE_BORROWED_REFRESH,
   claudeOnUnauthorized, claudeBindKey, claudeAcceptLateResult,
@@ -39,7 +42,90 @@ const reg = new ProviderRegistry();
 const here = dirname(fileURLToPath(import.meta.url));
 const fixture = (name) => JSON.parse(readFileSync(join(here, "fixtures", "providers", name), "utf8"));
 
-console.log("== A1. claude（离线窗口 + extra_usage + weekly_scoped，超额不 clamp）==");
+console.log("== A0. codex auth.json account_id → chatgpt-account-id（缺则仅 Bearer）==");
+{
+  const withId = fixture("codex-auth-with-account.json");
+  const withoutId = fixture("codex-auth-without-account.json");
+  const extracted = codexAuthExtract(withId);
+  const extractedBare = codexAuthExtract(withoutId);
+  check("含 account_id 透出绑定元数据", extracted.accountId === "acct_synthetic_codex_001" && new TextDecoder().decode(extracted.bytes) === "synthetic-codex-access-token");
+  check("不含 account_id 仍只出 token", extractedBare.accountId === undefined && new TextDecoder().decode(extractedBare.bytes) === "synthetic-codex-access-token");
+  check("空白 account_id 视为缺失", codexAuthExtract({ tokens: { access_token: "synthetic-codex-access-token", account_id: "   " } }).accountId === undefined);
+  const authDir = mkdtempSync(join(tmpdir(), "codex-auth-"));
+  writeFileSync(join(authDir, "with.json"), JSON.stringify(withId), { mode: 0o600 });
+  writeFileSync(join(authDir, "without.json"), JSON.stringify(withoutId), { mode: 0o600 });
+  const stores = createCredentialStores({ env: {} });
+  const resolvedWith = stores.resolve("codex-auth-file", { reader: "codex-auth-file", path: join(authDir, "with.json") });
+  const resolvedBare = stores.resolve("codex-auth-file", { reader: "codex-auth-file", path: join(authDir, "without.json") });
+  check("file resolve 透出 accountId", resolvedWith.accountId === "acct_synthetic_codex_001");
+  check("file resolve 缺 accountId 不硬拒", resolvedBare.accountId === undefined);
+  const extraWith = snapshotFetchExtra({ dataSource: { id: "codex-wham" }, lease: { source: { accountId: resolvedWith.accountId } } });
+  const extraBare = snapshotFetchExtra({ dataSource: { id: "codex-wham" }, lease: { source: {} } });
+  check("scheduler extra 带上 accountId", extraWith.accountId === "acct_synthetic_codex_001" && extraWith.dataSourceId === "codex-wham");
+  check("缺 accountId extra 不含该键", extraBare.accountId === undefined);
+  const prevFetch = globalThis.fetch;
+  const seen = [];
+  globalThis.fetch = async (url, init) => {
+    seen.push({ url, headers: { ...init.headers } });
+    return {
+      ok: true,
+      status: 200,
+      arrayBuffer: async () => new TextEncoder().encode(JSON.stringify({
+        rate_limit: { allowed: true, primary_window: { used_percent: 3, limit_window_seconds: 604800 } },
+      })),
+    };
+  };
+  try {
+    const token = "synthetic-codex-access-token";
+    await fetchCodex(token, { accountId: "acct_synthetic_codex_001" });
+    await fetchCodex(token, {});
+    const bearer = ["Bearer", token].join(" ");
+    check("有 accountId 发 chatgpt-account-id", seen[0].headers["chatgpt-account-id"] === "acct_synthetic_codex_001" && seen[0].headers.Authorization === bearer);
+    check("缺 accountId 仅 Bearer", seen[1].headers["chatgpt-account-id"] === undefined && seen[1].headers.Authorization === bearer);
+  } finally {
+    globalThis.fetch = prevFetch;
+  }
+  const e401 = fetchErrorToSafe(Object.assign(new Error("Codex usage returned 401: unauthorized"), { httpStatus: 401 }));
+  check("401 映射不变", e401.code === "invalid-credential" && e401.reasonCode === "http-401" && e401.action === "relogin-owner");
+  const stateDir = join(authDir, "state");
+  const broker = new SecretBroker();
+  const ctx = { nowMs: NOW, interaction: "background", stores, broker, compatibility: { pi: { enabled: false } }, stateDir };
+  const sourceWith = { id: "codex-auth-file", kind: "file", reader: "codex-auth-file", path: join(authDir, "with.json"), implementationId: "codex-auth-file" };
+  const sourceBare = { id: "codex-auth-file", kind: "file", reader: "codex-auth-file", path: join(authDir, "without.json"), implementationId: "codex-auth-file" };
+  const rWith = await resolveChain("codex", { id: "personal", discovery: "auto", sources: [sourceWith] }, [], ctx);
+  const rBare = await resolveChain("codex", { id: "personal", discovery: "auto", sources: [sourceBare] }, [], ctx);
+  writeFileSync(join(authDir, "other.json"), JSON.stringify({
+    auth_mode: "chatgpt",
+    tokens: { access_token: "synthetic-codex-access-token", account_id: "acct_synthetic_codex_002" },
+  }), { mode: 0o600 });
+  const rOther = await resolveChain("codex", { id: "personal", discovery: "auto", sources: [{ ...sourceWith, path: join(authDir, "other.json") }] }, [], ctx);
+  check("resolve 成功且 lease 持有 accountId", rWith.status === "resolved" && rWith.lease.source.accountId === "acct_synthetic_codex_001");
+  check("accountKey 是哈希不是明文", typeof rWith.lease.identity.accountKey === "string" && rWith.lease.identity.accountKey.startsWith("acct-") && rWith.lease.identity.accountKey !== "acct_synthetic_codex_001");
+  check("换账户 scopeKey 隔离", rWith.lease.identity.scopeKey !== rOther.lease.identity.scopeKey);
+  check("有无 accountId 也隔离", rWith.lease.identity.scopeKey !== rBare.lease.identity.scopeKey);
+  const dumped = JSON.stringify({
+    identity: rWith.lease.identity,
+    extra: snapshotFetchExtra({ dataSource: { id: "codex-wham" }, lease: { source: { id: rWith.lease.source.id, reader: rWith.lease.source.reader } } }),
+  });
+  check("identity/envelope 路径不含明文 accountId", !dumped.includes("acct_synthetic_codex_001"));
+  const entry = {
+    providerId: "codex", profileId: "personal", scopeKey: rWith.lease.identity.scopeKey,
+    status: "ok", freshness: "fresh", dataDisposition: "current",
+    report: { name: "Codex", windows: [{ id: "codex:primary" }], metrics: [], diagnostics: [] },
+    diagnostics: [],
+  };
+  applyResult(entry, {
+    kind: "failed",
+    profileId: "personal",
+    scopeKey: rOther.lease.identity.scopeKey,
+    error: { code: "invalid-credential", reasonCode: "http-401", action: "relogin-owner" },
+    retainLastGood: true,
+  }, { nowMs: NOW + 1000, trigger: { reason: "manual" }, configRevision: 2 });
+  check("换账户失败丢弃旧 last-good", entry.report === undefined && entry.scopeKey === undefined);
+  rmSync(authDir, { recursive: true, force: true });
+}
+
+console.log("\n== A1. claude（离线窗口 + extra_usage + weekly_scoped，超额不 clamp）==");
 {
   const r = normalizeClaudeUsage({
     five_hour: { utilization: 42, resets_at: "2031-10-01T00:00:00Z" },

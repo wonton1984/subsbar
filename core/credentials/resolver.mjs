@@ -118,13 +118,16 @@ export async function resolveSource(providerId, profile, source, ctx) {
     return { status: "failed", code: "expired", reasonCode: "credential-expired", action: "relogin-owner", trace };
   }
 
-  // identity：无可验证身份 → source-bound scope（scope 随凭证内容变化）
-  const revision = credentialRevision(resolved.bytes, localSalt(ctx.stateDir));
+  // identity：无可验证身份 → source-bound scope（scope 随凭证内容+账户绑定变化）
+  const accountId = typeof resolved.accountId === "string" && resolved.accountId.trim()
+    ? resolved.accountId.trim() : undefined;
+  const salt = localSalt(ctx.stateDir);
+  const revision = credentialRevision(revisionInput(resolved.bytes, accountId), salt);
   const scopeKey = `scope-${providerId}-${profile.id}-${revision.slice(0, 16)}`;
   const identity = {
     scopeKey,
     assurance: "source-bound",
-    accountKey: undefined,
+    accountKey: accountId ? hashedAccountKey(accountId, salt) : undefined,
   };
 
   const access = ctx.broker.put(resolved.bytes, [providerId]);
@@ -136,6 +139,7 @@ export async function resolveSource(providerId, profile, source, ctx) {
       id: source.id, kind: source.kind, reader: source.reader, purpose: source.purpose ?? "primary",
       originOfChoice: source.originOfChoice ?? "discovered",
       ...(resolved.executablePath ? { executablePath: resolved.executablePath } : {}),
+      ...(accountId ? { accountId } : {}),
     },
     identity,
     kind: source.credentialKind ?? "api-key",
@@ -164,6 +168,21 @@ function outcomeToCode(e) {
 }
 
 function actionFor(code) { return RESOLVE_TO_ACTION[code] ?? "none"; }
+
+/** 账户绑定进入 revision：同 token 换账户也换 scope，缓存不混用。 */
+function revisionInput(bytes, accountId) {
+  if (!accountId) return bytes;
+  const suffix = new TextEncoder().encode(`\0acct:${accountId}`);
+  const out = new Uint8Array(bytes.length + suffix.length);
+  out.set(bytes);
+  out.set(suffix, bytes.length);
+  return out;
+}
+
+/** envelope 只允许哈希 accountKey，不得落明文 accountId。 */
+function hashedAccountKey(accountId, salt) {
+  return `acct-${credentialRevision(new TextEncoder().encode(`acct:${accountId}`), salt).slice(0, 16)}`;
+}
 
 /**
  * 链式解析：按 profile.sources 显式链（非空）或 manifest 内置链执行 §2.1 规则。

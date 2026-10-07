@@ -246,8 +246,13 @@ export function createCredentialStores({ env = process.env } = {}) {
       if (!entry || typeof entry !== "object") throw new ReaderOutcome("missing", "not-configured");
       const secret = entry.key ?? entry.access ?? entry.accessToken;
       if (typeof secret !== "string" || !secret) throw new ReaderOutcome("rejected", "file-malformed");
-      // 只读、不刷新、不写回（contracts §2.4 pi 行）
-      return { bytes: new TextEncoder().encode(secret), expiry: expiryFromJwt(secret) };
+      // 只读、不刷新、不写回（contracts §2.4 pi 行）；accountId 仅作绑定元数据
+      const accountId = optionalAccountId(entry.accountId) ?? optionalAccountId(entry.account_id);
+      return {
+        bytes: new TextEncoder().encode(secret),
+        expiry: expiryFromJwt(secret),
+        ...(accountId ? { accountId } : {}),
+      };
     },
   });
 
@@ -496,11 +501,23 @@ export function createCredentialStores({ env = process.env } = {}) {
   };
 }
 
-function codexAuthExtract(json) {
-  // codex auth.json：tokens.access_token（JWT）或 OPENAI_API_KEY（不作订阅凭证，仅形状检查）
+/** 身份元数据：非空字符串才透出；不进日志/诊断正文。 */
+export function optionalAccountId(value) {
+  if (typeof value !== "string") return undefined;
+  const id = value.trim();
+  return id.length > 0 ? id : undefined;
+}
+
+export function codexAuthExtract(json) {
+  // codex auth.json：tokens.access_token（JWT）+ 可选 tokens.account_id（绑定元数据，不进 envelope）
   const token = json?.tokens?.access_token;
   if (typeof token === "string" && token.length >= 16) {
-    return { bytes: new TextEncoder().encode(token), expiry: expiryFromJwt(token) };
+    const accountId = optionalAccountId(json?.tokens?.account_id);
+    return {
+      bytes: new TextEncoder().encode(token),
+      expiry: expiryFromJwt(token),
+      ...(accountId ? { accountId } : {}),
+    };
   }
   throw new ReaderOutcome("rejected", "file-malformed");
 }

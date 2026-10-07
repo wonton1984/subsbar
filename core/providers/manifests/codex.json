@@ -226,7 +226,9 @@
   ],
   "fixtureIds": [
     "codex-synthetic-normal",
-    "codex-synthetic-missing"
+    "codex-synthetic-missing",
+    "codex-auth-with-account",
+    "codex-auth-without-account"
   ],
   "provenance": [],
   "login": {

@@ -21,12 +21,12 @@ export function v0ResolveCredential(subsId, auth) {
 }
 export function v0ReadAuth() { return v0.readAuthFile(); }
 
-/** v0 fetch 分派。 */
-export async function v0Fetch(subsId, token, ctx = {}) {
+/** v0 fetch 分派。extra 仅 Codex 使用（chatgpt-account-id）；ctx 给 commandcode。 */
+export async function v0Fetch(subsId, token, extra = {}, ctx = {}) {
   switch (subsId) {
     case "kimi": return v0.fetchKimi(token);
     case "opencode": return v0.fetchOpenCode(token);
-    case "codex": return v0.fetchCodex(token);
+    case "codex": return v0.fetchCodex(token, extra);
     case "commandcode": return v0.fetchCommandCode(token, ctx);
     case "droid": return v0.fetchDroid(token);
     case "cursor": return v0.fetchCursor(token);
@@ -114,10 +114,10 @@ const M2_FETCH = {
   ollama: m2.fetchOllamaUsage,
 };
 
-/** 返回 SnapshotReport。extra: {region?, organizationId?}；ctx: {signal?} */
+/** 返回 SnapshotReport。extra: {region?, organizationId?, executablePath?, accountId?}；ctx: {signal?} */
 export async function fetchProviderSnapshot(providerId, token, extra = {}, ctx = {}) {
   const m2Fetch = M2_FETCH[providerId];
   if (m2Fetch) return m2Fetch(token, extra, ctx);
-  const v0Report = await v0Fetch(providerId, token, ctx);
+  const v0Report = await v0Fetch(providerId, token, extra, ctx);
   return v0ReportToSnapshot(providerId, v0Report, { capturedAtMs: Date.now() });
 }

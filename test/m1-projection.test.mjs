@@ -112,6 +112,16 @@ console.log("\n== P6. 换 profile 后新采样可显示（09 cursor usage 0 窗�
     retainLastGood: true,
   }, { nowMs: 1800000001000, trigger: { reason: "manual" }, configRevision: 8 });
   check("换 profile 失败不把旧 report 改挂到新 profile", failed.profileId === "dev-local" && failed.report === undefined);
+
+  const scoped = baseEntry({ profileId: "personal", scopeKey: "scope-acct-a" });
+  applyResult(scoped, {
+    kind: "failed",
+    profileId: "personal",
+    scopeKey: "scope-acct-b",
+    error: { code: "invalid-credential", reasonCode: "http-401", action: "relogin-owner" },
+    retainLastGood: true,
+  }, { nowMs: 1800000001000, trigger: { reason: "manual" }, configRevision: 8 });
+  check("换 scope/账户失败丢弃旧 last-good", scoped.profileId === "personal" && scoped.report === undefined && scoped.scopeKey === undefined);
 }
 
 console.log(`\n== 总结 ==\n通过 ${ok} / 失败 ${fail}`);

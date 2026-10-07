@@ -411,14 +411,15 @@ export class RefreshCoordinator {
       const extra = snapshotFetchExtra({ profile, provCfg, dataSource, lease: resolved.lease });
       report = await withTimeout(fetchProviderSnapshot(providerId, token, extra, { signal }), manifest.refresh.taskTimeoutSeconds * 1000, signal);
     } catch (e) {
-      if (signal.aborted) return { kind: "cancelled", retainLastGood: true, profileId: profile.id, startedAtMs, finishedAtMs: Date.now(), requestedAtMs };
-      return { kind: "failed", error: fetchErrorToSafe(e), retainLastGood: true, profileId: profile.id, startedAtMs, finishedAtMs: Date.now(), requestedAtMs };
+      const scopeKey = resolved.lease.identity.scopeKey;
+      if (signal.aborted) return { kind: "cancelled", retainLastGood: true, profileId: profile.id, scopeKey, startedAtMs, finishedAtMs: Date.now(), requestedAtMs };
+      return { kind: "failed", error: fetchErrorToSafe(e), retainLastGood: true, profileId: profile.id, scopeKey, startedAtMs, finishedAtMs: Date.now(), requestedAtMs };
     } finally {
       broker.drop(resolved.lease.access);
     }
 
     if (!snapshotHasData(report)) {
-      return { kind: "failed", error: safeError("invalid-response", "empty-response", "retry-later"), retainLastGood: true, report, profileId: profile.id, startedAtMs, finishedAtMs: Date.now(), requestedAtMs };
+      return { kind: "failed", error: safeError("invalid-response", "empty-response", "retry-later"), retainLastGood: true, report, profileId: profile.id, scopeKey: resolved.lease.identity.scopeKey, startedAtMs, finishedAtMs: Date.now(), requestedAtMs };
     }
     const partial = (report.diagnostics ?? []).length > 0;
     return {
@@ -552,16 +553,20 @@ export function applyResult(entry, r, { nowMs, trigger, configRevision = 0 }) {
   }
   entry.configRevision = r.configRevision;
   const sampledProfile = r.profileId;
-  if (sampledProfile && (r.kind === "success" || r.kind === "partial" || r.kind === "failed" || r.kind === "cancelled")) {
-    if (entry.profileId !== undefined && entry.profileId !== sampledProfile) {
+  const sampledScope = typeof r.scopeKey === "string" && r.scopeKey ? r.scopeKey : undefined;
+  if ((sampledProfile || sampledScope) && (r.kind === "success" || r.kind === "partial" || r.kind === "failed" || r.kind === "cancelled")) {
+    const profileShift = sampledProfile && entry.profileId !== undefined && entry.profileId !== sampledProfile;
+    const scopeShift = sampledScope && entry.scopeKey !== undefined && entry.scopeKey !== sampledScope;
+    if (profileShift || scopeShift) {
       delete entry.report;
       delete entry.scopeKey;
+      delete entry.accountKey;
       delete entry.source;
       delete entry.lastSuccessAtMs;
       entry.freshness = "none";
       entry.dataDisposition = "none";
     }
-    entry.profileId = sampledProfile;
+    if (sampledProfile) entry.profileId = sampledProfile;
   }
   if (r.kind === "success" || r.kind === "partial") {
     entry.status = r.kind === "partial" ? "partial" : "ok";
@@ -711,7 +716,7 @@ function withTimeout(promise, ms, signal) {
   });
 }
 
-/** 正式 refresh extra：显式 CLI 路径随 lease 透传，不回落到 adapter 默认。 */
+/** 正式 refresh extra：CLI 路径与账户绑定随 lease 透传，不回落到 adapter 默认。 */
 export function snapshotFetchExtra({ profile = {}, provCfg, dataSource, lease } = {}) {
   const extra = {
     region: profile.region,
@@ -720,6 +725,9 @@ export function snapshotFetchExtra({ profile = {}, provCfg, dataSource, lease } 
   };
   if (typeof lease?.source?.executablePath === "string" && lease.source.executablePath.trim()) {
     extra.executablePath = lease.source.executablePath;
+  }
+  if (typeof lease?.source?.accountId === "string" && lease.source.accountId.trim()) {
+    extra.accountId = lease.source.accountId.trim();
   }
   return extra;
 }
