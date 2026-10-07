@@ -1,9 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.1.2 — 2026-10-07
 
-- Antigravity 官方 CLI 用量已真实验证（agy 1.2.16）：`antigravity-cli` 准入 approved。解析 `command.data.groups[].buckets[]` 的 `remaining_fraction` / `reset_time`；不刮 TSV、不把本次调用 token 当订阅窗。local-api 仍 not-implemented。
-- Antigravity CLI 路径按显式 source → env → Homebrew/`~/.local/bin`/`/usr/local/bin`/PATH 命中，refresh 透传同一路径（GUI 不再依赖 `ANTIGRAVITY_CLI_PATH`）。
+- 修复 Codex 凭证有效却刷新 401：向用量接口传递所需的 `chatgpt-account-id` 账户头；切换账户后不沿用旧账户的缓存额度。
+- 新增 Antigravity 官方 CLI 订阅用量，已通过 agy 1.2.16 真实验证：Gemini 与 Claude/GPT 模型组分别显示 5 小时及周额度、重置时间；local-api 仍未接入。
+- 修复 Antigravity CLI 安装在非默认位置时无法刷新：从显式配置、环境变量及常见安装位置定位程序，并将实际命中路径用于刷新。
+- 延续凭证过期处理改进：单家失效不拖累其他订阅，并明确提示在原应用重新登录。
+- Devin、Grok、Ollama 仍待启用。Claude 是必做目标，离线解析已就绪，实时准入仍等待适用许可/官方机器协议。
+- 源码预览发布，不提供预编译二进制。
 
 ## 0.1.1 — 2026-10-02
 
