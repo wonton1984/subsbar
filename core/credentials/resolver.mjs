@@ -63,6 +63,18 @@ function unknownReaderResult(source) {
   return { status: "failed", code: "invalid-config", reasonCode: "unknown-reader", action: actionFor("invalid-config"), trace };
 }
 
+/** Private salted artifact identity. Never exported in usage or diagnostics. */
+export function probeCredentialArtifact(providerId, profile, source, ctx) {
+  const bound = bindSourceToManifest(source, ctx.credentialReaders);
+  if (!bound.ok || !ctx.stores.artifactVersion) return undefined;
+  const salt = localSalt(ctx.stateDir);
+  const binding = credentialRevision(Buffer.from(JSON.stringify([providerId, profile.id, bound.source, ctx.compatibility])), salt);
+  if (ctx.artifactBinding && ctx.artifactBinding !== binding) return undefined;
+  const version = ctx.stores.artifactVersion(bound.source.implementationId, bound.source, ctx,
+    bytes => credentialRevision(bytes, salt));
+  return version ? { binding, version } : undefined;
+}
+
 /**
  * 解析一条来源 spec。返回 ResolveResult（contracts §2.2 形状）。
  * @param providerId manifest id
@@ -95,6 +107,7 @@ export async function resolveSource(providerId, profile, source, ctx) {
   }
 
   // resolve：执行读取（仍不输出正文）
+  const artifactBefore = probeCredentialArtifact(providerId, profile, source, ctx);
   let resolved;
   try {
     resolved = store.resolve(source.implementationId, source, {
@@ -115,7 +128,10 @@ export async function resolveSource(providerId, profile, source, ctx) {
   // 到期检查（§2.3）：已知过期 → expired，停止
   const expiry = resolved.expiry ?? { state: "unknown" };
   if (expiry.state === "known" && expiry.expiresAtMs <= ctx.nowMs) {
-    return { status: "failed", code: "expired", reasonCode: "credential-expired", action: "relogin-owner", trace };
+    const after = probeCredentialArtifact(providerId, profile, source, ctx);
+    const artifact = after?.version === artifactBefore?.version ? artifactBefore : undefined;
+    resolved.bytes?.fill(0);
+    return { status: "failed", code: "expired", reasonCode: "credential-expired", action: "relogin-owner", trace, artifact };
   }
 
   // identity：无可验证身份 → source-bound scope（scope 随凭证内容+账户绑定变化）
@@ -203,7 +219,7 @@ export async function resolveChain(providerId, profile, chain, ctx) {
     if (r.status === "resolved") return { status: "resolved", lease: r.lease, trace };
     lastFailure = r;
     // 缺失/不适用可继续；invalid/过期/权限/身份不符停止（§2.1）
-    if (r.code !== "not-configured") return { status: "failed", code: r.code, reasonCode: r.reasonCode, action: r.action, trace };
+    if (r.code !== "not-configured") return { status: "failed", code: r.code, reasonCode: r.reasonCode, action: r.action, trace, artifact: r.artifact };
   }
   return lastFailure ?? { status: "failed", code: "not-configured", reasonCode: "not-configured", action: "configure-source", trace };
 }

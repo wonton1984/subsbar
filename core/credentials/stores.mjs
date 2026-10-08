@@ -487,6 +487,23 @@ export function createCredentialStores({ env = process.env } = {}) {
   function implDefaults(readerId) { return defaults.get(readerId); }
 
   return {
+    // Resolve-phase probe only: content, never mtime; no Keychain lookup or network.
+    // Unsupported/non-file stores deliberately have no renewal exemption.
+    artifactVersion(implementationId, spec, ctx, hash) {
+      let path;
+      if (implementationId === "factory-login-composite") path = spec.path ?? "~/.factory/auth.v2.loginkeychain";
+      else if (fileAliases.includes(implementationId)) path = spec.path ?? implDefaults(spec.reader)?.path;
+      else if (piAliases.includes(implementationId) && implementationId !== "claude-pi-anthropic" && ctx.compatibility?.pi?.enabled) {
+        path = spec.path ?? join(ctx.compatibility.pi.agentDir ?? join(homedir(), ".pi", "agent"), "auth.json");
+      }
+      if (!path) return undefined;
+      let data;
+      try {
+        ({ data } = readFileBounded(path));
+        return hash(data);
+      } catch { return undefined; }
+      finally { data?.fill(0); }
+    },
     discover(implementationId, spec, ctx) {
       const impl = impls.get(implementationId);
       if (!impl) return { status: "unsupported", reasonCode: "reader-unavailable" };

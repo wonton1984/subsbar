@@ -468,6 +468,12 @@
                 "batch-budget",
                 "auth-wait"
               ]
+            },
+            "credentialState": {
+              "enum": [
+                "awaiting-renewal",
+                "renewal-retry"
+              ]
             }
           }
         },

@@ -116,3 +116,38 @@ no values. Old scope data never reappears across account switches.
   `core/golden.mjs` produces the normalized expectations.
 - Public hygiene: `scripts/check-public.mjs` (worktree + full git history)
   and `scripts/check-docs.mjs`.
+
+### Owner credential renewal during local backoff
+
+A locally diagnosed `credential-expired` with no HTTP status records a salted
+content fingerprint of the failing file source. Factory encrypted login files,
+registered JSON file readers and enabled Pi file readers support this probe.
+The probe is part of refresh/resolve, never registry discovery. It performs no
+Keychain lookup, login, refresh-token consumption or HTTP request. Keychain-only,
+environment and unsupported stores without a reliable artifact version retain
+normal backoff. Fingerprints and source bindings remain private runtime state;
+paths and credential contents never enter the usage envelope.
+
+When the same configured source changes content, its new version permits one
+immediate resolve, including inside the manual minimum interval. An mtime-only
+touch does not qualify. Server Retry-After always wins; HTTP 401, 403, 429 and
+network failures do not qualify for this local-expiry exemption. Existing
+provider-specific 401-once policies remain unchanged. Before resolving, the
+leader durably reserves the version; persistence failure fails closed. Failed
+or cancelled reads keep that reservation. Repeated versions cannot grant another
+exemption. Each failure episode retains up to 32 consumed versions, then fails
+closed to ordinary backoff; successful/partial sampling clears the episode.
+Old runtime records without a fingerprint wait for the next ordinary/manual
+attempt to establish a baseline; timestamps alone never grant an exemption.
+
+The additive usage-v1 `attempt.credentialState` enum is:
+
+- `awaiting-renewal`: local expiry, or unchanged artifact still in local backoff.
+  Suggested UI text: “等待凭证续期”. Existing error/action remain authoritative.
+- `renewal-retry`: a changed artifact was admitted for immediate reread. Suggested
+  UI text: “凭证工件已更新，已重试”. This is an attempt annotation, **not** success;
+  `attempt.state`, provider status and error still describe the actual outcome.
+
+There is no background file watcher: the next scheduled/requested batch probes
+for a change. New UI text can consume this optional field without private runtime
+access; older clients safely ignore it.

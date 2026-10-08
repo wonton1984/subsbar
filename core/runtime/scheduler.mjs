@@ -6,7 +6,7 @@ import { randomBytes } from "crypto";
 import { LockBackend } from "./lock.mjs";
 import { ConfigStore } from "../config/store.mjs";
 import { resolveStateDirs } from "../config/paths.mjs";
-import { resolveChain } from "../credentials/resolver.mjs";
+import { resolveChain, probeCredentialArtifact } from "../credentials/resolver.mjs";
 import { SecretBroker } from "../credentials/broker.mjs";
 import { createCredentialStores } from "../credentials/stores.mjs";
 import { ProviderRegistry } from "../providers/registry.mjs";
@@ -122,6 +122,12 @@ function deferredReasonOf(r) {
 export function recordProviderRuntime(prev = {}, r, { nowMs, intervalSeconds }) {
   if (!r || r.kind === "noop-disabled") return { ...prev };
   const next = { ...prev };
+  if (r.renewalReservation) next.credentialRenewal = r.renewalReservation;
+  if (r.artifact) next.credentialRenewal = {
+    ...next.credentialRenewal, ...r.artifact,
+    usedVersions: next.credentialRenewal?.binding === r.artifact.binding ? (next.credentialRenewal.usedVersions ?? []) : [],
+  };
+  if (r.kind === "success" || r.kind === "partial") delete next.credentialRenewal;
   next.lastRequestedAtMs = ceilAtMs(r.requestedAtMs) ?? nowMs;
 
   if (r.kind === "deferred") {
@@ -177,9 +183,10 @@ export function recordProviderRuntime(prev = {}, r, { nowMs, intervalSeconds }) 
 }
 
 export class RefreshCoordinator {
-  constructor({ configPath, env = process.env }) {
+  constructor({ configPath, env = process.env, fetchSnapshot = fetchProviderSnapshot }) {
     this.configPath = configPath;
     this.env = env;
+    this.fetchSnapshot = fetchSnapshot;
     this.registry = new ProviderRegistry();
   }
 
@@ -333,14 +340,18 @@ export class RefreshCoordinator {
 
   /** 单 provider 任务边界：resolve → fetch → normalize；异常按家收敛（§5.1）。 */
   async refreshProvider(providerId, ctx) {
+    const renewal = {};
+    let result;
     try {
-      return await this.refreshProviderTask(providerId, ctx);
+      result = await this.refreshProviderTask(providerId, { ...ctx, renewal });
     } catch {
-      return { kind: "failed", error: safeError("io-error", "io-error", "retry-later"), retainLastGood: true };
+      result = { kind: "failed", error: safeError("io-error", "io-error", "retry-later"), retainLastGood: true };
     }
+    return { ...result, renewalReservation: renewal.reservation,
+      credentialState: renewal.reservation ? "renewal-retry" : result.credentialState };
   }
 
-  async refreshProviderTask(providerId, { cfgLoaded, runtime, auth, broker, stores, nowMs, signal, dirs, trigger }) {
+  async refreshProviderTask(providerId, { cfgLoaded, runtime, auth, broker, stores, nowMs, signal, dirs, trigger, renewal = {} }) {
     void dirs;
     const manifest = this.registry.get(providerId);
     const provCfg = cfgLoaded?.config?.providers?.[providerId];
@@ -351,32 +362,6 @@ export class RefreshCoordinator {
     const dataSource = this.registry.selectDataSource(manifest, provCfg.dataSource, { allowCommunity: !!provCfg.allowCommunityEndpoints });
     if (!dataSource) return { kind: "failed", error: safeError("unsupported", "insufficient-scope", "contact-maintainer"), retainLastGood: true, profileId };
     if (dataSource.admission !== "approved") return { kind: "failed", error: safeError("unsupported", "insufficient-scope", "contact-maintainer"), retainLastGood: true, profileId };
-
-    const st = runtime?.[providerId];
-    const serverAt = serverDeadlineMs(st);
-    const localAt = localDeadlineMs(st);
-    const lastAttempt = ceilAtMs(st?.lastAttemptAtMs);
-    if (serverAt && nowMs < serverAt) {
-      return { kind: "deferred", reason: "backoff", nextEligibleAtMs: serverAt, retainLastGood: true, requestedAtMs: nowMs };
-    }
-    if (trigger.reason === "manual") {
-      if (lastAttempt && nowMs < lastAttempt + MANUAL_MIN_INTERVAL_MS) {
-        return {
-          kind: "deferred", reason: "not-due",
-          nextEligibleAtMs: lastAttempt + MANUAL_MIN_INTERVAL_MS,
-          retainLastGood: true, requestedAtMs: nowMs,
-        };
-      }
-    } else if (localAt && nowMs < localAt) {
-      return {
-        kind: "deferred", reason: "backoff",
-        nextEligibleAtMs: laterEligibleAtMs(localAt, serverAt),
-        retainLastGood: true, requestedAtMs: nowMs,
-      };
-    }
-
-    const startedAtMs = Date.now();
-    const requestedAtMs = nowMs;
 
     const profile = (provCfg.profiles ?? []).find((p) => p.id === provCfg.activeProfile) ?? { id: profileId ?? "default", discovery: "auto", sources: [] };
     if (providerId === "zai" && profile.region !== "global" && profile.region !== "cn") {
@@ -394,6 +379,61 @@ export class RefreshCoordinator {
       allowLocalApi: !!profile.allowLocalApi,
       allowBrowser: !!profile.allowBrowser && cfgLoaded?.config?.privacy?.allowBrowserDiscovery === true,
     };
+    const st = runtime?.[providerId];
+    const serverAt = serverDeadlineMs(st);
+    const localAt = localDeadlineMs(st);
+    const lastAttempt = ceilAtMs(st?.lastAttemptAtMs);
+    if (serverAt && nowMs < serverAt) {
+      return { kind: "deferred", reason: "backoff", nextEligibleAtMs: serverAt, retainLastGood: true, requestedAtMs: nowMs };
+    }
+    // Only a locally diagnosed expiry qualifies. HTTP failures never enter this path.
+    const localExpiry = st?.lastError?.code === "credential-expired" && st.lastError.httpStatus === undefined;
+    const prior = st?.credentialRenewal;
+    let bypass = false;
+    if (localExpiry && prior?.binding && Array.isArray(prior.usedVersions) && prior.usedVersions.length < 32) {
+      const sources = profile.sources?.length ? profile.sources : chain;
+      for (const source of sources) {
+        const artifact = probeCredentialArtifact(providerId, profile, source, { ...ctx, artifactBinding: prior.binding });
+        if (artifact?.binding !== prior.binding) continue;
+        if (artifact.version !== prior.version && !prior.usedVersions.includes(artifact.version)) {
+          const reservation = { ...prior, usedVersions: [...prior.usedVersions, artifact.version] };
+          // Persist before resolving: a crash/cancellation must not re-grant this version.
+          const previous = runtime[providerId];
+          runtime[providerId] = { ...previous, credentialRenewal: reservation };
+          try {
+            const { writeFileSync, renameSync } = fsPair();
+            const target = this.dirs().runtimeStateFile;
+            mkdirSync(this.dirs().stateDir, { recursive: true, mode: 0o700 });
+            const temp = `${target}.${process.pid}.tmp`;
+            writeFileSync(temp, JSON.stringify({ providers: runtime, savedAtMs: nowMs }) + "\n", { mode: 0o600 });
+            renameSync(temp, target);
+            renewal.reservation = reservation;
+            bypass = true;
+          } catch { runtime[providerId] = previous; }
+        }
+        break;
+      }
+    }
+    if (!bypass && trigger.reason === "manual") {
+      if (lastAttempt && nowMs < lastAttempt + MANUAL_MIN_INTERVAL_MS) {
+        return {
+          kind: "deferred", reason: "not-due",
+          nextEligibleAtMs: lastAttempt + MANUAL_MIN_INTERVAL_MS,
+          retainLastGood: true, requestedAtMs: nowMs,
+        };
+      }
+    } else if (!bypass && localAt && nowMs < localAt) {
+      return {
+        kind: "deferred", reason: "backoff",
+        nextEligibleAtMs: laterEligibleAtMs(localAt, serverAt),
+        credentialState: localExpiry ? "awaiting-renewal" : undefined,
+        retainLastGood: true, requestedAtMs: nowMs,
+      };
+    }
+
+    const startedAtMs = Date.now();
+    const requestedAtMs = nowMs;
+
     let resolved;
     try {
       resolved = await resolveChain(providerId, profile, chain, ctx);
@@ -401,7 +441,7 @@ export class RefreshCoordinator {
       return { kind: "failed", error: safeError("io-error", "io-error", "retry-later"), retainLastGood: true, profileId: profile.id, startedAtMs, finishedAtMs: Date.now(), requestedAtMs };
     }
     if (resolved.status !== "resolved") {
-      return { kind: "failed", error: resolveErrorToSafe(resolved), retainLastGood: true, profileId: profile.id, startedAtMs, finishedAtMs: Date.now(), requestedAtMs };
+      return { kind: "failed", error: resolveErrorToSafe(resolved), artifact: resolved.artifact, credentialState: resolved.code === "expired" ? "awaiting-renewal" : undefined, retainLastGood: true, profileId: profile.id, startedAtMs, finishedAtMs: Date.now(), requestedAtMs };
     }
 
     // v0 桥接 fetch：lease token → v0 fetcher → v0 report → SnapshotReport
@@ -409,7 +449,7 @@ export class RefreshCoordinator {
     try {
       const token = await broker.withSecret(resolved.lease.access, providerId, async (b) => new TextDecoder().decode(b));
       const extra = snapshotFetchExtra({ profile, provCfg, dataSource, lease: resolved.lease });
-      report = await withTimeout(fetchProviderSnapshot(providerId, token, extra, { signal }), manifest.refresh.taskTimeoutSeconds * 1000, signal);
+      report = await withTimeout(this.fetchSnapshot(providerId, token, extra, { signal }), manifest.refresh.taskTimeoutSeconds * 1000, signal);
     } catch (e) {
       const scopeKey = resolved.lease.identity.scopeKey;
       if (signal.aborted) return { kind: "cancelled", retainLastGood: true, profileId: profile.id, scopeKey, startedAtMs, finishedAtMs: Date.now(), requestedAtMs };
@@ -547,6 +587,7 @@ export function applyResult(entry, r, { nowMs, trigger, configRevision = 0 }) {
       : r.kind === "failed" ? "failed" : r.kind === "cancelled" ? "cancelled" : "deferred",
     id: undefined, startedAtMs: startedAtMs ?? (r.kind === "deferred" ? nowMs : nowMs), finishedAtMs, reason: trigger.reason,
     deferredReason: deferredReasonOf(r),
+    credentialState: r.credentialState,
   };
   if (r.kind === "success" || r.kind === "partial" || r.kind === "failed") {
     entry.lastAttemptAtMs = startedAtMs ?? nowMs;

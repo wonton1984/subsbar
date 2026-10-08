@@ -31,6 +31,8 @@ import {
 import { isOllamaApiKey, ollamaUsageChallenge, signOllamaChallenge } from "../core/credentials/ollama-signer.mjs";
 import { iconFractionOf } from "../core/runtime/report.mjs";
 
+import { credentialRenewalCases } from "./credential-renewal-cases.mjs";
+
 let ok = 0, fail = 0;
 const failures = [];
 function check(name, cond, detail = "") {
@@ -607,6 +609,8 @@ console.log("\n== 分发冒烟：fetchProviderSnapshot 对 claude 合成 payload
     return all.length === 14;
   })());
 }
+
+await credentialRenewalCases(check);
 
 console.log(`\n== 总结 ==\n通过 ${ok} / 失败 ${fail}`);
 if (failures.length > 0) { for (const f of failures) console.log(`  - ${f}`); process.exit(1); }
