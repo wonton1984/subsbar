@@ -145,7 +145,7 @@ struct ProviderCardView: View {
                 }
             }
             if card.primaryHidden && !card.expanded { Text("主指标已隐藏；菜单栏仍按主指标显示").font(.system(size: 10)).foregroundStyle(.secondary) }
-            if !compact || card.expanded || card.needsRepair { notices }
+            if !compact || card.expanded || card.needsRepair || card.attempt != nil { notices }
             if card.expanded { details }
         }
         .padding(10)

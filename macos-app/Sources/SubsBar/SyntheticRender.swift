@@ -51,6 +51,22 @@ import SubsCore
         func popover(_ name: String, maxHeight: CGFloat = 900, dark: Bool = false) throws {
             try renderPopover(model, to: output.appendingPathComponent(name), maxHeight: maxHeight, dark: dark); outputs.append(name)
         }
+        for state in ["awaiting-renewal", "renewal-retry"] {
+            for single in [false, true] {
+                try scene(enabled: SyntheticScenes.enabledIDs, ui: ["overviewMode": .string(single ? "single" : "overview"), "selectedProvider": .string("droid")])
+                let rows = model.usage!.raw["providers"].array.map { row in
+                    row["providerId"].text != "droid" ? row : row
+                        .setting("status", .string(state == "awaiting-renewal" ? "reauth-required" : "ok"))
+                        .setting("error", state == "awaiting-renewal" ? .object(["code": .string("credential-expired"), "action": .string("relogin-owner")]) : .null)
+                        .setting("attempt", .object(["credentialState": .string(state), "state": .string(state == "awaiting-renewal" ? "failed" : "succeeded")]))
+                }
+                model.usage = try UsageV1(model.usage!.raw.setting("providers", .array(rows)))
+                model.receipt = "合成凭证续期场景"
+                for dark in [false, true] {
+                    try popover("renewal-\(state)-\(single ? "single" : "overview")-\(dark ? "dark" : "light").png", dark: dark)
+                }
+            }
+        }
         // Optional synthetic Node-normalized provider report for targeted UI review.
         let agyFixture = fixtures.appendingPathComponent("antigravity-ui-report.json")
         if FileManager.default.fileExists(atPath: agyFixture.path) {

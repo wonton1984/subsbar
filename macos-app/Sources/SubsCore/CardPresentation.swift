@@ -92,9 +92,10 @@ public struct CardModel: Equatable, Sendable {
         self.expanded = expanded
         let status = enabled ? entry?.status ?? "not-configured" : "disabled"
         self.status = status
-        statusText = Presentation.status(status)
+        statusText = enabled ? entry?.renewalStatusText ?? Presentation.status(status) : Presentation.status(status)
         let invalid = entry?.invalid ?? false
         if invalid { tone = .critical }
+        else if enabled && entry?.renewalStatusText != nil { tone = .warning }
         else {
             switch status {
             case "ok": tone = .normal
@@ -113,12 +114,12 @@ public struct CardModel: Equatable, Sendable {
         }
         headlineFraction = entry.iconFraction(at: now)
         headline = headlineFraction.map { Cache.format($0 * 100) + "%" } ?? "未知"
-        issue = entry.issue
-        action = entry.raw["error"]["action"].string != nil ? Presentation.action(entry.raw["error"]["action"].text) : nil
+        issue = entry.renewalStatusText != nil ? nil : entry.issue
+        action = entry.renewalStatusText == nil && entry.raw["error"]["action"].string != nil ? Presentation.action(entry.raw["error"]["action"].text) : nil
         attempt = entry.attemptMessage
         // Waiting actions (retry-later, update-client, contact-maintainer) are not fixable from connection settings.
-        needsRepair = ["not-configured", "reauth-required", "permission-denied"].contains(status)
-            || ["configure-source", "select-profile", "allow-source", "relogin-owner", "check-permission", "check-plan-region"].contains(entry.raw["error"]["action"].text)
+        needsRepair = entry.renewalStatusText == nil && (["not-configured", "reauth-required", "permission-denied"].contains(status)
+            || ["configure-source", "select-profile", "allow-source", "relogin-owner", "check-permission", "check-plan-region"].contains(entry.raw["error"]["action"].text))
         hasReport = entry.report.isObject
         guard entry.report.isObject else {
             freshness = "none"; freshnessNote = nil; updated = nil; sampledAtMs = nil; source = nil; accountLabel = nil

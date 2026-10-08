@@ -10,6 +10,29 @@ public enum M2Suite {
             guard try condition() else { throw LocalFailure("FAIL M2: \(name)") }
             count += 1; print("PASS M2 \(name)")
         }
+        let renewalBase = Wire.object(["providerId": .string("droid"), "status": .string("reauth-required"),
+            "error": .object(["code": .string("credential-expired"), "action": .string("relogin-owner")]),
+            "attempt": .object(["state": .string("failed"), "credentialState": .string("awaiting-renewal")])])
+        let waiting = V1Provider(renewalBase)
+        try check("renewal waiting message", waiting.attemptMessage == "等待凭证续期…" && waiting.waitingForOwnerRenewal)
+        let renewalConfig = Wire.object(["providers": .object(["droid": .object(["enabled": .bool(true)])])])
+        func renewalCard(_ row: Wire, expanded: Bool) throws -> CardModel {
+            let usage = try UsageV1(.object(["schemaVersion": .number(1), "kind": .string("usage"), "contextId": .string("synthetic"), "cacheRevision": .number(1), "providers": .array([row])]))
+            return CardModel(providerID: "droid", name: "Droid", config: renewalConfig, usage: usage, now: Date(), expanded: expanded)
+        }
+        for expanded in [false, true] {
+            let card = try renewalCard(renewalBase, expanded: expanded)
+            try check("renewal card shared projection \(expanded)", card.statusText == "等待续期" && card.issue == nil && card.action == nil && !card.needsRepair && card.tone == .warning)
+        }
+        let unchanged = renewalBase.setting("attempt", renewalBase["attempt"].setting("state", .string("deferred")).setting("deferredReason", .string("backoff")))
+        try check("unchanged artifact retains relogin guidance", try renewalCard(unchanged, expanded: false).statusText == "需要重新登录")
+        try check("legacy no annotation retains relogin", try renewalCard(renewalBase.setting("attempt", .object([:])), expanded: false).needsRepair)
+        for (state, text) in [("succeeded", "凭证已更新，重试成功"), ("failed", "凭证已更新，重试后仍已过期"), ("partial", "凭证已更新，本次部分更新"), ("cancelled", "凭证已更新，重试已取消"), ("running", "凭证已更新，正在重试")] {
+            let row = renewalBase.setting("attempt", .object(["state": .string(state), "credentialState": .string("renewal-retry")]))
+            try check("renewal outcome accurate \(state)", V1Provider(row).attemptMessage == text)
+        }
+        try check("renewal unknown value ignored", V1Provider(renewalBase.setting("attempt", .object(["credentialState": .string("future")]))).renewalMessage == nil)
+        try check("renewal HTTP error not hidden", !V1Provider(renewalBase.setting("error", renewalBase["error"].setting("httpStatus", .number(401)))).waitingForOwnerRenewal)
         var renderGate = ValueChangeGate<String>()
         try check("render initial appearance accepted", renderGate.accept("light:0.5:Cod"))
         var duplicateRenders = 0

@@ -76,3 +76,5 @@ These captures test rendering, not real mouse/keyboard interactions. Keep all sc
 ## Login launch
 
 After acceptance, copy the complete app to an Applications directory and add it in System Settings → General → Login Items. Remove that entry to stop login launch. No LaunchAgent or helper daemon is installed. Use the popover's Quit button to terminate the app and its owned subprocesses.
+
+Credential renewal annotations are displayed on both card layouts. A local expiry awaiting its first renewal check shows “等待凭证续期…”. An unchanged artifact deferred by backoff retains the relogin instruction. A renewal retry shows its actual outcome (success, still expired, other failure, partial or cancelled), never a future retry promise after completion. HTTP and unrelated errors retain their original guidance.

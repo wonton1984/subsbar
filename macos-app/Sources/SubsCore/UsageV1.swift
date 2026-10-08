@@ -184,8 +184,36 @@ public struct V1Provider: Identifiable, Sendable {
         if !["disabled","not-configured","ok","partial","stale","reauth-required","permission-denied","rate-limited","unsupported","error"].contains(status) { return "协议状态未知，请更新应用" }
         return nil
     }
+    /// The Node annotation records admission of a retry, not a promise of success.
+    public var renewalMessage: String? {
+        guard !invalid, status != "disabled" else { return nil }
+        switch raw["attempt"]["credentialState"].text {
+        case "awaiting-renewal":
+            guard raw["error"]["code"].text == "credential-expired", raw["error"]["httpStatus"].number == nil else { return nil }
+            return "等待凭证续期…"
+        case "renewal-retry":
+            switch raw["attempt"]["state"].text {
+            case "succeeded": return "凭证已更新，重试成功"
+            case "failed": return raw["error"]["code"].text == "credential-expired" && raw["error"]["httpStatus"].number == nil ? "凭证已更新，重试后仍已过期" : "凭证已更新，重试未通过"
+            case "cancelled": return "凭证已更新，重试已取消"
+            case "partial": return "凭证已更新，本次部分更新"
+            case "running": return "凭证已更新，正在重试"
+            default: return nil
+            }
+        default: return nil
+        }
+    }
+    public var renewalStatusText: String? {
+        if waitingForOwnerRenewal { return "等待续期" }
+        return renewalMessage == "凭证已更新，重试后仍已过期" ? "续期未完成" : nil
+    }
+    public var waitingForOwnerRenewal: Bool {
+        renewalMessage != nil && raw["attempt"]["credentialState"].text == "awaiting-renewal"
+            && raw["attempt"]["state"].text == "failed"
+    }
     public var attemptMessage: String? {
-        switch raw["attempt"]["state"].text {
+        if let renewalMessage { return renewalMessage }
+        return switch raw["attempt"]["state"].text {
         case "running": "刷新中"
         case "deferred": switch raw["attempt"]["deferredReason"].text { case "busy": "其他刷新进行中"; case "backoff": "等待退避时间"; case "auth-wait": "等待修复连接"; case "not-due": "尚未到刷新时间"; default: "等待调度" }
         case "cancelled": "本次刷新已取消"
