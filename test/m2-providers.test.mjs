@@ -369,6 +369,36 @@ console.log("\n== C. antigravity / devin / grok（agy-usage 已验证；local-ap
   check("仅 TSV response 不解析", (() => { try { normalizeAntigravityUsage({ status: "SUCCESS", response: "Gemini Models\tWeekly Limit Remaining\t50%\t2031-10-08T00:00:00Z\n" }, NOW); return false; } catch { return true; } })());
   check("仅调用 usage tokens 不解析", (() => { try { normalizeAntigravityUsage({ usage: { total_tokens: 9 } }, NOW); return false; } catch { return true; } })());
 
+  const threeGroups = fixture("antigravity-synthetic-three-groups.json");
+  const five = normalizeAntigravityUsage(threeGroups, NOW);
+  check("Argon independent fifth window", five.windows.length === 5 && new Set(five.windows.map(w => w.id)).size === 5);
+  const argon = five.windows.find(w => w.id === "antigravity-gemini-argon-weekly");
+  check("Argon percentage and reset", argon.used === 58 && argon.limit === 100 && argon.period.resetsAtMs === Date.parse("2031-10-11T00:00:00Z"));
+  check("Argon group name visible", argon.label.includes("Gemini 4 Argon"));
+  check("old four ids and primary unchanged", official.windows.every(w => five.windows.some(v => v.id === w.id && v.used === w.used)) && five.primaryMetricId === "antigravity-gemini");
+  threeGroups.command.data.groups.reverse();
+  const reordered = normalizeAntigravityUsage(threeGroups, NOW);
+  check("group reorder preserves identity", five.windows.every(w => reordered.windows.some(v => v.id === w.id && v.used === w.used)));
+  threeGroups.command.data.groups.push({ name: "Future Gemini Pool", buckets: [
+    { id: "future-weekly", window: "weekly", remaining_fraction: 0 },
+    { id: "future-5h", window: "5h", remaining_fraction: 1 },
+    { id: "future-limit", name: "Unspecified limit" },
+    { id: "future/limit", name: "Other limit", remaining_fraction: 0.25 },
+  ] });
+  const future = normalizeAntigravityUsage(threeGroups, NOW);
+  check("unknown group buckets retained", future.windows.length === 9 && future.windows.filter(w => w.label.includes("Future Gemini Pool")).length === 4);
+  check("derived ids never collide after slug normalization", new Set(future.windows.map(w => w.id)).size === 9);
+  const missing = future.windows.find(w => w.label.endsWith("Unspecified limit"));
+  check("missing future quota stays unknown without denominator", missing.state === "unknown" && missing.used === undefined && missing.limit === undefined && missing.period.kind === "unknown");
+  check("future zero and full remaining preserved", future.windows.some(w => w.id.includes("future-weekly") && w.used === 100) && future.windows.some(w => w.id.includes("future-5h") && w.used === 0));
+  check("unknown missing reset never invented", future.windows.filter(w => w.id.includes("future-")).every(w => w.period.resetState === "unknown"));
+  const unknownOnly = normalizeAntigravityUsage({ command: { data: { groups: [{ name: "New Pool", buckets: [{ id: "new", name: "Unavailable" }] }] } } }, NOW);
+  check("unknown-only groups stay visible", unknownOnly.windows.length === 1 && unknownOnly.windows[0].state === "unknown");
+  const repeated = structuredClone(threeGroups);
+  repeated.command.data.groups.push(structuredClone(repeated.command.data.groups[0]));
+  const duplicates = normalizeAntigravityUsage(repeated, NOW);
+  check("repeated bucket ids do not invalidate whole report", new Set(duplicates.windows.map(w => w.id)).size === duplicates.windows.length);
+
   const stubDir = mkdtempSync(join(tmpdir(), "agy-stub-"));
   const stubAgy = join(stubDir, "agy");
   const trapAgy = join(stubDir, "homebrew-agy");

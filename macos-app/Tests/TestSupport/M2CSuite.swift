@@ -38,6 +38,18 @@ public enum M2CSuite {
         }
         try check("Antigravity envelope tokens not credits", wire["agyGroups"]["metrics"].array.isEmpty)
 
+        let three = wire["agyThree"]
+        let fiveProvider = V1Provider(provider.raw.setting("report", three))
+        try check("Antigravity fifth window valid entry", !fiveProvider.invalid && fiveProvider.windows.count == 5)
+        let argon = displays("agyThree").first { $0.id == "antigravity-gemini-argon-weekly" }
+        try check("Argon fraction rendered from Node", argon?.valid == true && abs((argon?.fraction ?? -1) - 0.42) < 0.00001)
+        try check("Argon label and reset visible", argon?.label.contains("Gemini 4 Argon") == true && argon?.resetShort != "重置时间未知")
+        let fiveUsage = try UsageV1(.object(["schemaVersion": .number(1), "kind": .string("usage"), "contextId": .string("synthetic"), "cacheRevision": .number(1), "providers": .array([fiveProvider.raw])]))
+        let card = CardModel(providerID: "antigravity", name: "Antigravity", config: .object(["providers": .object(["antigravity": .object(["enabled": .bool(true)])])]), usage: fiveUsage, now: now, expanded: true)
+        try check("expanded and single card keep all five windows", card.allMetrics.count == 5 && card.metrics.count == 5)
+        try check("new group does not replace primary", abs((card.headlineFraction ?? -1) - 0.4) < 0.00001)
+        try check("future unknown bucket remains visible", displays("agyFuture").first?.valid == true && displays("agyFuture").first?.fraction == nil && displays("agyFuture").first?.label.contains("Future Pool") == true)
+
         try check("Devin daily and weekly separate", Set(displays("devin").map(\.id)).isSuperset(of: ["devin-daily", "devin-weekly"]))
         try check("Devin hide daily omits", !displays("hideDaily").contains { $0.id == "devin-daily" })
         try check("Devin daily never becomes weekly", displays("dailyOnly").map(\.id) == ["devin-daily"])

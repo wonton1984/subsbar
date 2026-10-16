@@ -62,3 +62,7 @@ Plan/tier and group description strings are not copied into the report. Missing 
 ## Synthetic fixtures
 
 `test/fixtures/providers/antigravity-synthetic-*.json` (including `antigravity-synthetic-cli-groups.json` for the official 1.2.16 envelope). Real-account JSON stays local.
+
+### Additional CLI groups
+
+Official groups are mapped by bucket identity, not group position. The original four window IDs remain stable. `gemini-argon-wtu-weekly` maps to `antigravity-gemini-argon-weekly` (Gemini 4 Argon). Unknown buckets retain group labels and distinct derived IDs; missing quota fields remain unknown without an invented denominator. The primary remains the original Gemini 5h window when present.

@@ -3,6 +3,7 @@
 // 不做 clamp/补 0（§1 v1 裁决），超额原值保留，缺失即 unknown。
 // 批次 C-D 的响应字段名未经真实账号验证 —— 状态 pending-verification，
 // manifest admission 保持 pending（refresh 拒绝执行），fixture 为乐观形状。
+import { createHash } from "node:crypto";
 import { execFile } from "child_process";
 import { existsSync, statSync } from "fs";
 import { fetchJson } from "./engine.mjs";
@@ -812,41 +813,67 @@ function addAntigravityPool(windows, id, label, raw, primary) {
   addAntigravityWindow(windows, id, label, o, primary);
 }
 
-function addAntigravityWindow(windows, id, label, raw, primary) {
+function addAntigravityWindow(windows, id, label, raw, primary, { keepUnknown = false, periodKind = "rolling" } = {}) {
   const o = asObject(raw);
   if (!o) return;
   const used = usedPercentField(o);
-  if (used === undefined) return;
+  if (used === undefined && !keepUnknown) return;
   const resetsAtMs = isoToMs(o.resets_at) ?? isoToMs(o.reset_at) ?? isoToMs(o.resetTime) ?? isoToMs(o.reset_time);
   const m = quotaOut(metric(RULE("agy-" + id, id, "percent"), {
     unit: "percent", used,
-    period: { kind: "rolling", resetState: resetsAtMs ? "known" : "unknown", resetsAtMs },
+    period: { kind: periodKind, resetState: resetsAtMs ? "known" : "unknown", resetsAtMs },
   }));
   m.primary = !!primary; m.label = label; m.id = id;
   windows.push(m);
 }
 
+const AGY_BUCKET_IDS = {
+  "gemini-5h": "antigravity-gemini",
+  "gemini-weekly": "antigravity-gemini-weekly",
+  "3p-5h": "antigravity-other",
+  "3p-weekly": "antigravity-other-weekly",
+  "gemini-argon-wtu-weekly": "antigravity-gemini-argon-weekly",
+};
+function agyDerivedId(groupName, bucket) {
+  const identity = String(bucket.id ?? bucket.name ?? "unnamed");
+  const slug = identity.toLowerCase().replace(/[^a-z0-9-]+/g, "-").slice(0, 56) || "unnamed";
+  const hash = createHash("sha256").update(JSON.stringify([groupName, identity, bucket.window ?? ""])).digest("hex").slice(0, 12);
+  return `antigravity-bucket-${slug}-${hash}`;
+}
 function addAntigravityOfficialGroups(windows, payload) {
-  const data = asObject(payload?.command?.data);
-  const groups = Array.isArray(data?.groups) ? data.groups : [];
-  if (groups.length === 0) return false;
+  const groups = payload?.command?.data?.groups;
+  if (!Array.isArray(groups) || groups.length === 0) return false;
   for (const rawGroup of groups) {
     const group = asObject(rawGroup);
     if (!group) continue;
-    const name = typeof group.name === "string" ? group.name : "";
-    const isGemini = /gemini/i.test(name);
-    const poolId = isGemini ? "antigravity-gemini" : "antigravity-other";
-    const poolLabel = isGemini ? "Gemini 池" : "非 Gemini 池";
+    const name = typeof group.name === "string" && group.name ? group.name : "未命名额度组";
     const buckets = Array.isArray(group.buckets) ? group.buckets : [];
     for (const rawBucket of buckets) {
       const bucket = asObject(rawBucket);
       if (!bucket) continue;
-      const windowKind = String(bucket.window ?? "").toLowerCase();
-      const weekly = windowKind === "weekly" || /weekly/i.test(String(bucket.id ?? "")) || /weekly/i.test(String(bucket.name ?? ""));
-      addAntigravityWindow(windows, weekly ? poolId + "-weekly" : poolId, weekly ? poolLabel + "·周" : poolLabel, bucket, isGemini && !weekly);
+      const windowName = String(bucket.window ?? bucket.name ?? "").toLowerCase();
+      const weekly = /weekly|week|周/.test(windowName) || /weekly/.test(String(bucket.id ?? ""));
+      const fiveHour = /5h|five.hour/.test(windowName) || /5h/.test(String(bucket.id ?? ""));
+      // Exact bucket identity wins over group ordering/names. Name fallback is only
+      // for a missing id and the two original, explicitly named groups.
+      let known = Object.hasOwn(AGY_BUCKET_IDS, bucket.id) ? AGY_BUCKET_IDS[bucket.id] : undefined;
+      if (!bucket.id) {
+        const prefix = name === "Gemini Models" ? "gemini" : name === "Claude and GPT models" ? "3p" : undefined;
+        if (prefix && (weekly || fiveHour)) known = AGY_BUCKET_IDS[`${prefix}-${weekly ? "weekly" : "5h"}`];
+      }
+      let id = known ?? agyDerivedId(name, bucket);
+      if (windows.some(w => w.id === id)) id = agyDerivedId(name, bucket);
+      const baseId = id;
+      for (let n = 2; windows.some(w => w.id === id); n++) id = `${baseId}-${n}`;
+      const suffix = weekly ? "周" : fiveHour ? "5h" : String(bucket.name ?? bucket.id ?? "额度未知");
+      const label = safeText(`${name}·${known ? suffix : String(bucket.name ?? bucket.id ?? suffix)}`, 160);
+      addAntigravityWindow(windows, id, label, bucket, id === "antigravity-gemini", {
+        keepUnknown: true, periodKind: weekly || fiveHour ? "rolling" : "unknown",
+      });
     }
   }
-  return windows.length > 0;
+  // An official groups envelope must not fall through to unrelated payload fields.
+  return true;
 }
 
 export function normalizeAntigravityUsage(payload, capturedAtMs) {

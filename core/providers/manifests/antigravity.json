@@ -115,7 +115,8 @@
         "antigravity-gemini",
         "antigravity-gemini-weekly",
         "antigravity-other",
-        "antigravity-other-weekly"
+        "antigravity-other-weekly",
+        "antigravity-gemini-argon-weekly"
       ],
       "coverageMatch": "any"
     },
@@ -190,6 +191,17 @@
       "derivations": [],
       "description": "non-Gemini weekly remaining_fraction as used percent",
       "missingPolicy": "omit-optional"
+    },
+    {
+      "id": "antigravity-gemini-argon-weekly",
+      "metricId": "antigravity-gemini-argon-weekly",
+      "kind": "quota",
+      "unit": "percent",
+      "scope": "subscription",
+      "period": "rolling",
+      "derivations": [],
+      "description": "Gemini 4 Argon weekly remaining_fraction as used percent",
+      "missingPolicy": "omit-optional"
     }
   ],
   "primaryPreference": [
@@ -201,7 +213,8 @@
     "antigravity-synthetic-normal",
     "antigravity-synthetic-denied",
     "antigravity-synthetic-missing",
-    "antigravity-synthetic-cli-groups"
+    "antigravity-synthetic-cli-groups",
+    "antigravity-synthetic-three-groups"
   ],
   "provenance": [],
   "login": {
