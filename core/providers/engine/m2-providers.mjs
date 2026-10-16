@@ -711,7 +711,7 @@ export function normalizeDevinCliStatus(payload, capturedAtMs) {
 // — antigravity：已登录 agy 非交互 /usage；local-api 仅 loopback 且须显式 allowLocalApi。—
 export const AGY_USAGE_ARGV = ["-p", "/usage", "--output-format", "json"];
 export const AGY_USAGE_MAX_BYTES = 65536;
-export const AGY_USAGE_TIMEOUT_MS = 15_000;
+export const AGY_USAGE_TIMEOUT_MS = 45_000;
 export const AGY_DEFAULT_EXECUTABLE = AGY_STORES_DEFAULT;
 
 export function defaultAgyRun({ executable, argv, timeoutMs, maxBytes, signal }) {

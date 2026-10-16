@@ -14,7 +14,7 @@ import {
   fetchClaudeUsage, normalizeCopilotUsage, normalizeZaiQuota, normalizeOpenRouterKey,
   normalizeGrokBilling, normalizeDevinQuota, normalizeAntigravityUsage, normalizeOllamaUsage,
   ZAI_REGION_ORIGINS, ZAI_QUOTA_PATH, fetchCopilotUsage, fetchZaiUsage, mergeOpenRouterCredits,
-  fetchAntigravityUsage, fetchDevinQuota, fetchGrokBilling, fetchOllamaUsage, AGY_USAGE_ARGV, AGY_DEFAULT_EXECUTABLE,
+  fetchAntigravityUsage, fetchDevinQuota, fetchGrokBilling, fetchOllamaUsage, AGY_USAGE_ARGV, AGY_DEFAULT_EXECUTABLE, AGY_USAGE_TIMEOUT_MS,
   GROK_BILLING_URL, DEVIN_WEB_ORIGIN, isGrokManagementKey, normalizeDevinCliStatus,
 } from "../core/providers/engine/m2-providers.mjs";
 import { fetchProviderSnapshot } from "../core/providers/adapters.mjs";
@@ -411,12 +411,18 @@ console.log("\n== C. antigravity / devin / grok（agy-usage 已验证；local-ap
     executablePath: stubAgy,
     env: { ANTIGRAVITY_CLI_PATH: trapAgy },
     cliVersion: "1.2.16",
-    runCommand: async ({ executable, argv }) => {
-      seenArgv = { executable, argv };
+    runCommand: async ({ executable, argv, timeoutMs }) => {
+      seenArgv = { executable, argv, timeoutMs };
       return JSON.stringify(fixture("antigravity-synthetic-cli-groups.json"));
     },
   }, {});
   check("antigravity：固定 argv -p /usage --output-format json", JSON.stringify(seenArgv.argv) === JSON.stringify(AGY_USAGE_ARGV));
+  const timing = reg.get("antigravity").refresh;
+  const observedDurationsMs = [15_300, 18_400]; // Recorded CLI latency, no account data.
+  check("agy CLI deadline matches manifest 45s", seenArgv.timeoutMs === 45_000 && AGY_USAGE_TIMEOUT_MS === timing.requestTimeoutSeconds * 1000 && seenArgv.timeoutMs === AGY_USAGE_TIMEOUT_MS);
+  check("agy observed latencies have at least 2x headroom", observedDurationsMs.every(ms => seenArgv.timeoutMs >= ms * 2));
+  check("agy task budget includes CLI and 15s processing margin", timing.taskTimeoutSeconds >= timing.requestTimeoutSeconds + 15);
+  check("agy refresh intervals exceed CLI deadline", timing.minimumIntervalSeconds > timing.requestTimeoutSeconds && timing.defaultIntervalSeconds === 300);
   check("refresh 透传显式路径（不走默认/env trap）", seenArgv.executable === stubAgy);
   check("antigravity：注入官方 CLI JSON 可归一化", report.windows.some((w) => w.id === "antigravity-gemini" && w.used === 60));
   check("source locator 含路径与版本", report.cliLocator === `1.2.16 @ ${stubAgy}` && report.observationBasis === "cli-response");

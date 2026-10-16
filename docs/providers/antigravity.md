@@ -28,7 +28,7 @@ Default auto chain is **only** the official CLI session:
 2. `local-api` is **not** on the default chain. It requires `profile.allowLocalApi`. Loopback only; CSRF / same-account process checks are **unverified** and resolve is `not-implemented`.
 3. SubsBar Keychain OAuth is a separate pending source, not in the CLI chain.
 
-Config cannot set an arbitrary URL or shell string. CLI argv is fixed: `-p /usage --output-format json`. Timeout 15s, stdout cap 64 KiB. The runner does not send a model prompt, does not start onboarding, and does not parse TUI output.
+Config cannot set an arbitrary URL or shell string. CLI argv is fixed: `-p /usage --output-format json`. CLI timeout 45s, provider task timeout 60s, stdout cap 64 KiB. The runner does not send a model prompt, does not start onboarding, and does not parse TUI output.
 
 ## Quota semantics (verified 2026-10-03)
 
@@ -66,3 +66,7 @@ Plan/tier and group description strings are not copied into the report. Missing 
 ### Additional CLI groups
 
 Official groups are mapped by bucket identity, not group position. The original four window IDs remain stable. `gemini-argon-wtu-weekly` maps to `antigravity-gemini-argon-weekly` (Gemini 4 Argon). Unknown buckets retain group labels and distinct derived IDs; missing quota fields remain unknown without an invented denominator. The primary remains the original Gemini 5h window when present.
+
+## Timeout budget
+
+Maintainer measurements reported on 2026-10-16 with `agy` 1.2.16 took 15.3s and 18.4s for `/usage`. The previous 15s CLI deadline was below both observations. The 45s request/CLI deadline leaves about 2.4–2.9× headroom; the 60s provider task deadline allows additional processing time. The default refresh interval remains 300s (minimum 60s). Output limits, cancellation, and single-refresh coordination remain unchanged. These timings are observations, not a latency guarantee.

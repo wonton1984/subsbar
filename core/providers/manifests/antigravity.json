@@ -144,8 +144,8 @@
   "refresh": {
     "minimumIntervalSeconds": 60,
     "defaultIntervalSeconds": 300,
-    "taskTimeoutSeconds": 30,
-    "requestTimeoutSeconds": 15
+    "taskTimeoutSeconds": 60,
+    "requestTimeoutSeconds": 45
   },
   "metricRules": [
     {
