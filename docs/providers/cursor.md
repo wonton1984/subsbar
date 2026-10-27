@@ -40,5 +40,7 @@ bounded timeout; encrypted text is never treated as a bearer or session token.
 
 Offline coverage uses a generated synthetic JWT and synthetic Keychain password
 (`test/cursor-safe-storage-cases.mjs`). Local Cursor code confirmed the v1 envelope
-and safeStorage call; live decryption and API acceptance remain pending Keychain
-permission (the authorized read timed out). No real credential fixture is shipped.
+and safeStorage call. On 2026-10-27, after the user granted Keychain access, the
+reader decrypted the live envelope into a JWT and the usage API returned HTTP 200
+with all three quota windows. Earlier authorization timeouts correctly stopped
+validation. No real credential or account-response fixture is shipped.
