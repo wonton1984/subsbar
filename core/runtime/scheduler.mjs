@@ -369,9 +369,6 @@ export class RefreshCoordinator {
     if (providerId === "zai" && profile.region !== "global" && profile.region !== "cn") {
       return { kind: "failed", error: safeError("invalid-config", "invalid-config", "select-profile"), retainLastGood: true, profileId: profile.id };
     }
-    if (providerId === "devin" && dataSource.id === "devin-web-org" && !profile.organizationId) {
-      return { kind: "failed", error: safeError("invalid-config", "invalid-config", "select-profile"), retainLastGood: true, profileId: profile.id };
-    }
     const chain = buildChain(manifest, dataSource, profile);
     const ctx = {
       nowMs, signal, interaction: trigger.interaction ?? "background",

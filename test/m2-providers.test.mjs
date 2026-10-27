@@ -12,7 +12,7 @@ import { fileURLToPath } from "url";
 import {
   normalizeClaudeUsage, classifyClaudeWindowField, classifyClaudeExtraUsage, classifyClaudeLimits,
   fetchClaudeUsage, normalizeCopilotUsage, normalizeZaiQuota, normalizeOpenRouterKey,
-  normalizeGrokBilling, normalizeDevinQuota, normalizeAntigravityUsage, normalizeOllamaUsage,
+  normalizeGrokBilling, normalizeDevinQuota, selectDevinOrganization, normalizeAntigravityUsage, normalizeOllamaUsage,
   ZAI_REGION_ORIGINS, ZAI_QUOTA_PATH, fetchCopilotUsage, fetchZaiUsage, mergeOpenRouterCredits,
   fetchAntigravityUsage, fetchDevinQuota, fetchGrokBilling, fetchOllamaUsage, AGY_USAGE_ARGV, AGY_DEFAULT_EXECUTABLE, AGY_USAGE_TIMEOUT_MS,
   GROK_BILLING_URL, DEVIN_WEB_ORIGIN, isGrokManagementKey, normalizeDevinCliStatus,
@@ -31,6 +31,7 @@ import {
 import { isOllamaApiKey, ollamaUsageChallenge, signOllamaChallenge } from "../core/credentials/ollama-signer.mjs";
 import { iconFractionOf } from "../core/runtime/report.mjs";
 
+import { devinOrgCases } from "./devin-org-cases.mjs";
 import { credentialRenewalCases } from "./credential-renewal-cases.mjs";
 
 let ok = 0, fail = 0;
@@ -511,15 +512,15 @@ console.log("\n== C. antigravity / devin / grok（agy-usage 已验证；local-ap
   try { await fetchDevinQuota("synthetic-devin-cli-key-01", { dataSourceId: "devin-cli-app" }, {}); } catch (e) { cliFetchKind = e.transportKind; }
   check("devin CLI live fetch 诚实 not-implemented", cliFetchKind === "unsupported");
   let orgErr;
-  try { await fetchDevinQuota("synthetic-devin-web-token-01", { dataSourceId: "devin-web-org" }, {}); } catch (e) { orgErr = String(e.message); }
-  check("devin web 缺 orgId 拒绝", /organizationId/.test(orgErr));
+  try { await fetchDevinQuota("synthetic-devin-web-token-01", { dataSourceId: "devin-web-org", organizationId: "../invalid" }, {}); } catch (e) { orgErr = String(e.message); }
+  check("devin web 非法 orgId 拒绝", /organizationId/.test(orgErr));
   check("web URL 不含跨账户 fallback", engineSrc.includes("app.devin.ai") && engineSrc.includes("billing/quota/usage") && !/fallback account/i.test(engineSrc));
   const browserOff = createCredentialStores({ env: {} });
   check("browser 默认 skipped", browserOff.discover("browser-generic", { reader: "devin-browser-localstorage" }, {}).status === "skipped");
   check("browser 显式允许仍 not-implemented", browserOff.discover("browser-generic", { reader: "devin-browser-localstorage" }, { allowBrowser: true }).reasonCode === "not-implemented");
   const devin = reg.get("devin");
-  check("devin 两源 pending 且分流", devin.dataSources.find((s) => s.id === "devin-cli-app")?.admission === "pending" && devin.dataSources.find((s) => s.id === "devin-web-org")?.admission === "pending");
-  check("web 链只有 Keychain 会话", JSON.stringify(devin.dataSources.find((s) => s.id === "devin-web-org").credentialChain) === JSON.stringify(["devin-web-session"]));
+  check("devin web approved CLI pending 且分流", devin.dataSources.find((s) => s.id === "devin-cli-app")?.admission === "pending" && devin.dataSources.find((s) => s.id === "devin-web-org")?.admission === "approved");
+  check("web 默认链只有已登录 CLI TOML", JSON.stringify(devin.dataSources.find((s) => s.id === "devin-web-org").credentialChain) === JSON.stringify(["devin-credentials-toml"]));
   check("cli 链不含 browser", !(devin.dataSources.find((s) => s.id === "devin-cli-app").credentialChain ?? []).includes("devin-browser-localstorage"));
 
   const g = normalizeGrokBilling(fixture("grok-synthetic-normal.json"), NOW);
@@ -617,13 +618,14 @@ console.log("\n== D. ollama 签名主路径（pending-verification）==");
   check("ollama 源 pending", (ollama.dataSources ?? []).every((s) => s.admission === "pending"));
 }
 
+await devinOrgCases(check);
 console.log("\n== 注册表/分发一致性 ==");
 {
-  for (const pid of ["copilot", "zai", "openrouter", "antigravity"]) {
+  for (const pid of ["copilot", "zai", "openrouter", "antigravity", "devin"]) {
     const m = reg.get(pid);
     check(`${pid} 有 approved 数据源`, (m.dataSources ?? []).some((s) => s.admission === "approved"));
   }
-  for (const pid of ["devin", "grok", "ollama"]) {
+  for (const pid of ["grok", "ollama"]) {
     const m = reg.get(pid);
     check(`${pid} 维持 pending + pending-verification 标注`, (m.dataSources ?? []).every((s) => s.admission === "pending") && (m.diagnosticCodes ?? []).includes("pending-verification"));
   }

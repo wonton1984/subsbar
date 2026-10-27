@@ -1,66 +1,61 @@
-# devin
+# Devin
 
-> Status: experimental (community C). Not enabled for open-source first
-> release until a later publish-round gate. Maintainer has **not** exercised a
-> real Devin subscription this round. **Plan-to-window mapping is unverified.**
+> Supported for the organization quota API (community source, grade C).
+> Verified on 2026-10-27 with an authenticated CLI subscription. The separate
+> CLI GetUserStatus Connect framing path remains pending and cannot refresh.
 
-| Field | Value |
+## Credentials and admission
+
+`devin-web-org` is approved. Its default reader is `devin-credentials-toml`:
+read `windsurf_api_key` from `~/.local/share/devin/credentials.toml`, written by
+CLI login, and use it as Bearer on `https://app.devin.ai`. No token refresh or
+credential writeback. The file reader still restricts optional `api_server_url`
+to `https://server.codeium.com`; that does not change the fixed quota origin.
+
+`devin-cli-app` remains pending: GetUserStatus Connect framing and the app DB
+reader are unverified. Browser localStorage discovery is not implemented.
+There is no automatic fallback to a browser account or Keychain session.
+Community endpoint opt-in remains required for automatic source selection.
+
+## Organization discovery
+
+With a configured `profile.organizationId`, request that organization directly.
+Otherwise `GET /api/organizations` with the same Bearer returns a bare array of
+objects containing `org_id` and `is_primary_org`. Prefer the unique primary;
+otherwise use the first item. Multiple organizations without a unique primary
+produce `org-selection-ambiguous`, so the user can select an explicit ID.
+An empty list or malformed ID fails. No second organization is tried after an
+error and no other credential is used.
+
+Then `GET /api/<encoded-org_id>/billing/quota/usage` with `x-cog-org-id` and the
+same Bearer. Both requests have bounded time/response size and reject redirects.
+Organization names, IDs and account metadata are not copied into quota reports.
+
+## Verified flat response
+
+| Field | Display |
 | --- | --- |
-| Product | Devin (CLI/App quota vs app.devin.ai org quota — not the same surface) |
-| CLI/App source | Named TOML `~/.local/share/devin/credentials.toml` (`windsurf_api_key`) |
-| Web-org source | Manual browser session + `organizationId` in SubsBar Keychain |
-| Admission | Both sources **pending** |
-| Last maintained | 2026-10-02 |
-| Maintainer | SubsBar Node core |
+| `daily_percentage` | Day quota used percent, omitted when `hide_daily_quota=true` |
+| `weekly_percentage` | Independent week quota used percent |
+| `daily_reset_at` / `weekly_reset_at` | ISO timestamp with timezone, converted to milliseconds |
+| `overage_balance > 0` | Extra usage balance available diagnostic; currency/unit unconfirmed, no invented USD amount |
+| `is_quota_plan` | Upstream plan flag; not used to manufacture missing windows |
 
-## Threshold / ToS
+The older nested `daily`/`weekly` response remains a fallback when corresponding
+flat fields are absent. Flat null never revives stale nested values. Missing
+reset remains unknown; 0 and 100 are preserved. The legacy `extra_balance` USD
+metric remains separate. Daily is never relabelled as weekly. No named plan/SKU
+coverage is claimed beyond the fields returned.
 
-- App: https://app.devin.ai
-- Enabling a community org-quota or CLI status URL is the owner's choice; this project does not grant Cognition permission.
+401 requires signing back in with the owner CLI; 403 is permission failure.
+Neither causes account/organization rotation. Empty organizations is an explicit
+permission failure, not a full quota.
 
-## Credentials — source split
+## Evidence and limitations
 
-The two data sources are selected independently. CLI failure **does not** fall back to another app account. Switching sources is allowed only for the same configured profile.
+Maintainer verified both organization discovery and quota HTTP 200 on 2026-10-27.
+Offline fixtures are synthetic (`devin-synthetic-flat.json` and nested fixtures);
+no real account IDs, credentials or quota responses are shipped. Admission of
+this community source does not grant Cognition permission to other applications.
 
-### `devin-cli-app`
-
-1. File reader `devin-credentials-toml` → `windsurf_api_key`. Optional `api_server_url` is accepted only when its origin is exactly `https://server.codeium.com`; any other URL is `invalid-config` (no arbitrary hosts).
-2. Devin app DB reader is registered as **not-implemented** (path/schema unverified this round).
-
-**Blocker, not faked:** live `GetUserStatus` Connect RPC framing on `server.codeium.com` is **unverified**. The TOML reader and CLI status *normalizer* ship with synthetic fixtures; refresh still refuses pending admission, and a live CLI fetch throws `not-implemented`.
-
-### `devin-web-org`
-
-Requires `profile.organizationId`. Session token is a **manual Keychain import** (browser localStorage `auth1_session`, not cookies). Automatic localStorage reader is **not** on the default chain: it needs `profile.allowBrowser` **and** `privacy.allowBrowserDiscovery`, and is `not-implemented` this round.
-
-Org ID is path-encoded as a single segment (`..` / scheme / host rejected). Request:
-
-`GET https://app.devin.ai/api/<organizationId>/billing/quota/usage` with `x-cog-org-id`.
-
-## Quota semantics
-
-| Field | Metric | Notes |
-| --- | --- | --- |
-| `daily` | `devin-daily` | Omitted when `hide_daily_quota` is true |
-| `weekly` | `devin-weekly` | Independent of daily. **Daily is never copied into weekly** |
-| `extra_balance` | `extra-balance` (USD) | Optional; missing stays missing |
-
-Plan names are not copied into the report. Remaining fractions/percents on CLI status are flipped to used only on that window.
-
-## 403 / errors
-
-- `No organizations found for auth1 user` → permission / org-or-session mismatch (`select-profile` / `http-403`). Not treated as a silently expired token to trigger another account.
-- Other 403 → `permission-denied`. No cross-account fallback.
-- 401 → `reauth-required` / `relogin-owner` (per-provider).
-
-## Known gaps (this round, unverified)
-
-- **Devin plan mapping** (which plan emits daily vs weekly vs extra) **unverified** — do not claim support for a named SKU.
-- CLI Connect `GetUserStatus` wire format **unverified** (blocker).
-- App DB path **unverified**; reader is `not-implemented`.
-- Automatic Chromium localStorage import **not implemented** (manual Keychain only).
-- Real-account field names **unverified**.
-
-## Synthetic fixtures
-
-`test/fixtures/providers/devin-synthetic-*.json`.
+Official app: https://app.devin.ai

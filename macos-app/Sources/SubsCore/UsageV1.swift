@@ -51,6 +51,8 @@ public enum Presentation {
         case "openrouter-no-limit": "此 Key 未设置限额，不能推算账户余额"
         case "openrouter-free-tier": "免费层 Key"
         case "pending-verification": "用量来源尚未验证"
+        case "org-selection-ambiguous": "多个组织未指定唯一主组织，当前显示第一项；可在设置中指定组织 ID"
+        case "overage-available": "有额外用量余额，金额单位待确认"
         case "grok-payg-disabled": "PAYG 未启用"
         case "reset-unknown": "重置时间未知"
         case "legacy-unverified": "历史导入，未经当前账户验证"

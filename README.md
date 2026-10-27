@@ -30,7 +30,7 @@ macOS 菜单栏订阅额度面板 + 可独立运行的 Node 数据层。目标�
 | Z.AI / GLM Coding Plan | 已实现（未验证） | quota/limit 接口（社区来源，region 必填） |
 | OpenRouter | 已实现（未验证） | `/api/v1/key`（官方） |
 | Antigravity | **已验证** | `agy` 1.2.16 `-p /usage --output-format json`（官方 groups/buckets；local-api 仍未实现） |
-| Devin | 已实现（未验证） | 网页组织 quota（防御性解析，需 organizationId） |
+| Devin | 已验证（组织额度） | CLI 登录凭证；自动发现组织，显示日窗/周窗；Connect RPC 仍待启用 |
 | Grok Build | 已实现（未验证） | `cli-chat-proxy.grok.com/v1/billing`（防御性解析） |
 | Ollama Cloud | 已实现（未验证） | 本地 OpenSSH 签名 `GET /api/usage`；admission pending；`OLLAMA_API_KEY` 不是额度 |
 

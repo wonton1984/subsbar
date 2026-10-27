@@ -19,7 +19,7 @@ public enum M2CSuite {
             let report = wire[key]
             return (report["windows"].array + report["metrics"].array).map { MetricDisplay(V1Metric($0), primaryID: report["primaryMetricId"].string, now: now) }
         }
-        for key in ["agy", "agyGroups", "devin", "hideDaily", "dailyOnly", "monthly", "weekly"] {
+        for key in ["agy", "agyGroups", "devinFlat", "devin", "hideDaily", "dailyOnly", "monthly", "weekly"] {
             try check("valid wire displays " + key, !displays(key).isEmpty && displays(key).allSatisfy(\.valid))
         }
         try check("Antigravity separate pools", Set(displays("agy").map(\.id)).isSuperset(of: ["antigravity-gemini", "antigravity-other"]))
@@ -50,6 +50,10 @@ public enum M2CSuite {
         try check("new group does not replace primary", abs((card.headlineFraction ?? -1) - 0.4) < 0.00001)
         try check("future unknown bucket remains visible", displays("agyFuture").first?.valid == true && displays("agyFuture").first?.fraction == nil && displays("agyFuture").first?.label.contains("Future Pool") == true)
 
+        let flat = displays("devinFlat")
+        try check("Devin flat response renders two bars", flat.count == 2 && flat.allSatisfy { $0.valid && $0.showsBar })
+        try check("Devin flat daily remaining", abs((flat.first { $0.id == "devin-daily" }?.fraction ?? -1) - 0.73) < 0.00001)
+        try check("Devin flat reset dates visible", flat.allSatisfy { $0.resetFull != nil })
         try check("Devin daily and weekly separate", Set(displays("devin").map(\.id)).isSuperset(of: ["devin-daily", "devin-weekly"]))
         try check("Devin hide daily omits", !displays("hideDaily").contains { $0.id == "devin-daily" })
         try check("Devin daily never becomes weekly", displays("dailyOnly").map(\.id) == ["devin-daily"])

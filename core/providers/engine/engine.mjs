@@ -105,7 +105,7 @@ function fetchCauseCode(error) {
 const FETCH_CONNECT_REFUSED = new Set(["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "EHOSTUNREACH", "ENETUNREACH"]);
 const FETCH_TIMEOUT_CODES = new Set(["ETIMEDOUT", "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_BODY_TIMEOUT"]);
 
-export async function fetchJson({ url, headers, description, secrets, timeoutMs, method = "GET", body, signal: callerSignal }) {
+export async function fetchJson({ url, headers, description, secrets, timeoutMs, method = "GET", body, signal: callerSignal, allowArray = false }) {
   const timeout = timeoutMs ?? FETCH_TIMEOUT_MS;
   const controller = new AbortController();
   let timedOut = false;
@@ -144,7 +144,7 @@ export async function fetchJson({ url, headers, description, secrets, timeoutMs,
     if (timedOut) throw transportError("timeout", `${description} timed out`);
     try {
       const parsed = JSON.parse(text);
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      if (!parsed || typeof parsed !== "object" || (!allowArray && Array.isArray(parsed))) {
         throw new Error("not an object");
       }
       return parsed;

@@ -3,8 +3,8 @@
   "id": "devin",
   "name": "Devin",
   "product": "Devin subscription",
-  "releaseStatus": "experimental",
-  "adapterVersion": "0.1.0",
+  "releaseStatus": "supported",
+  "adapterVersion": "0.2.0",
   "platforms": [
     "darwin"
   ],
@@ -92,6 +92,19 @@
   ],
   "endpoints": [
     {
+      "id": "devin-organizations",
+      "transport": "https",
+      "operation": "identity",
+      "readOnly": true,
+      "grade": "C",
+      "maxResponseBytes": 65536,
+      "authPurpose": "primary",
+      "documentationUrl": "https://app.devin.ai",
+      "method": "GET",
+      "origin": "https://app.devin.ai",
+      "pathTemplate": "/api/organizations"
+    },
+    {
       "id": "devin-org-quota",
       "transport": "https",
       "operation": "usage",
@@ -129,13 +142,14 @@
       "id": "devin-web-org",
       "kind": "community-api",
       "grade": "C",
-      "admission": "pending",
-      "approvalNote": "docs/providers/devin.md；网页 org quota 需手动 Keychain 会话 + organizationId。自动 localStorage 仅显式 allowBrowser，本轮 not-implemented。daily 不贴 weekly。",
+      "admission": "approved",
+      "approvalNote": "2026-10-27 本机实测：CLI TOML windsurf_api_key 作为 Bearer；GET /api/organizations 裸数组 org_id；GET /api/{org_id}/billing/quota/usage + x-cog-org-id 返回 flat daily/weekly_percentage 与 reset_at。无组织配置时自动发现；多组织无唯一主组织时显式诊断。禁止失败后跨账号/组织回退。",
       "endpointIds": [
+        "devin-organizations",
         "devin-org-quota"
       ],
       "credentialChain": [
-        "devin-web-session"
+        "devin-credentials-toml"
       ],
       "capabilities": [
         "quota",
@@ -195,18 +209,21 @@
     "devin-daily"
   ],
   "diagnosticCodes": [
-    "pending-verification"
+    "pending-verification",
+    "org-selection-ambiguous",
+    "overage-available"
   ],
   "reasonCodes": [],
   "fixtureIds": [
     "devin-synthetic-normal",
     "devin-synthetic-hide-daily",
-    "devin-synthetic-missing"
+    "devin-synthetic-missing",
+    "devin-synthetic-flat"
   ],
   "provenance": [],
   "login": {
     "mode": "guide",
-    "note": "CLI `devin auth login` 或网页 app.devin.ai；会话导入见 docs/providers/devin.md（UNVERIFIED）",
+    "note": "先在 Devin CLI 登录；自动读取 CLI 凭证并查询组织日/周额度。CLI GetUserStatus 来源仍待验证。",
     "verified": false,
     "url": "https://app.devin.ai",
     "launchMode": "web-guide"

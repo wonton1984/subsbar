@@ -1,0 +1,9 @@
+{
+  "daily_percentage": 27,
+  "weekly_percentage": 63,
+  "daily_reset_at": "2031-10-28T09:00:00+08:00",
+  "weekly_reset_at": "2031-11-02T09:00:00+08:00",
+  "overage_balance": 12.5,
+  "hide_daily_quota": false,
+  "is_quota_plan": true
+}

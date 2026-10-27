@@ -631,6 +631,16 @@ export function isDevinWebSource(extra = {}) {
   return id === "devin-web-org" || id === "web-org";
 }
 
+export function selectDevinOrganization(payload) {
+  if (!Array.isArray(payload) || payload.length === 0) {
+    throw deniedQuotaError("Devin has no accessible organizations", 403);
+  }
+  const primary = payload.filter(org => org?.is_primary_org === true);
+  const chosen = primary.length === 1 ? primary[0] : payload[0];
+  if (!encodePathSegment(chosen?.org_id)) throw new Error("Devin organization response has no valid org_id");
+  return { id: chosen.org_id, ambiguous: payload.length > 1 && primary.length !== 1 };
+}
+
 export async function fetchDevinQuota(token, extra = {}, ctx = {}) {
   if (extra.payload && !isDevinWebSource(extra)) return normalizeDevinCliStatus(extra.payload, Date.now());
   if (!isDevinWebSource(extra) && extra.dataSourceId === "devin-cli-app") {
@@ -638,11 +648,21 @@ export async function fetchDevinQuota(token, extra = {}, ctx = {}) {
     err.transportKind = "unsupported";
     throw err;
   }
-  const org = extra.organizationId;
-  const enc = encodePathSegment(org);
-  if (!enc) throw new Error("Devin 网页 org quota 需要 organizationId。");
+  let org = extra.organizationId;
+  let ambiguous = false;
   let payload;
   try {
+    if (org === undefined || org === null) {
+      const organizations = await fetchJson({
+        url: `${DEVIN_WEB_ORIGIN}/api/organizations`,
+        headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+        description: "Devin organizations", secrets: [token], signal: ctx.signal, allowArray: true,
+      });
+      const selected = selectDevinOrganization(organizations);
+      org = selected.id; ambiguous = selected.ambiguous;
+    }
+    const enc = encodePathSegment(org);
+    if (!enc) throw new Error("Devin organizationId is invalid");
     payload = await fetchJson({
       url: `${DEVIN_WEB_ORIGIN}/api/${enc}/billing/quota/usage`,
       headers: { Authorization: `Bearer ${token}`, "x-cog-org-id": org, Accept: "application/json" },
@@ -656,7 +676,9 @@ export async function fetchDevinQuota(token, extra = {}, ctx = {}) {
     }
     throw e;
   }
-  return normalizeDevinQuota(payload, Date.now());
+  const report = normalizeDevinQuota(payload, Date.now());
+  if (ambiguous) report.diagnostics.push(diagnostic("org-selection-ambiguous", "warning"));
+  return report;
 }
 
 function addDevinWindow(windows, id, label, raw, primary) {
@@ -676,9 +698,13 @@ function addDevinWindow(windows, id, label, raw, primary) {
 export function normalizeDevinQuota(payload, capturedAtMs) {
   const hideDaily = payload.hide_daily_quota === true;
   const windows = [];
-  if (!hideDaily) addDevinWindow(windows, "devin-daily", "日额度", payload.daily, true);
-  addDevinWindow(windows, "devin-weekly", "周额度", payload.weekly, hideDaily || windows.length === 0);
-  if (windows.length === 0 && !asObject(payload.weekly) && !asObject(payload.daily)) {
+  const flatWindow = (name) => Object.hasOwn(payload, `${name}_percentage`)
+    ? { percentage: payload[`${name}_percentage`], reset_at: payload[`${name}_reset_at`] }
+    : payload[name];
+  if (!hideDaily) addDevinWindow(windows, "devin-daily", "日额度", flatWindow("daily"), true);
+  addDevinWindow(windows, "devin-weekly", "周额度", flatWindow("weekly"), hideDaily || windows.length === 0);
+  const hasFlat = Object.hasOwn(payload, "daily_percentage") || Object.hasOwn(payload, "weekly_percentage");
+  if (!hideDaily && !hasFlat && windows.length === 0 && !asObject(payload.weekly) && !asObject(payload.daily)) {
     const fallback = probePercentWindows(payload, [
       { id: "devin-daily", label: "日额度", pick: (p) => p.daily ?? p, primary: true },
       { id: "devin-weekly", label: "周额度", pick: (p) => p.weekly },
@@ -694,8 +720,11 @@ export function normalizeDevinQuota(payload, capturedAtMs) {
       sourceEndpointIds: ["devin-org-quota"], state: "known", value: extraBal, diagnostics: [],
     });
   }
-  if (windows.length === 0 && metrics.length === 0) throw new Error("Devin quota 响应没有可识别的用量字段（pending-verification）。");
-  return buildReport("devin", "Devin", { capturedAtMs, windows, metrics, diagnostics: [diagnostic("pending-verification", "warning")] });
+  const diagnostics = [];
+  // The flat overage field has no confirmed currency/unit; do not invent a USD balance.
+  if ((asNonNegative(payload.overage_balance) ?? 0) > 0) diagnostics.push(diagnostic("overage-available", "info"));
+  if (windows.length === 0 && metrics.length === 0 && diagnostics.length === 0) throw new Error("Devin quota 响应没有可识别的用量字段。");
+  return buildReport("devin", "Devin", { capturedAtMs, windows, metrics, diagnostics });
 }
 
 /** CLI GetUserStatus 形状：remaining 百分位翻成已用；不得把 daily 写入 weekly。 */

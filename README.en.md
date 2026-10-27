@@ -38,7 +38,7 @@ synthetic, not live usage.
 | Z.AI / GLM Coding Plan | implemented (unverified) | quota/limit (community, region required) |
 | OpenRouter | implemented (unverified) | `/api/v1/key` (official) |
 | Antigravity | **verified** | `agy` 1.2.16 `-p /usage --output-format json` (official groups/buckets; local-api still unimplemented) |
-| Devin | implemented (unverified) | web org quota (defensive parser, needs organizationId) |
+| Devin | verified (organization quota) | CLI credentials; automatic organization discovery, daily/weekly; Connect RPC stays pending |
 | Grok Build | implemented (unverified) | `cli-chat-proxy.grok.com/v1/billing` (defensive parser) |
 | Ollama Cloud | implemented (unverified) | signed `GET /api/usage` (OpenSSH Ed25519); admission pending; `OLLAMA_API_KEY` is not quota |
 

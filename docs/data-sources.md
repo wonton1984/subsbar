@@ -39,7 +39,7 @@ execution after admission review (`admission: approved` in its data source).
 | zai | quota/limit, region-scoped origins (CN unverified) | B | approved | unverified |
 | openrouter | `/api/v1/key` (official). `/credits` pending (management key) | A | approved (key) / pending (credits) | unverified |
 | antigravity | `agy` 1.2.16 `-p /usage --output-format json` (groups/buckets). local-api pending | A/C | **approved** (CLI) / pending (local-api) | verified (CLI, 2026-10-03) |
-| devin | CLI TOML `windsurf_api_key` (Connect RPC unverified) + web org quota (manual session + orgId) | C | pending | unverified |
+| devin | CLI TOML `windsurf_api_key` → organization discovery + flat day/week quota | C | web-org approved; CLI Connect pending | verified 2026-10-27 |
 | grok | `cli-chat-proxy.grok.com/v1/billing?format=credits` | C | pending | unverified |
 | ollama | signed `GET ollama.com/api/usage` (OpenSSH Ed25519). `OLLAMA_API_KEY` is not quota. | C | pending | unverified |
 
