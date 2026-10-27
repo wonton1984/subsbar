@@ -21,3 +21,24 @@ included 额度按套餐实报；onDemand 缺数据不编造；赠送额度保�
 ## 已知缺口
 
 - 见上；M2 验收时逐项登记未支持场景与未验证套餐。
+
+## Encrypted local credentials (Cursor 3.27)
+
+The read-only `cursor-state-db` reader accepts legacy plaintext access tokens and
+`cursor-safe-storage:v1:` envelopes. Encrypted values use Electron safeStorage:
+base64 containing Chromium macOS `v10`, AES-128-CBC, PBKDF2-HMAC-SHA1 with
+`saltysalt`, 1003 iterations, 16-byte key and a 16-space IV. The iteration count
+is the macOS variant, not Linux's 1. See [Chromium implementation](https://chromium.googlesource.com/chromium/src/+/93d0dcd55046ac06154f4d642c26d7697c4b0304/components/os_crypt/sync/os_crypt_mac.mm).
+
+Only resolve reads the `Cursor Safe Storage` / `Cursor Key` Keychain item;
+discover does not read secrets. Decryption and JWT shape checks happen in memory;
+no owner token is refreshed or written back. Unknown envelope versions, bad keys
+and malformed plaintext return `credential-undecryptable` before any request.
+Keychain denial, missing key or timeout returns `keychain-access-denied`
+(permission-denied): allow the Keychain read before reconnecting. The read has a
+bounded timeout; encrypted text is never treated as a bearer or session token.
+
+Offline coverage uses a generated synthetic JWT and synthetic Keychain password
+(`test/cursor-safe-storage-cases.mjs`). Local Cursor code confirmed the v1 envelope
+and safeStorage call; live decryption and API acceptance remain pending Keychain
+permission (the authorized read timed out). No real credential fixture is shipped.

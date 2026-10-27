@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { cursorSafeStorageCases } from './cursor-safe-storage-cases.mjs';
 /**
  * droid / cursor 离线解析单测（不触网、不动 ~/.pi 与 Cursor DB）。
  * 覆盖：droid 两种响应变体、cursor plan/overall/RPC shape、缺字段、token 过期。
@@ -318,6 +319,8 @@ console.log("\n== X6. Codex 窗口集合与官方一致（wham shape fixture）=
   check("gpt-reserve 独立桶（metered_feature 作 id，limit_name 作 label）used=0 不混入主窗", reserve && reserve.used === 0 && reserve.label.includes("gpt-reserve") && report.windows.find((e) => e.primary)?.used === 57);
   check("口径 note 存在", (report.notes ?? []).some((v) => v.includes("口径")), (report.notes ?? []).join());
 }
+
+await cursorSafeStorageCases(check);
 
 console.log(`\n== 总结 ==\n通过 ${ok} / 失败 ${fail}`);
 if (failures.length > 0) {

@@ -59,7 +59,7 @@ export const CORE_DIAGNOSTIC_CODES = [
 
 export const CORE_REASON_CODES = [
   "http-401", "http-403", "http-429", "http-5xx", "timeout", "connect-refused", "network",
-  "file-malformed", "keychain-denied",
+  "file-malformed", "keychain-denied", "keychain-access-denied", "credential-undecryptable",
   "credential-expired", "insufficient-scope", "reader-unavailable", "unknown-reader", "config-conflict",
   "lock-busy", "cancelled", "empty-response", "schema-unsupported", "not-implemented",
 ];

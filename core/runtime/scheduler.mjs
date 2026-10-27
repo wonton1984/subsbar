@@ -36,6 +36,8 @@ export const ERROR_SUMMARY_ZH = {
   "empty-response": "响应为空",
   "not-configured": "尚未配置",
   "invalid-credential": "凭证无效",
+  "credential-undecryptable": "无法解密 Cursor 凭证",
+  "keychain-access-denied": "无法读取钥匙串，请允许访问",
   "credential-expired": "凭证已过期",
   "permission-denied": "权限不足",
   "invalid-config": "配置无效",

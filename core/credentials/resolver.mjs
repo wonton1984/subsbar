@@ -174,7 +174,7 @@ function outcomeToCode(e) {
   switch (e.status) {
     case "missing": return "not-configured";
     case "rejected":
-      if (e.reasonCode === "keychain-denied") return "permission-denied";
+      if (["keychain-denied", "keychain-access-denied"].includes(e.reasonCode)) return "permission-denied";
       if (e.reasonCode === "credential-expired") return "expired";
       return "invalid";
     case "skipped": return "not-configured";

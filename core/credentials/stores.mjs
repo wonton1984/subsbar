@@ -3,7 +3,7 @@
 // resolve 才读取内容。所有错误折为固定 reasonCode，不携带路径/原文。
 import { existsSync, statSync, readFileSync } from "fs";
 import { execFileSync } from "child_process";
-import { createDecipheriv } from "crypto";
+import { createDecipheriv, pbkdf2Sync } from "crypto";
 import { homedir } from "os";
 import { join } from "path";
 import { safeText } from "../defs.mjs";
@@ -134,12 +134,47 @@ export function readFileBounded(path, limit = FILE_LIMIT) {
   return { text, data };
 }
 
+/** Cursor 3.27 safeStorage: outer v1 envelope, Chromium macOS v10 CBC payload.
+ * Keychain password is only requested for encrypted values; never refresh/write owner tokens.
+ */
+export function decodeCursorCredential(value, readKey) {
+  if (!value.startsWith("cursor-safe-storage:")) {
+    return { bytes: new TextEncoder().encode(value), expiry: expiryFromJwt(value) };
+  }
+  const prefix = "cursor-safe-storage:v1:";
+  const fail = () => new ReaderOutcome("rejected", "credential-undecryptable");
+  if (!value.startsWith(prefix)) throw fail();
+  const encoded = value.slice(prefix.length);
+  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)) throw fail();
+  const encrypted = Buffer.from(encoded, "base64");
+  if (encrypted.length < 19 || encrypted.subarray(0, 3).toString("ascii") !== "v10" || (encrypted.length - 3) % 16 !== 0) throw fail();
+  let password, key, plaintext;
+  try {
+    try { password = readKey(); } catch { throw new ReaderOutcome("rejected", "keychain-access-denied"); }
+    if (!password?.length) throw new ReaderOutcome("rejected", "keychain-access-denied");
+    // Chromium macOS uses 1003 iterations (Linux uses 1), SHA-1 and an all-space IV.
+    key = pbkdf2Sync(password, "saltysalt", 1003, 16, "sha1");
+    const decipher = createDecipheriv("aes-128-cbc", key, Buffer.alloc(16, 32));
+    plaintext = Buffer.concat([decipher.update(encrypted.subarray(3)), decipher.final()]);
+    const token = new TextDecoder("utf-8", { fatal: true }).decode(plaintext);
+    if (!/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(token)) throw fail();
+    const [header, payload] = token.split(".").slice(0, 2).map(part => JSON.parse(Buffer.from(part, "base64url").toString("utf8")));
+    if (!header || typeof header !== "object" || Array.isArray(header) || !payload || typeof payload !== "object" || Array.isArray(payload)) throw fail();
+    return { bytes: new Uint8Array(plaintext), expiry: expiryFromJwt(token) };
+  } catch (error) {
+    if (error instanceof ReaderOutcome) throw error;
+    throw fail();
+  } finally {
+    password?.fill?.(0); key?.fill(0); plaintext?.fill(0);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // CredentialStores：按 reader implementationId 注册的具体读取能力。
 // discover(spec) → {status, reasonCode?}；resolve(spec, ctx) → {bytes} 或抛 ReaderOutcome。
 // ---------------------------------------------------------------------------
 
-export function createCredentialStores({ env = process.env } = {}) {
+export function createCredentialStores({ env = process.env, cursorKeyReader } = {}) {
   const impls = new Map();
 
   function register(implementationId, { discover, resolve }) {
@@ -290,7 +325,15 @@ export function createCredentialStores({ env = process.env } = {}) {
       }
       const secret = out.toString("utf8").trim().replace(/^"|"$/g, "");
       if (!secret) throw new ReaderOutcome("missing", "not-configured");
-      return { bytes: new TextEncoder().encode(secret), expiry: expiryFromJwt(secret) };
+      return decodeCursorCredential(secret, cursorKeyReader ?? (() => {
+        if (!IS_DARWIN) throw new ReaderOutcome("rejected", "keychain-access-denied");
+        const args = securityFindArgs({ service: "Cursor Safe Storage", account: "Cursor Key", keychainPath: spec.keychainPath, readSecret: true });
+        const bytes = execFileSync("/usr/bin/security", args, {
+          stdio: ["ignore", "pipe", "ignore"], timeout: 5000, killSignal: "SIGKILL", maxBuffer: 65536,
+        });
+        // security appends one newline; do not trim significant password bytes.
+        return bytes.at(-1) === 10 ? bytes.subarray(0, -1) : bytes;
+      }));
     },
   });
 
